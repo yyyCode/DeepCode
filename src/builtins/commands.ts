@@ -11,7 +11,6 @@ export const commandsPlugin: Plugin = {
       { name: 'exit' },
       () => {
         process.exitCode = 0;
-        process.kill(process.pid, 'SIGINT');
         return { handled: true };
       },
     );
