@@ -5,8 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness, recordingProvider, scriptedProvider, seat } from './harness';
 import { coreTools } from '../src/builtins/tools';
 import { confirmPlugin } from '../src/builtins/confirm';
+import { createPermissionsPlugin } from '../src/builtins/permissions';
 import { runTurn } from '../src/core/loop';
 import { CORE_ORIGIN } from '../src/contract/next';
+import type { Rule } from '../src/contract/policy';
 import type { EngineInterface } from '../src/contract/engine';
 import type { Message } from '../src/contract/model-provider';
 import type { EventHook } from '../src/contract/plugin';
@@ -184,5 +186,47 @@ describe('E2E：脚本化模型的完整 turn', () => {
     const results = (toolMessages[0] as Extract<Message, { role: 'tool' }>).results;
     expect(results.map((r) => r.toolUseId)).toEqual(['u1', 'u2']);
     expect(results[0]!.content).toContain('AAA');
+  });
+});
+
+describe('E2E：按权限过滤工具可见性', () => {
+  it('整工具 deny 的工具从模型可见清单里消失，参数化 deny 的不消失', async () => {
+    const rules: Rule[] = [
+      { raw: 'WebSearch', tool: 'WebSearch', decision: 'deny' },
+      { raw: 'Bash(git push:*)', tool: 'Bash', content: 'git push:*', decision: 'deny' },
+    ];
+
+    const { h, engine } = buildWorld([], [
+      { plugin: createPermissionsPlugin({ rules }), tier: 'user' },
+    ]);
+
+    // 每个工具都真的给出一份描述。桩里 coreImpls['tool.describe'] 是**故意**抛错的
+    // （模拟"这个工具没有描述"），不补这一步的话"被隐藏"与"没描述"在模型眼里
+    // 是同一件事——都不在清单里——于是把 hidden 分支删掉测试也照样绿。
+    // 这条用例的全部价值就在于把这两件事分开。
+    for (const name of ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch']) {
+      h.on('builtin', `fake-${name}`, 'tool.describe', { tool: name }, (() => ({
+        description: `${name} 的描述`,
+        inputSchema: {},
+      })) as EventHook);
+    }
+
+    const { provider, lastTools } = recordingProvider();
+    await runTurn(
+      {
+        $: engine,
+        provider,
+        signal: new AbortController().signal,
+        dispatch: h.dispatch,
+        systemPrompt: 'x',
+        turnIndex: 0,
+      },
+      [{ role: 'user', content: '随便说点什么' }],
+    );
+
+    // 模型"看得见什么"只能从 provider 收到的 tools 清单里验 —— 别处看不见。
+    expect(lastTools()).not.toContain('WebSearch');
+    // 为了拦一条命令就把整个 Bash 藏掉是灾难 —— 参数化 deny 绝不隐藏工具。
+    expect(lastTools()).toContain('Bash');
   });
 });
