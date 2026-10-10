@@ -12,6 +12,7 @@ export type CoreNounsDeps = {
   ui: UiSink;
   sessionInfo: { id: string; cwd: string; root: string };
   env: NodeJS.ProcessEnv;
+  signal: AbortSignal;
 };
 
 /**
@@ -24,6 +25,7 @@ export function createCoreNouns(deps: CoreNounsDeps, registry: Registry): CoreEn
       id: () => deps.sessionInfo.id,
       cwd: () => deps.sessionInfo.cwd,
       root: () => deps.sessionInfo.root,
+      signal: () => deps.signal,
     },
     // 工具清单不是硬编码表：它来自注册面上 `tool.call` 的 matcher 取值。
     tool: { list: () => registry.matcherValues('tool.call', 'tool') },

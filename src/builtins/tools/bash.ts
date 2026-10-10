@@ -34,7 +34,7 @@ export const bashTool: Plugin = {
       const result = await $.process.run(input.command, {
         cwd,
         timeoutMs: input.timeout_ms ?? DEFAULT_TIMEOUT_MS,
-        signal: new AbortController().signal,
+        signal: $.session.signal(),
       });
 
       const parts: string[] = [];

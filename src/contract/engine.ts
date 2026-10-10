@@ -30,7 +30,13 @@ export type ClockNoun = { now(): number };
 
 export type LoggerNoun = { debug(line: string): void; warn(line: string): void };
 
-export type SessionNoun = { id(): string; cwd(): string; root(): string };
+export type SessionNoun = {
+  id(): string;
+  cwd(): string;
+  root(): string;
+  /** 会话级 AbortSignal：用户 Ctrl-C 时触发，用来掐断正在跑的外部命令。 */
+  signal(): AbortSignal;
+};
 
 export type ToolNoun = { list(): readonly string[] };
 
