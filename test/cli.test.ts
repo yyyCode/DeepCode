@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createHarness, scriptedProvider } from './harness';
 import { parseArgs, readVersion } from '../src/cli/args';
+import { createPalette } from '../src/cli/ansi';
+import { createSessionChanges } from '../src/cli/changes';
+import { createSessionCommands } from '../src/cli/commands';
 import { streamPlugin } from '../src/cli/stream';
 import { cliPlugins } from '../src/cli/plugins';
 import { createTurnSignals } from '../src/cli/turns';
@@ -11,7 +16,7 @@ import { createEngine } from '../src/core/create';
 import { runTurn } from '../src/core/loop';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Renderer } from '../src/cli/render';
-import type { EventHook } from '../src/contract/plugin';
+import type { EventHook, Plugin } from '../src/contract/plugin';
 import type { Message } from '../src/contract/model-provider';
 
 /** 假 renderer：只把 delta 攒起来，好在断言里看到模型到底说出了什么。 */
@@ -210,4 +215,100 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
     expect(stdout).toContain('用法');
     expect(stdout).toContain('/exit');
   }, 60_000);
+});
+
+describe('cli 命令：/diff 与 /clear', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  /** 真临时目录 + 真 SessionChanges + 把消息收进 logs 的假 $。 */
+  function setup() {
+    const root = mkdtempSync(join(tmpdir(), 'deepcode-cmd-'));
+    roots.push(root);
+
+    const changes = createSessionChanges();
+    const messages: Message[] = [];
+    const logs: string[] = [];
+    const engine = {
+      ui: { log: (line: string) => logs.push(line), notice: () => {}, ask: async () => 'n' },
+    };
+    const h = createHarness({ engine });
+
+    // 照 streamPlugin 那条测试的写法把插件挂进 harness 的注册面。
+    const plugin: Plugin = createSessionCommands({
+      changes,
+      messages,
+      root,
+      palette: createPalette(false),
+    });
+    plugin.register(((pattern: string, second: any, third?: any) => {
+      if (third !== undefined) h.on('builtin', plugin.name, pattern, second, third as EventHook);
+      else h.on('builtin', plugin.name, pattern, second as EventHook);
+    }) as any);
+
+    return { root, changes, messages, logs, h };
+  }
+
+  const run = (h: ReturnType<typeof setup>['h'], name: string) =>
+    h.dispatch('command.run', { name, args: [] }, CORE_ORIGIN);
+
+  it('没有改动过时，/diff 明说"还没有改动过文件"', async () => {
+    const { h, logs } = setup();
+    const result = await run(h, 'diff');
+    expect(result).toEqual({ handled: true });
+    expect(logs.join('\n')).toContain('还没有改动过文件');
+  });
+
+  it('新建文件带内容改动 → 输出 unified diff（+++ b/ 与新行）', async () => {
+    const { h, changes, root, logs } = setup();
+    changes.record({
+      path: join(root, 'a.ts'),
+      before: { kind: 'absent' },
+      after: { kind: 'text', text: 'const a = 1;\n' },
+    });
+
+    expect(await run(h, 'diff')).toEqual({ handled: true });
+    const out = logs.join('\n');
+    expect(out).toContain('+++ b/');
+    expect(out).toContain('\n+const a = 1;');
+  });
+
+  it('写了一遍但一字未变 → "没有净改动"，不打空 diff', async () => {
+    const { h, changes, root, logs } = setup();
+    changes.record({
+      path: join(root, 'b.ts'),
+      before: { kind: 'text', text: 'same\n' },
+      after: { kind: 'text', text: 'same\n' },
+    });
+
+    await run(h, 'diff');
+    expect(logs.join('\n')).toContain('没有净改动');
+  });
+
+  it('内容 skipped → 说清"未记录内容"而不是假装没改', async () => {
+    const { h, changes, root, logs } = setup();
+    changes.record({
+      path: join(root, 'huge.bin'),
+      before: { kind: 'text', text: 'x' },
+      after: { kind: 'skipped', why: '文件太大' },
+    });
+
+    await run(h, 'diff');
+    expect(logs.join('\n')).toContain('未记录内容');
+  });
+
+  it('/clear 就地清空 messages（同一个数组引用）并回 handled', async () => {
+    const { h, messages, logs } = setup();
+    messages.push({ role: 'user', content: '一' });
+    messages.push({ role: 'assistant', content: [{ type: 'text', text: '二' }] });
+    messages.push({ role: 'user', content: '三' });
+
+    const result = await run(h, 'clear');
+
+    expect(result).toEqual({ handled: true });
+    expect(messages.length).toBe(0); // 清的是 REPL 手里那个同一个引用
+    expect(logs.join('\n')).toContain('已清空上下文');
+  });
 });
