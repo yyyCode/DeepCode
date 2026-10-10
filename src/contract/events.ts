@@ -107,6 +107,29 @@ export type DeepReadonly<T> = T extends readonly (infer U)[]
 export const STREAMING_EVENTS = ['turn.step'] as const;
 export type StreamingEventName = (typeof STREAMING_EVENTS)[number];
 
+/**
+ * 纯通知事件：它们的全部意义是"让插件看得见"，没有任何一条需要内核答复。
+ * 所以"链尾没有人应答"对它们来说是正常状态，不是 NotImplementedError。
+ *
+ * 清单声明在这里（事件目录），默认实现在 dispatch 的链尾，两者合起来才成立。
+ * 之所以不写成 createEngine 里的五条 coreImpls：那份清单漏过一次初版，
+ * 又漏过一次 E2E 的测试桩，而两次的表现都是产品一开口就崩、typecheck 全绿。
+ * 放在链尾意味着任何 dispatcher 都天然满足这条不变量，没有第二个地方可以漏。
+ */
+export const NOTIFICATION_EVENTS = [
+  'session.start',
+  'session.end',
+  'turn.start',
+  'turn.step',
+  'turn.complete',
+] as const;
+
+const NOTIFICATION_SET: ReadonlySet<string> = new Set(NOTIFICATION_EVENTS);
+
+export function isNotificationEvent(event: string): boolean {
+  return NOTIFICATION_SET.has(event);
+}
+
 export type HookFor<N extends EventName> = (
   $: EngineInterface,
   e: DeepReadonly<Args<N>>,

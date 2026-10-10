@@ -1,11 +1,17 @@
 import type { Args, EventName, Result } from '../contract/events';
+import { isNotificationEvent } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
 import { HOOK_BUDGET, type Origin, type TraceEntry } from '../contract/next';
 import { tierIndex, type TargetTier } from '../contract/tier';
 import { NotImplementedError, withBudget } from './errors';
 import { matchesPattern, type Registry } from './registry';
 
-/** 事件的内核实现 —— 链的最内层。没有实现的事件在这里抛 NotImplementedError。 */
+/**
+ * 事件的内核实现 —— 链的最内层。没有实现的事件在这里抛 NotImplementedError。
+ *
+ * 通知事件（`NOTIFICATION_EVENTS`）不必列进来：链尾对它们兜底返回 `{}`。
+ * 漏掉它们曾经两次让产品与测试一开口就崩，所以这条兜底写在链尾、不靠调用方自觉。
+ */
 export type CoreImpls = Partial<Record<EventName, (e: any) => any>>;
 
 export type DispatcherDeps = {
@@ -48,8 +54,10 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
     async function runAt(index: number, e: unknown, caller: Origin): Promise<any> {
       if (index >= hooks.length) {
         const impl = deps.coreImpls[event];
-        if (!impl) throw new NotImplementedError(event);
-        return impl(e);
+        if (impl) return impl(e);
+        // 通知事件没有人听才是常态：返回空答复，而不是把"没人应答"当成故障。
+        if (isNotificationEvent(event)) return {} as const;
+        throw new NotImplementedError(event);
       }
 
       const reg = hooks[index]!;

@@ -124,7 +124,9 @@ MVP 实际只有 `builtin`（内建插件）与 `core`（内核）两层落座�
 
 core 落到这些事件时抛 `NotImplementedError`，由 dispatch 捕获降级，**同一事件名只警告一次**。
 
-要注意 §3.2 里的五个生命周期事件（`session.start` / `session.end` / `turn.start` / `turn.step` / `turn.complete`）**由内核给出 no-op 实现**（返回 `{}`），而不是靠"没人应答"混过去。这不是装饰：`dispatch` 在既无 hook、又无内核实现时会抛 `NotImplementedError`，而 loop 的第一行就是 `turn.start`、CLI 的第一行就是 `session.start` —— 少了这几条 no-op，产品和"一开口就崩"之间只隔一次 dispatch。它们同时也是上面这条保证成立的前提：`NotImplementedError` 只用来指这 27 个真未实现的事件。
+要注意 §3.2 里的五个生命周期事件（`session.start` / `session.end` / `turn.start` / `turn.step` / `turn.complete`）**由链尾给出 no-op 答复**（返回 `{}`），而不是靠"没人应答"混过去。清单声明在 `contract/events.ts` 的 `NOTIFICATION_EVENTS`，兜底实现在 `core/dispatch.ts` 的链尾 —— 两边合起来表达"这几条没人听才是常态"。这不是装饰：`dispatch` 在既无 hook、又无内核实现时会抛 `NotImplementedError`，而 loop 的第一行就是 `turn.start`、CLI 的第一行就是 `session.start` —— 少了这条兜底，产品和"一开口就崩"之间只隔一次 dispatch。它同时也是上面这条保证成立的前提：`NotImplementedError` 只用来指这 27 个真未实现的事件。
+
+兜底之所以写在链尾、而不是列进 `createEngine` 的 `coreImpls`：那份清单先后漏过两次（初版内核忘了，E2E 的测试桩也忘了），两次的表现都是产品/测试一开口就崩而 `typecheck` 全绿。链尾只有一处，没有第二个地方可以漏。
 
 ### 3.4 `next` 协议（全签名实现）
 

@@ -241,6 +241,14 @@ describe('生命周期事件的内核 no-op', () => {
     }
   });
 
+  it('没有内核实现的裸 dispatcher 也能 dispatch 通知事件', async () => {
+    // 上面那条走的是 createEngine，而它的 coreImpls 里曾经真的列着这五条 ——
+    // 于是内核这条路全绿，另一条路（E2E 用的 harness，coreImpls 只给了 tool.*）
+    // 一开口就崩。这条钉的是"保证写在 dispatch 链尾"，不依赖任何调用方记得补。
+    const h = createHarness();
+    await expect(h.dispatch('turn.start', { index: 0 }, CORE_ORIGIN)).resolves.toEqual({});
+  });
+
   it('真正未实现的事件仍然抛 NotImplementedError', async () => {
     // 上面那条的另一半：no-op 只针对生命周期事件，
     // NotImplementedError 必须继续为那 27 个真未实现的事件保留意义。
