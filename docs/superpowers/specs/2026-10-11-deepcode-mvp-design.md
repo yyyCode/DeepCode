@@ -230,12 +230,14 @@ REPL 读一行
 
 | 工具 | 依赖的名词 | 关键设计 |
 |---|---|---|
-| `Read` | `$.fs` | 输出带行号；超长文件分段 |
-| `Write` | `$.fs` | 先读后写校验（避免覆盖未读过的新文件） |
-| `Edit` | `$.fs` | 精确字符串替换，要求 `old_string` 唯一 |
-| `Bash` | `$.process` | 超时 + 输出截断上限；`AbortSignal` 贯穿以支持 Ctrl-C |
+| `Read` | `$.fs` | 输出带行号；超长文件分段；行尾 `\r` 在展示时去掉（CRLF 仓库里模型照着抄就不会带上它） |
+| `Write` | `$.fs` | 先读后写校验（避免覆盖未读过的新文件）。**只有 `Read` 能打上"读过"标记** —— `Edit` 内部虽然也读了文件，但模型一个字都没见到，给它打标记等于给整体覆盖开后门 |
+| `Edit` | `$.fs` | 精确字符串替换，要求 `old_string` 唯一；**行尾容忍**（模型给 LF、文件是 CRLF 时要能匹配上，命中 CRLF 变体时替换内容也转 CRLF），两个 hook 共用同一个定位函数 |
+| `Bash` | `$.process` | 超时 + 输出截断上限；`AbortSignal` 贯穿以支持 Ctrl-C；**非零退出的输出必须以 `ERROR:` 开头**（见 §5.1，`is_error` 全靠这个前缀） |
 | `Glob` | `$.fs` | 路径模式匹配 |
 | `Grep` | `$.fs` | 正则内容搜索，输出 `路径:行号: 内容` |
+
+**遍历时只按白/黑名单跳目录，不按点号一刀切。** `Glob` / `Grep` 曾经跳过所有 `.` 开头的条目（只给 `.claude` 开了个口子），于是 `.env`、`.github/**`、`.eslintrc` 全都搜不到，而返回的还是"没有匹配" —— 模型拿到假阴性，会当成"这仓库里没有"。要排除的重目录（`node_modules`、`.git`、`dist`…）走 `SKIP_DIRS`，其余一律搜。同理，任何形式的静默裁剪（大小上限、结果上限）都必须**在输出里说出来**，不能让模型以为搜索空间是完整的。
 
 **六个工具都必须依赖 `$` 名词而非直接 `fs` / `child_process`**。这既是可测性的前提（测试里 mock `$.fs`），也是 P2 权限过滤与沙箱的前提（内核可以在最内层拦截 `process.run`）。
 
@@ -249,10 +251,14 @@ REPL 读一行
 |---|---|
 | hook 抛错 / 超时 | 隔离跳过，下层照跑，按插件名警告一次（`HOOK_BUDGET`） |
 | 工具执行失败（Bash 非零退出、文件不存在） | **不抛**。包装成 `tool_result{ is_error: true }` 回灌模型——工具失败是给模型的信息，不是崩溃 |
-| provider 网络错 / 限流 | 退避重试 1 次；再失败则结束本 turn 并保留会话，不退出进程 |
+| provider 网络错 / 限流 / SSE 流中的 `error` 帧 | 退避重试 1 次；再失败则结束本 turn 并保留会话，不退出进程 |
 | 事件未实现 | `NotImplementedError`，dispatch 捕获降级；同一事件名只警告一次 |
 | 用户 Ctrl-C | `AbortSignal` 贯穿 `next.signal`，同时掐断 provider 流与 Bash 子进程 |
 | 契约漂移 | 编译期抓（单一契约文件 + lint 边界） |
+
+**"工具失败"必须是失败，不能只是"输出末尾提了一句"。** 上表第二行依赖一个具体的前缀约定：loop 用 `content.startsWith('ERROR:')` 决定 `tool_result` 的 `is_error`，所以工具**必须**把失败写在开头。`Bash` 曾经把退出码作为末行 `[退出码 N]`，前缀判定不成立 —— 一次 `exit 3` 回给模型的是 `is_error: false` 的"成功"，模型很可能据此回一句"测试都过了"。系统提示里那句"工具失败会以 ERROR: 开头"是这份约定的另一半，两边要一起改。
+
+**provider 的失败不止 HTTP 状态码。** SSE 流里还有 `event: error` 帧（`overloaded_error` / `rate_limit_error` 等）。它必须抛出去走上面那条重试路径 —— 静默略过的话，一次过载会变成一个"成功的空 turn"：没有文本、没有工具、`stopReason` 还是 `end_turn`，用户的问题凭空消失且不留痕迹。这条路径只有真 API 会走到，脚本化 provider 永远测不出来，所以 `test/provider.test.ts` 用假 `fetch` 直接喂 SSE 帧。
 
 **Ctrl-C 是"掐断这一次"，不是"废掉这个会话"。** `AbortSignal` 一旦 abort 就回不去，所以 `CoreNounsDeps.signal` 收的是**工厂** `() => AbortSignal` 而不是 signal 本身，`cli/turns.ts` 每个 turn 现取一个：第一次 Ctrl-C 掐断当前 turn（provider 流与 Bash 子进程一起断），进程保留、下一个 turn 拿全新 signal；空闲时按 = 退出，同一个 turn 里连按两次 = 强制退出（130）。构造时就把 signal 定死的话，一次中断之后再无 turn 能跑，而 loop 还在提示"会话保留，可以继续输入" —— 那是句假话。
 
@@ -299,7 +305,9 @@ $ Edit src/utils.ts
 | **C1** | M1 契约 + 内核 | 跑**一组链语义测试**（一个大文件，一次覆盖：tier 嵌套顺序 / `next({...e})` 改写下行但不改自己的 `e` / 不调 `next` 即结束链 / 抛错被隔离且按名上报 / `tool.check` 无人应答 = deny）。**这是 MVP 唯一一处必须早做的测试**——链语义是看不见的，编译器抓不到它 |
 | **C2** | M2 工具 + loop | 六个工具的测试**合并成一份文件**；外加一个 mock provider 的 E2E（脚本化 `tool_use` 序列 → 断言 transcript，不花 token）。工具测试与 E2E 一起跑 |
 | **C3** | M3 cli 可用 | **手动跑一遍**真实场景，不写自动化。把 §8 的验收场景跑通即可 |
-| **C4** | M4 收尾 | `pnpm lint` + 全量测试一次跑完 |
+| **C4** | M4 收尾 | `pnpm lint` + 全量测试一次跑完；并把边界脚本**故意弄坏一次**确认它真会失败（只贴一份通过的日志不算数） |
+
+**测试数量的账**（收尾时实际是 45 个，分布在 6 个文件）：契约与链语义 15、工具 12、安全回归 7、SSE 解析 5、CLI 文本出口 4、E2E 2。C2 那条"六个工具合并成一份文件"守住了；`provider.test.ts` 与 `safety.test.ts` 是收尾阶段补的 —— 前者的 SSE 解析器原本一个测试都没有，而它恰恰是唯一只有真 API 才走得到的代码；后者钉的是两轮独立评审查出的缺陷，每条都做过反向验证（把修复改回去，测试必须失败）。
 
 ### 6.3 明确不做
 
@@ -344,6 +352,7 @@ DeepCode/
 │   │                 confirm.ts · commands.ts
 │   └── cli/          main.ts · repl.ts · render.ts · prompt.ts · stream.ts · plugins.ts · turns.ts
 ├── test/             harness.ts · dispatch.test.ts · tools.test.ts · e2e.test.ts
+│                     provider.test.ts（SSE 解析）· cli.test.ts（文本出口）· safety.test.ts（回归）
 └── docs/superpowers/{specs,plans}/
 ```
 
@@ -428,8 +437,12 @@ DeepCode/
 6. **不用 ESLint**。只保留边界检查脚本与 `tsc --noEmit`，不引入 ESLint 生态。真正的价值来自类型与边界，风格规则留到 P1。
 7. **`engine.create` 折叠在 MVP 中是空转的**。`createEngine` 先折叠出 `$`，之后才逐个跑 `plugin.register` 准入。顺序不能反——`plugin.register` 的判定本身要经过链，而链要用 `$`；先注册后建 `$` 就成环了。代价是**没有任何插件能通过 `engine.create` 往 `$` 上加名词**。MVP 的八个插件都不加名词（工具只挂 `tool.call`，确认器只挂 `tool.check`），所以无害。但 P3 引入"插件扩展 `$`"时必须先解决这个先后顺序（可行方向：两趟注册，第一趟只收集 `engine.create` 的 hook，第二趟做准入）。在那之前，往 `engine.create` 上挂 hook 是**静默无效**的。
 
-**存疑（架构文档本身无法确认，需在本项目自行拍板）**：
+**已知缺陷（两轮收尾评审发现，判为 LOW，留到 P1）**：
 
+1. **一次 turn 里多个工具调用的结果会拆成多条 user 消息**，而不是合并成一条。`loop.ts` 每个 `tool_use` 推一条 `{role:'tool'}`，provider 各自转成一个 `user` 消息 —— 不会 400（Anthropic 会合并连续的同角色消息），但按官方的并行工具调用建议应当合并成一条。修法是让 `Message` 的 tool 形态支持一组结果。
+2. **DEEPCODE_MODEL 之外没有模型校验**：模型 id 写错时错误来自 API 的 404，不是启动期就报。默认值已从疑似退役的 `claude-sonnet-4-5` 改为 `claude-sonnet-5-5`。
+
+**存疑（架构文档本身无法确认，需在本项目自行拍板）**：
 | 主题 | 待拍板的内容 |
 |---|---|
 | 座位算法 | 同事件、同 tier 的多个 hook 之间的精确排序（注册顺序 vs 插件名）——文档只给出"同 plugin 先注册者最外层" |
