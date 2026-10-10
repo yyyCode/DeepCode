@@ -42,13 +42,39 @@ node /path/to/DeepCode/bin/deepcode.mjs "跑一下测试，把失败的那条修
 | `/exit` | 退出（`Ctrl-D` 也行） |
 | `Ctrl-C` | 掐断当前这一回合（正在跑的模型请求与命令一起断），进程不退，可以接着聊；空闲时按 = 退出，同一回合里连按两次 = 强制退出 |
 
-可选环境变量：
+## 配置
+
+除环境变量外，还可以写配置文件，**不用每次 `export`**：
+
+- 用户级：`~/.deepcode/config.json`（Windows 是 `C:\Users\<你>\.deepcode\config.json`）
+- 项目级：`<工作目录>/.deepcode/config.json`
+- 优先级：**环境变量 > 项目级 > 用户级**。两层都有时逐字段合并，不是整体替换。
+
+```json
+{
+  "apiKey": "sk-ant-...",
+  "model": "claude-sonnet-5-5",
+  "baseUrl": "https://api.anthropic.com",
+  "debug": false
+}
+```
+
+四个字段都可省略（省略即用默认值 / 环境变量）。**字段名写错会被点名**，
+不会安静地不生效 —— 拼成 `modle` 你会看到一行 `不认识的字段 "modle"`。
+
+> ⚠️ 项目级配置里放 `apiKey` 有个明显风险：这个文件很容易跟着仓库一起提交出去。
+> 本仓库的 `.gitignore` 已经把 `.deepcode/` 排除在外；如果要在别的仓库里这么用，
+> 请自己确认那一行。启动时若发现项目级配置带了 key，也会提醒你一次。
+> 更稳妥的做法是把 key 放在用户级配置或环境变量里。
+
+对应的环境变量（优先级更高）：
 
 | 变量 | 作用 |
 |---|---|
+| `ANTHROPIC_API_KEY` | API key |
 | `DEEPCODE_MODEL` | 覆盖模型 id，默认 `claude-sonnet-5-5` |
 | `ANTHROPIC_BASE_URL` | 覆盖 API 端点 |
-| `DEEPCODE_DEBUG` | 打开 hook 调试输出（走 stderr） |
+| `DEEPCODE_DEBUG` | 打开调试轨迹（走 stderr）：每次 dispatch 一行，说明这个事件被哪些 hook 应答、谁被跳过了。流式事件（`turn.step`）不打，否则会刷屏 |
 
 会话启动时还会读取项目指令文件，拼进系统提示：`<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md`、
 `~/.deepcode/AGENTS.md`。

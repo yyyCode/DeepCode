@@ -175,9 +175,15 @@ MVP 的行为细则：
 
 `turn` 与 `prompt` 在 MVP 里是**事件**（`turn.start` / `prompt.submit`），不是名词——它们没有需要被 hook 改写的内部状态。等到 P1 引入上下文压缩与多轮编排时再决定要不要提升为名词。
 
-> **`settings` 故意不做。** MVP 的配置只来自 CLI flag 与环境变量，不读任何设置文件。
-> 这是刻意的：**没有 `settings.read`，就不存在"个人插件能不能放宽组织策略"这个问题**。
+> **`settings` 故意不做。** 这是刻意的：**没有 `settings.read`，就不存在"个人插件能不能放宽组织策略"这个问题**。
 > 它在 P2 出现，且出现时会带着一整套来源优先级一起出现。
+>
+> 与它分开的是 **`cli/config.ts`：启动配置，不是设置**。它只读四个字段
+> （`apiKey` / `model` / `baseUrl` / `debug`），只被 `cli/main.ts` 用来组装 provider 与 logger，
+> **不经事件、不进 `$`**，任何 hook 都读不到它，所以"插件放宽策略"这条路依然不存在。
+> 加它的理由很朴素：不然每次开新终端都得先 `export ANTHROPIC_API_KEY`。
+> 优先级 **环境变量 > 项目级 `<root>/.deepcode/config.json` > 用户级 `<home>/.deepcode/config.json`**，
+> 逐字段合并。坏输入不许静默失效 —— 见 §6.2。
 
 ### 3.6 契约的运行时校验
 
@@ -307,7 +313,9 @@ $ Edit src/utils.ts
 | **C3** | M3 cli 可用 | **手动跑一遍**真实场景，不写自动化。把 §8 的验收场景跑通即可 |
 | **C4** | M4 收尾 | `pnpm lint` + 全量测试一次跑完；并把边界脚本**故意弄坏一次**确认它真会失败（只贴一份通过的日志不算数） |
 
-**测试数量的账**（收尾时实际是 45 个，分布在 6 个文件）：契约与链语义 15、工具 12、安全回归 7、SSE 解析 5、CLI 文本出口 4、E2E 2。C2 那条"六个工具合并成一份文件"守住了；`provider.test.ts` 与 `safety.test.ts` 是收尾阶段补的 —— 前者的 SSE 解析器原本一个测试都没有，而它恰恰是唯一只有真 API 才走得到的代码；后者钉的是两轮独立评审查出的缺陷，每条都做过反向验证（把修复改回去，测试必须失败）。
+**测试数量的账**（收尾时实际是 57 个，分布在 7 个文件）：契约与链语义 19、工具 12、安全回归 7、SSE 解析 5、CLI 文本出口 4、E2E 2、配置 8。C2 那条"六个工具合并成一份文件"守住了；`provider.test.ts` 与 `safety.test.ts` 是收尾阶段补的 —— 前者的 SSE 解析器原本一个测试都没有，而它恰恰是唯一只有真 API 才走得到的代码；后者钉的是两轮独立评审查出的缺陷，每条都做过反向验证（把修复改回去，测试必须失败）。
+
+**配置文件的坏输入必须吵**。`config.test.ts` 里那 8 条钉的是同一件事：配置读取只有"生效"和"大声报错"两种结局，**没有"安静地用默认值"**。JSON 语法错、顶层不是对象、字段类型不对 —— 抛，并带上路径；字段名拼错（`modle`）—— 点名，不静默忽略。静默失效是这类代码最坏的失败模式：用户以为配置生效了，实际一直在跑默认值，而且没有任何地方会告诉他。这和之前修掉的"Grep 静默跳过点文件"是同一类缺陷。
 
 ### 6.3 明确不做
 
@@ -322,7 +330,7 @@ $ Edit src/utils.ts
 
 只做两件事，不做通用框架：
 
-- `createHarness({ coreImpls, engine, signal })` —— 返回 `{ on, dispatch, registry, warnings }`。`on` 的签名是 `on(tier, plugin, pattern[, matcher], hook)`，所以测试要模拟某个插件时，可以精确指定它的座位与身份。`warnings` 收故障隔离的告警，让"抛错的 hook 被跳过并上报一次"这件事可断言。
+- `createHarness({ coreImpls, engine, signal })` —— 返回 `{ on, dispatch, registry, warnings, debugLines }`。`on` 的签名是 `on(tier, plugin, pattern[, matcher], hook)`，所以测试要模拟某个插件时，可以精确指定它的座位与身份。`warnings` 收故障隔离的告警，让"抛错的 hook 被跳过并上报一次"这件事可断言；`debugLines` 收 `DEEPCODE_DEBUG` 那条调试轨迹（桩里一直开着），用于断言"这个事件被谁应答、谁被跳过了"。
 - `scriptedProvider(script)` —— 脚本化模型响应（一串 `StreamEvent[]`，每个元素是一个 hop）。供 C2 的 E2E 用，不花 token、可确定性重放。
 
 真实名词（`fs` / `process` / `store`）直接在 harness 里实例化使用，只有 `session` 需要桩（指向 temp 目录）。
@@ -351,8 +359,10 @@ DeepCode/
 │   ├── builtins/     tools/{read,write,edit,bash,glob,grep}.ts + tools/index.ts
 │   │                 confirm.ts · commands.ts
 │   └── cli/          main.ts · repl.ts · render.ts · prompt.ts · stream.ts · plugins.ts · turns.ts
+│                     config.ts（两层配置文件的读取与合并）
 ├── test/             harness.ts · dispatch.test.ts · tools.test.ts · e2e.test.ts
 │                     provider.test.ts（SSE 解析）· cli.test.ts（文本出口）· safety.test.ts（回归）
+│                     config.test.ts（配置合并与坏输入）
 └── docs/superpowers/{specs,plans}/
 ```
 

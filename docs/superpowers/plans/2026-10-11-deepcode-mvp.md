@@ -3711,6 +3711,46 @@ git commit -m "docs: README 与 MVP 收尾"
 
 ---
 
+## 追加需求 · 配置文件（MVP 之后）
+
+**需求**：API key / 模型等不应每次开终端都 `export` 一遍。**决定**：加配置文件，
+用户级 + 项目级两层，**允许把 key 写进配置文件**。
+
+- **优先级**：环境变量 > 项目级 `<root>/.deepcode/config.json` > 用户级 `<home>/.deepcode/config.json`，
+  逐字段合并（不是整体替换）。
+- **字段**：`apiKey` / `model` / `baseUrl` / `debug`，全部可省略。
+- **新增**：`src/cli/config.ts`（`loadConfig({ home, root, warn?, readText? })`）、
+  `test/config.test.ts`（8 条）。改 `src/cli/main.ts`（解析顺序 + 把 `config.debug` 桥进 `env`）。
+- **坏输入不许静默失效**：文件不存在 → 安静跳过（这是常态）；存在但读不动 / JSON 非法 /
+  顶层非对象 / 字段类型不对 → **抛**，带上路径与实际值；字段名拼错 → **点名**，列出认识的字段。
+  只有"生效"和"大声报错"两种结局。理由见设计文档 §6.2。
+- **项目级放 `apiKey` 会额外警告一次**（这文件很容易被一起提交），但按用户决定不禁止。
+  本仓库 `.gitignore` 已有 `.deepcode/`。
+- **与 `settings` 无关**：`config.ts` 不进事件、不进 `$`，任何 hook 都读不到，所以
+  "插件放宽策略"那条路依然关着（设计文档 §3.5）。
+- **顺带修掉一处"文档写了、代码没做"**：`DEEPCODE_DEBUG` 此前只是变量名，
+  现在真的在 stderr 打调试轨迹（每次 dispatch 一行，说明被谁应答、谁被跳过），
+  流式事件 `turn.step` 不打（否则刷屏）。`test/harness.ts` 随之多出 `debugLines`。
+
+> **实施记录**（实测，非设计意图）：
+>
+> - **门禁**：`pnpm typecheck && pnpm lint && pnpm test` 全绿 —— **7 个测试文件 / 57 个测试**
+>   （dispatch 19、tools 12、config 8、safety 7、provider 5、cli 4、e2e 2）。
+> - **端到端真跑过**（在 `C:\Users\86178\deepcode-cfgtest` 用真配置文件起进程，非只是单测）：
+>   ① key 从文件读到并真的发到了 API（拿假 key 换回 401，说明用的是文件里那个）；
+>   ② `debug: true` 真的打出轨迹行 `[debug] tool.describe [1ms] tool-read@builtin`，
+>      且 `turn.step` 正确缺席；
+>   ③ 失败回合退出码 1；
+>   ④ 三条错误路径：缺 key → 三选一提示 + 退出码 1；字段拼错 → 点名后**继续跑**；
+>      JSON 非法 → `启动失败：… 不是合法 JSON` + 退出码 1。
+> - **一处观感缺陷**：`main().catch` 原本用 `String(error)`，输出成了
+>   `启动失败：Error: 用户级配置文件 …`。改成取 `error.message`，复跑确认为
+>   `启动失败：用户级配置文件 … 不是合法 JSON：SyntaxError: …`。
+> - **顺带纠正文档里的假话**：设计文档原写"MVP 的配置只来自 CLI flag 与环境变量，不读任何设置文件"，
+>   加了 `config.ts` 之后这句不再成立，已改成区分"启动配置"与"settings"（§3.5）。
+
+---
+
 ## 自查记录
 
 | 检查项 | 结果 |

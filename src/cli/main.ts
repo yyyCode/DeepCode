@@ -9,6 +9,7 @@ import { runTurn } from '../core/loop';
 import { createAnthropicProvider } from '../providers/anthropic';
 import { cliPlugins } from './plugins';
 import { createPromptSink } from './prompt';
+import { loadConfig } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createTurnSignals } from './turns';
@@ -36,15 +37,31 @@ const SYSTEM_PROMPT = `你是 DeepCode，一个在用户终端里工作的编码
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  const root = resolve(process.cwd());
+  const home = process.env.USERPROFILE ?? process.env.HOME ?? root;
+
+  // 配置来源优先级：环境变量 > 项目级 > 用户级（见 cli/config.ts）。
+  const config = await loadConfig({ home, root });
+  const userConfigPath = join(home, '.deepcode', 'config.json');
+  const projectConfigPath = join(root, '.deepcode', 'config.json');
+
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? config.apiKey;
   if (!apiKey) {
-    process.stderr.write('缺少 ANTHROPIC_API_KEY 环境变量。\n');
+    process.stderr.write(
+      '缺少 API key。三种给法，优先级从高到低：\n' +
+        '  1. 环境变量 ANTHROPIC_API_KEY=sk-ant-...\n' +
+        `  2. 项目级配置 ${projectConfigPath}，内容 {"apiKey": "sk-ant-..."}\n` +
+        `  3. 用户级配置 ${userConfigPath}，内容同上\n`,
+    );
     process.exitCode = 1;
     return;
   }
 
-  const root = resolve(process.cwd());
-  const home = process.env.USERPROFILE ?? process.env.HOME ?? root;
+  const model = process.env.DEEPCODE_MODEL ?? config.model ?? 'claude-sonnet-5-5';
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? config.baseUrl;
+  // debug 走的是同一条路：内核的 logger 只看 env，所以配置文件里开了就桥过去。
+  const debug = Boolean(process.env.DEEPCODE_DEBUG) || config.debug === true;
 
   const turns = createTurnSignals();
   const render = createRenderer();
@@ -60,11 +77,7 @@ async function main(): Promise<void> {
   rl.on('SIGINT', turns.onSigint);
 
   const prompt = createPromptSink(rl, { signalOf: () => turns.current() });
-  const provider = createAnthropicProvider({
-    apiKey,
-    model: process.env.DEEPCODE_MODEL ?? 'claude-sonnet-5-5',
-    baseUrl: process.env.ANTHROPIC_BASE_URL,
-  });
+  const provider = createAnthropicProvider({ apiKey, model, baseUrl });
 
   const { $, dispatch } = await createEngine({
     // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
@@ -72,7 +85,7 @@ async function main(): Promise<void> {
     provider,
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: String(Date.now()), cwd: root, root },
-    env: process.env,
+    env: debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env,
     signal: () => turns.current(),
   });
 
@@ -110,6 +123,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  process.stderr.write(`启动失败：${String(error)}\n`);
+  // 取 message 而不是整个 Error：String(error) 会带上 "Error: " 前缀，
+  // 配着下面那句"启动失败"读起来就是"启动失败：Error: ..."。
+  process.stderr.write(`启动失败：${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });

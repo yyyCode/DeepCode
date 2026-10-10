@@ -130,6 +130,17 @@ export function isNotificationEvent(event: string): boolean {
   return NOTIFICATION_SET.has(event);
 }
 
+const STREAMING_SET: ReadonlySet<string> = new Set(STREAMING_EVENTS);
+
+/**
+ * 流式事件在一次 turn 里会被反复 dispatch（模型每吐出几段文本就来一次）。
+ * 调试输出必须对它们闭嘴 —— 否则 `DEEPCODE_DEBUG=1` 会把终端刷成一片。
+ * 清单同样只有这一处，别在打印的地方再抄一份。
+ */
+export function isStreamingEvent(event: string): boolean {
+  return STREAMING_SET.has(event);
+}
+
 export type HookFor<N extends EventName> = (
   $: EngineInterface,
   e: DeepReadonly<Args<N>>,

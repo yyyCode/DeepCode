@@ -19,12 +19,14 @@ const DEFAULT_SIGNAL = new AbortController().signal;
 export function createHarness(options: HarnessOptions = {}) {
   const registry = new Registry();
   const warnings: string[] = [];
+  /** 调试轨迹（`DEEPCODE_DEBUG` 那条线）。桩里一直开着，断言全靠它。 */
+  const debugLines: string[] = [];
 
   const dispatcher = createDispatcher({
     registry,
     engine: () => (options.engine ?? NOOP_ENGINE) as EngineInterface,
     coreImpls: options.coreImpls ?? {},
-    logger: { warn: (line) => warnings.push(line) },
+    logger: { warn: (line) => warnings.push(line), debug: (line) => debugLines.push(line) },
     signal: () => options.signal ?? DEFAULT_SIGNAL,
   });
 
@@ -48,7 +50,7 @@ export function createHarness(options: HarnessOptions = {}) {
     registry.register({ plugin, tier, pattern, matcher, hook });
   }
 
-  return { on, dispatch: dispatcher.dispatch, registry, warnings };
+  return { on, dispatch: dispatcher.dispatch, registry, warnings, debugLines };
 }
 
 /** 脚本化的模型响应：E2E 用它驱动 loop，不花 token、可确定性重放。 */

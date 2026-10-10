@@ -1,5 +1,5 @@
 import type { Args, EventName, Result } from '../contract/events';
-import { isNotificationEvent } from '../contract/events';
+import { isNotificationEvent, isStreamingEvent } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
 import { HOOK_BUDGET, type Origin, type TraceEntry } from '../contract/next';
 import { tierIndex, type TargetTier } from '../contract/tier';
@@ -19,7 +19,12 @@ export type DispatcherDeps = {
   /** 延迟取 $：$ 要到 engine.create 折叠完成之后才存在。 */
   engine: () => EngineInterface;
   coreImpls: CoreImpls;
-  logger: { warn(line: string): void };
+  /**
+   * debug 可选：只有真实名词（`createLoggerNoun`）提供，测试桩通常只给 warn。
+   * 链语义是看不见的 —— 这正是 `DEEPCODE_DEBUG=1` 唯一的用处：
+   * 把"这次调用被谁应答、又被谁跳过"打出来。
+   */
+  logger: { warn(line: string): void; debug?(line: string): void };
   /** 工厂而非 signal 本身 —— 理由见 CoreNounsDeps.signal。每次 dispatch 现取。 */
   signal: () => AbortSignal;
 };
@@ -51,6 +56,22 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
       .filter((r) => r.plugin !== skipPlugin);
 
     const trace: TraceEntry[] = [];
+
+    /**
+     * 调试轨迹：一行说清这次 dispatch 走到了哪几个 hook、各自什么下场。
+     * 流式事件不打（见 isStreamingEvent）—— turn.step 每段文本一次，打出来就是刷屏。
+     * 没有这条线，`DEEPCODE_DEBUG` 就只是个什么都不干的开关。
+     */
+    const traceLine = (startedAt: number, error?: unknown): void => {
+      if (!deps.logger.debug || isStreamingEvent(event)) return;
+      const chain =
+        trace
+          .map((t) => `${t.plugin}@${t.tier}${t.outcome === 'failed' ? '(跳过)' : ''}`)
+          .join(' → ') || '(没有 hook)';
+      const tail =
+        error === undefined ? '' : ` ✗ ${error instanceof Error ? error.message : String(error)}`;
+      deps.logger.debug(`${event} [${Date.now() - startedAt}ms] ${chain}${tail}`);
+    };
 
     async function runAt(index: number, e: unknown, caller: Origin): Promise<any> {
       if (index >= hooks.length) {
@@ -114,7 +135,16 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
       return next;
     }
 
-    return runAt(0, args, origin);
+    // 成功与失败都要留痕 —— 失败那条尤其：它是"链尾没人应答"的唯一现场。
+    const dispatchStartedAt = Date.now();
+    try {
+      const result = await runAt(0, args, origin);
+      traceLine(dispatchStartedAt);
+      return result;
+    } catch (error) {
+      traceLine(dispatchStartedAt, error);
+      throw error;
+    }
   };
 
   return { dispatch };

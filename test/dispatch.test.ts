@@ -258,3 +258,49 @@ describe('生命周期事件的内核 no-op', () => {
     ).rejects.toBeInstanceOf(NotImplementedError);
   });
 });
+
+describe('调试轨迹（DEEPCODE_DEBUG 打开后能看到的那条线）', () => {
+  it('每个非流式事件留一行，写清被谁应答', async () => {
+    // 这条线是"链语义看不见"的唯一补救：没有它，DEEPCODE_DEBUG 就只是个
+    // 什么都不干的开关（logger.debug 此前一个调用者都没有）。
+    const h = createHarness({ coreImpls: { [CALL]: () => ({ value: 'core' }) } });
+    h.on('builtin', 'answerer', CALL, () => ({ value: 'builtin' }));
+
+    await h.dispatch(CALL, args, CORE_ORIGIN);
+
+    expect(h.debugLines).toHaveLength(1);
+    expect(h.debugLines[0]).toContain(CALL);
+    expect(h.debugLines[0]).toContain('answerer@builtin');
+  });
+
+  it('被跳过的故障 hook 也在行里标出来', async () => {
+    const h = createHarness({ coreImpls: { [CALL]: () => ({ value: 'core' }) } });
+    h.on('builtin', 'bad', CALL, () => {
+      throw new Error('炸了');
+    });
+
+    await h.dispatch(CALL, args, CORE_ORIGIN);
+
+    expect(h.debugLines[0]).toContain('bad@builtin(跳过)');
+  });
+
+  it('流式事件不打轨迹 —— turn.step 每段文本一次，打出来就是刷屏', async () => {
+    const h = createHarness();
+    h.on('builtin', 'listener', 'turn.step', () => ({}) as any);
+
+    await h.dispatch('turn.step', { delta: '字' }, CORE_ORIGIN);
+
+    expect(h.debugLines).toEqual([]);
+  });
+
+  it('链尾没人应答时那行带着错误，现场不丢', async () => {
+    const h = createHarness();
+
+    await expect(h.dispatch('agent.spawn', {} as any, CORE_ORIGIN)).rejects.toBeInstanceOf(
+      NotImplementedError,
+    );
+
+    expect(h.debugLines.join('\n')).toContain('agent.spawn');
+    expect(h.debugLines.join('\n')).toContain('✗');
+  });
+});
