@@ -9,7 +9,7 @@ import { runTurn } from '../core/loop';
 import { createAnthropicProvider } from '../providers/anthropic';
 import { cliPlugins } from './plugins';
 import { createPromptSink } from './prompt';
-import { loadConfig } from './config';
+import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createTurnSignals } from './turns';
@@ -41,27 +41,22 @@ async function main(): Promise<void> {
   const root = resolve(process.cwd());
   const home = process.env.USERPROFILE ?? process.env.HOME ?? root;
 
-  // 配置来源优先级：环境变量 > 项目级 > 用户级（见 cli/config.ts）。
+  // 配置来源优先级：环境变量 > 项目级 > 用户级（见 cli/config.ts 的 resolveSettings）。
   const config = await loadConfig({ home, root });
   const userConfigPath = join(home, '.deepcode', 'config.json');
   const projectConfigPath = join(root, '.deepcode', 'config.json');
 
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? config.apiKey;
+  const { apiKey, model, baseUrl, debug } = resolveSettings(process.env, config);
   if (!apiKey) {
     process.stderr.write(
-      '缺少 API key。三种给法，优先级从高到低：\n' +
-        '  1. 环境变量 ANTHROPIC_API_KEY=sk-ant-...\n' +
+      '缺少 API key。几种给法，优先级从高到低：\n' +
+        '  1. 环境变量 ANTHROPIC_API_KEY=sk-ant-...（兼容端点也可以给 ANTHROPIC_AUTH_TOKEN）\n' +
         `  2. 项目级配置 ${projectConfigPath}，内容 {"apiKey": "sk-ant-..."}\n` +
         `  3. 用户级配置 ${userConfigPath}，内容同上\n`,
     );
     process.exitCode = 1;
     return;
   }
-
-  const model = process.env.DEEPCODE_MODEL ?? config.model ?? 'claude-sonnet-5-5';
-  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? config.baseUrl;
-  // debug 走的是同一条路：内核的 logger 只看 env，所以配置文件里开了就桥过去。
-  const debug = Boolean(process.env.DEEPCODE_DEBUG) || config.debug === true;
 
   const turns = createTurnSignals();
   const render = createRenderer();

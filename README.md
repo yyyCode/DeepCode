@@ -72,9 +72,28 @@ node /path/to/DeepCode/bin/deepcode.mjs "跑一下测试，把失败的那条修
 | 变量 | 作用 |
 |---|---|
 | `ANTHROPIC_API_KEY` | API key |
+| `ANTHROPIC_AUTH_TOKEN` | 同上，兼容端点用的名字（给了 `ANTHROPIC_API_KEY` 时以它为准） |
 | `DEEPCODE_MODEL` | 覆盖模型 id，默认 `claude-sonnet-5-5` |
+| `ANTHROPIC_MODEL` | 同上，兼容端点用的名字 |
 | `ANTHROPIC_BASE_URL` | 覆盖 API 端点 |
 | `DEEPCODE_DEBUG` | 打开调试轨迹（走 stderr）：每次 dispatch 一行，说明这个事件被哪些 hook 应答、谁被跳过了。流式事件（`turn.step`）不打，否则会刷屏 |
+
+### 换成别的后端（例如 DeepSeek）
+
+Anthropic 兼容端点只要改这三样 —— 上面已经认了这套变量名，
+所以你在 Claude Code 里配过的那组 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`
+不用再 `export` 一遍：
+
+```json
+{
+  "apiKey": "sk-...",
+  "model": "deepseek-v4-flash",
+  "baseUrl": "https://api.deepseek.com/anthropic"
+}
+```
+
+认证头不用改：`x-api-key` 与 `Authorization: Bearer` 两种都收。这套是实测跑通过的 ——
+能读文件、能走工具调用回合、非 TTY 下 `Bash` 照样被拒。
 
 会话启动时还会读取项目指令文件，拼进系统提示：`<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md`、
 `~/.deepcode/AGENTS.md`。

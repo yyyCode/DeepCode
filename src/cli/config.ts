@@ -17,6 +17,39 @@ const FIELD_TYPES: Record<keyof CliConfig, 'string' | 'boolean'> = {
   debug: 'boolean',
 };
 
+/** 没有任何配置时用的模型。写在这里是为了让"默认值是什么"只有一处。 */
+export const DEFAULT_MODEL = 'claude-sonnet-5-5';
+
+export type ResolvedSettings = {
+  apiKey: string | undefined;
+  model: string;
+  baseUrl: string | undefined;
+  debug: boolean;
+};
+
+/**
+ * 环境变量与配置文件合到一处，优先级 `环境变量 > 配置文件`。
+ *
+ * 每个变量都有两个名字，因为市面上的 Anthropic 兼容端点（DeepSeek 等）配的是
+ * `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` 这一组，而 Anthropic 官方 SDK 自己
+ * 用的是 `ANTHROPIC_API_KEY`。两组都认，用户就不用为了换个后端再 export 一遍。
+ * 认证头本身不用改：`x-api-key` 与 `Authorization: Bearer` 两边都收（实测过）。
+ *
+ * 抽成纯函数而不是留在 main.ts 里，是因为"谁盖谁"这条规则正是最该被钉住的部分，
+ * 而 main.ts 是个一跑就建 readline、连网的脚本，测不动。
+ */
+export function resolveSettings(
+  env: Record<string, string | undefined>,
+  config: CliConfig,
+): ResolvedSettings {
+  return {
+    apiKey: env.ANTHROPIC_API_KEY ?? env.ANTHROPIC_AUTH_TOKEN ?? config.apiKey,
+    model: env.DEEPCODE_MODEL ?? env.ANTHROPIC_MODEL ?? config.model ?? DEFAULT_MODEL,
+    baseUrl: env.ANTHROPIC_BASE_URL ?? config.baseUrl,
+    debug: Boolean(env.DEEPCODE_DEBUG) || config.debug === true,
+  };
+}
+
 export type LoadConfigDeps = {
   /** 用户主目录：用户级配置在 `<home>/.deepcode/config.json`。 */
   home: string;

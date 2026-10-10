@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/cli/config';
+import { loadConfig, resolveSettings } from '../src/cli/config';
 
 const HOME = '/home/u';
 const ROOT = '/work/p';
@@ -77,5 +77,68 @@ describe('配置文件：坏输入不许静默失效', () => {
   it('字段类型不对时抛，并说清期望与实际', async () => {
     const { run } = load({ [PROJECT_PATH]: JSON.stringify({ debug: 'yes' }) });
     await expect(run()).rejects.toThrow(/"debug" 应该是 boolean/);
+  });
+});
+
+describe('resolveSettings：环境变量盖过配置文件', () => {
+  it('空环境 + 空配置 = 只剩默认模型，key 缺失由调用方去报', () => {
+    expect(resolveSettings({}, {})).toEqual({
+      apiKey: undefined,
+      model: 'claude-sonnet-5-5',
+      baseUrl: undefined,
+      debug: false,
+    });
+  });
+
+  it('配置文件能用，且被环境变量逐字段盖掉', () => {
+    const config = {
+      apiKey: 'sk-文件',
+      model: '文件模型',
+      baseUrl: 'https://file.example',
+      debug: true,
+    };
+    // 只给一个环境变量：它盖掉同名字段，其余仍来自配置文件（合并，不是整体替换）。
+    expect(resolveSettings({ DEEPCODE_MODEL: '环境模型' }, config)).toEqual({
+      apiKey: 'sk-文件',
+      model: '环境模型',
+      baseUrl: 'https://file.example',
+      debug: true,
+    });
+  });
+
+  it('认 Anthropic 兼容端点那组名字（DeepSeek 等就是配这三个）', () => {
+    // 这组名是 Claude Code 留给兼容端点的，用户机器上往往已经 export 了；
+    // 只认 DEEPCODE_MODEL 的话，换后端就得再 export 一遍。
+    expect(
+      resolveSettings(
+        {
+          ANTHROPIC_AUTH_TOKEN: 'sk-兼容端点',
+          ANTHROPIC_MODEL: 'deepseek-v4-flash',
+          ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
+        },
+        {},
+      ),
+    ).toEqual({
+      apiKey: 'sk-兼容端点',
+      model: 'deepseek-v4-flash',
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      debug: false,
+    });
+  });
+
+  it('两套名字都给了时，官方那套赢', () => {
+    const env = {
+      ANTHROPIC_API_KEY: 'sk-官方',
+      ANTHROPIC_AUTH_TOKEN: 'sk-兼容',
+      DEEPCODE_MODEL: '官方模型',
+      ANTHROPIC_MODEL: '兼容模型',
+    };
+    expect(resolveSettings(env, {})).toMatchObject({ apiKey: 'sk-官方', model: '官方模型' });
+  });
+
+  it('debug 是"或"：环境变量关不掉配置文件里的 true', () => {
+    // 文档里说的是"环境变量 > 配置文件"，但 debug 只有"给没给"没有"给成 false"，
+    // 空字符串同样是 falsy —— 所以这里只能是或。写清楚，免得被当成 bug 改掉。
+    expect(resolveSettings({ DEEPCODE_DEBUG: '' }, { debug: true }).debug).toBe(true);
   });
 });

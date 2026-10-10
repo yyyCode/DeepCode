@@ -3749,6 +3749,24 @@ git commit -m "docs: README 与 MVP 收尾"
 > - **顺带纠正文档里的假话**：设计文档原写"MVP 的配置只来自 CLI flag 与环境变量，不读任何设置文件"，
 >   加了 `config.ts` 之后这句不再成立，已改成区分"启动配置"与"settings"（§3.5）。
 
+### 追加需求 · 认兼容端点的那组变量名
+
+**需求**：用户在 Claude Code 里配的是 DeepSeek 的 Anthropic 兼容端点，环境里已有
+`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`，但 DeepCode 只认
+`ANTHROPIC_API_KEY` / `DEEPCODE_MODEL` —— 开箱即"缺少 API key"。
+
+- **改**：`apiKey` 与 `model` 各认两个名字（`ANTHROPIC_API_KEY` ?? `ANTHROPIC_AUTH_TOKEN`；
+  `DEEPCODE_MODEL` ?? `ANTHROPIC_MODEL`），两套都给时官方那套赢。
+- **抽函数**：把优先级规则从 `main.ts` 提到 `config.ts` 的 **`resolveSettings(env, config)`** ——
+  "谁盖谁"正是最该被钉住的部分，而 `main.ts` 是个一跑就建 readline、连网的脚本，测不动。
+  新增 5 条测试（含"debug 只能是或、环境变量关不掉配置文件里的 true"这条反直觉语义）。
+- **认证头不用动**：实测 `x-api-key` 与 `Authorization: Bearer` DeepSeek 两边都收。
+- **真机验证**（不是只跑单测）：① 带环境变量的完整回合跑通 —— 读文件、求和得 50；
+  ② 把六个环境变量全部 `env -u` 掉、只靠 `~/.deepcode/config.json`，再跑一次仍跑通（最大值 25）。
+- **一次顺带的安全观察**：模型自己多调了一次 `Bash`（`ls -la; find . -name numbers.txt`），
+  调试轨迹显示 `tool.check → confirm@builtin` 之后**没有** `tool.call` —— 非 TTY 下它被拒了，
+  而回合照常结束。fail-closed 在真模型面前也成立。
+
 ---
 
 ## 自查记录
