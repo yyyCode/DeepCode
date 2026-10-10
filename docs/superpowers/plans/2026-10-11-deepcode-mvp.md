@@ -46,7 +46,7 @@ DeepCode/
 │   │   ├── model-provider.ts            Task 3   Message / ContentBlock / ToolSpec / StreamEvent / ModelProvider
 │   │   ├── plugin.ts                    Task 4   Plugin / On / EventHook
 │   │   ├── engine.ts                    Task 4   EngineInterface + 10 个名词类型
-│   │   ├── events.ts                    Task 5   40 个事件的 Args/Result 冻结
+│   │   ├── events.ts                    Task 5   39 个事件的 Args/Result 冻结
 │   │   └── index.ts                     Task 5   barrel
 │   ├── core/
 │   │   ├── errors.ts                    Task 6   NotImplementedError / BudgetExceeded
@@ -571,13 +571,13 @@ git commit -m "feat(contract): Plugin/On 注册面与 EngineInterface 名词表"
 
 ---
 
-### Task 5: `contract/events.ts` —— 40 个事件的冻结
+### Task 5: `contract/events.ts` —— 39 个事件的冻结
 
 **Files:**
 - Create: `src/contract/events.ts`
 - Create: `src/contract/index.ts`
 
-这是整个 MVP 里最重要的一份文件：**先定事件目录，再定 API**。运行时要实现的只有 12 个，但 40 个事件的名字与 `Args`/`Result` 在这里一次冻结。
+这是整个 MVP 里最重要的一份文件：**先定事件目录，再定 API**。运行时要实现的只有 12 个，但全部 39 个事件（12 实现 + 27 只声明）的名字与 `Args`/`Result` 在这里一次冻结。
 
 - [ ] **Step 1: 写 `src/contract/events.ts`**
 
@@ -629,7 +629,7 @@ export type EventResult = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// 第二族：只声明、未实现的事件（约 28 个）
+// 第二族：只声明、未实现的事件（27 个）
 //
 // core 落到它们时抛 NotImplementedError。现在就冻结，是因为事件目录
 // 是这套架构里最容易返工的部分 —— 见设计文档 §3.3。
@@ -723,7 +723,7 @@ Expected: `依赖边界检查通过`（`contract/` 不 import 任何同级目录
 
 ```bash
 git add src/contract/
-git commit -m "feat(contract): 冻结 40 个事件的事件目录"
+git commit -m "feat(contract): 冻结 39 个事件的事件目录"
 ```
 
 ---

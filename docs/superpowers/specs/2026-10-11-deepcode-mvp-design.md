@@ -17,7 +17,7 @@
 | 模型接入 | `ModelProvider` 抽象 + 先落 **Anthropic 官方适配器** | tool_use / 流式语义与文档 1:1 对齐 |
 | 必含能力 | 事件链内核 + 六个核心工具 | 用户确认 |
 | 安全底线 | `tool.check` 上的最小 y/N 确认 | 不读设置文件；P2 换实现，内核不改 |
-| 契约策略 | **方案 A：契约全量冻结，实现按需裁剪** | 40 个事件全部在类型里；只实现 12 个 |
+| 契约策略 | **方案 A：契约全量冻结，实现按需裁剪** | 39 个事件全部在类型里；只实现 12 个，其余 27 个只声明 |
 
 ---
 
@@ -113,7 +113,7 @@ MVP 实际只有 `builtin`（内建插件）与 `core`（内核）两层落座�
 | `tool.describe` | `{ tool }` | `{ description, inputSchema }` |
 | `command.run` | `{ name, args }` | `{}` |
 
-### 3.3 只声明、未实现的约 28 个事件
+### 3.3 只声明、未实现的 27 个事件
 
 `ui.render` / `ui.press` / `ui.input` / `ui.select` / `ui.message` / `ui.scroll` / `ui.focus` / `ui.resolve`、
 `agent.offer` / `agent.spawn`、
@@ -175,7 +175,7 @@ MVP 的行为细则：
 
 ### 3.6 契约的运行时校验
 
-**MVP 不做。** 事件目录的 40 个事件全部写在 `contract/events.ts` 一个文件里，删了或改名了肉眼就能看见；为它单独加一份快照测试是 §6.3 明确排除的开销。
+**MVP 不做。** 事件目录的 39 个事件全部写在 `contract/events.ts` 一个文件里，删了或改名了肉眼就能看见；为它单独加一份快照测试是 §6.3 明确排除的开销。
 
 契约这一层的真实保障来自**编译器**而不是测试：消费方 import 同一份契约文件（永不复制），`Args`/`Result` 对不上、事件名拼错、hook 签名写偏，`pnpm typecheck` 全部报错。文档第 12 条共性原则"把安全约定变成会失败的检查"在 MVP 阶段的落点是这条编译期检查，外加 §5.2 那条 fail-closed 的运行时分支。
 
@@ -369,7 +369,7 @@ DeepCode/
 
 | 模块 | **MVP** | **P1 会话与体验** | **P2 安全与策略** | **P3 扩展面** | **P4 组合面** | **P5 内建与分发** |
 |---|---|---|---|---|---|---|
-| `contract` | 40 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 | `AgentSpec` 全字段 | — |
+| `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 | `AgentSpec` 全字段 | — |
 | **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 | — | — |
 | **provider** | Anthropic 适配器 | OpenAI 兼容适配器 | gateway / `base_url` 收口 | — | — | — |
 | **工具** | 6 个核心工具 | +TodoWrite/WebFetch/WebSearch | 按权限过滤工具可见性 | MCP 桥接 | Task 工具（派子代理） | — |
