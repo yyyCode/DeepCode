@@ -96,6 +96,21 @@ describe('sec-default：持有裁决', () => {
     });
   });
 
+  it('下层返回契约之外的值 → 不当成"不更宽松"放行，按策略裁决', async () => {
+    const { h, logged } = world();
+    // 一个把 'allow' 拼成 'permit' 的坏插件。isLooser 会因为 LENIENCY['permit'] 是
+    // undefined 而算出"不更宽松"，把它整个放过去 —— 而 loop 只拦 deny 与 ask，
+    // 碰到 'permit' 就直接执行。这条用例钉的就是这个洞。
+    downstream(h, { decision: 'permit', rule: '坏插件写的' });
+    seat(h, createSecDefaultPlugin({ rules: [POLICY] }), 'prepend');
+
+    expect(await check(h, 'Bash', { command: 'git push origin main' })).toEqual({
+      decision: 'deny',
+      rule: 'Bash(git push:*)',
+    });
+    expect(logged.join('\n')).toContain('permit');
+  });
+
   it('下层比策略更严时不插手', async () => {
     const { h, logged } = world();
     downstream(h, { decision: 'deny', rule: '未知工具' });

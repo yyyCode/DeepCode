@@ -103,6 +103,12 @@ export function parseRule(text: string, decision: Behavior, home: string): Parse
         ? slashes(squeeze(expandHome(content, home))).replace(/\/+/g, '/')
         : content;
 
+  // `Bash(:*)` 与 `Bash` 同义（见 matchesBash），但**同义要同到隐藏工具那一处**：
+  // `fullyDeniedTools` 认的是 `content === undefined`，若在这里留着 `':*'`，
+  // `deny: ["Bash(:*)"]` 会拒绝掉全部 Bash、却仍把 Bash 摆在模型眼前。
+  // 所以在解析期就归成同一个形状，而不是只在匹配时等价。
+  if (tool === 'Bash' && normalized === ':*') return { raw, tool, decision };
+
   return { raw, tool, content: normalized, decision };
 }
 
@@ -148,7 +154,9 @@ function matchesBash(content: string, input: unknown): boolean {
 
   if (content.endsWith(':*')) {
     const prefix = content.slice(0, -2).trim();
-    if (prefix === '') return true; // `Bash(:*)` 与 `Bash` 同义
+    // `Bash(:*)` 与 `Bash` 同义。parseRule 已把它归一成 `content: undefined`，
+    // 所以正常路径走不到这里；留着是给手写的 Rule 字面量（测试、将来的插件）兜底。
+    if (prefix === '') return true;
     return normalized === prefix || normalized.startsWith(`${prefix} `);
   }
   return normalized === content;
@@ -184,7 +192,13 @@ function globToRegExp(pattern: string): RegExp {
 function matchesPath(pattern: string, input: unknown): boolean {
   const filePath = readString(input, 'file_path');
   if (filePath === undefined) return false;
-  return globToRegExp(pattern).test(slashes(filePath));
+  // 连续分隔符也折成一个 —— 与规则侧（见 parseRule）同一条归一。
+  // 只折规则侧是最坏的非对称：模型给出 `/srv//a.txt` 时，规则 `/srv/a.txt` 安静地不命中，
+  // deny 变成一次静默的 fail-open。
+  // 空白则**不**折：真实路径里可以有两个连续空格（`a  b.txt` 是合法文件名），调用侧
+  // 一折，一条指向 `/x/a  b.txt` 的规则就会连 `/x/a b.txt` 这个**别的文件**一起命中 ——
+  // 越界比不命中更坏。规则侧折空白是计划里的既有行为，由 `规则路径里的连续空白也折叠` 钉着。
+  return globToRegExp(pattern).test(slashes(filePath).replace(/\/+/g, '/'));
 }
 
 /**

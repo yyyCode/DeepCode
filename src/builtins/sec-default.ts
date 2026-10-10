@@ -38,7 +38,14 @@ export function createSecDefaultPlugin(deps: SecDefaultDeps): Plugin {
           //   若让策略在这里也赢，一条 `allow: ["Bash"]` 就成了自动放行开关，
           //   与"谁加自动放行开关谁就是在开倒车"直接冲突。
           if (policy === undefined || policy.decision === 'allow') return below;
-          if (!isLooser(below.decision, policy.decision)) return below;
+
+          // 只放行**认得**的裁决。下游若返回一个不在契约里的值（插件写错、把 'allow'
+          // 拼成 'permit'），isLooser 会因为 LENIENCY[未知] 是 undefined 而算出 false，
+          // 被当成"不更宽松"整个放过去；而 loop 只拦 deny 与 ask，碰到任何别的值就直接
+          // 执行 —— 那个插件于是整条绕开了托管策略。认不出的，一律按"下游放宽了"处理。
+          const known =
+            below.decision === 'deny' || below.decision === 'ask' || below.decision === 'allow';
+          if (known && !isLooser(below.decision, policy.decision)) return below;
 
           // 下游确实放宽了。持有裁决：直接拿策略的规则原文作答。
           $.ui.log(

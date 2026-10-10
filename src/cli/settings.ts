@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isSupported, parseRule, type Behavior, type Rule } from '../contract/policy';
@@ -43,9 +42,18 @@ export type ResolvedPolicy = {
 export type TextReader = (path: string) => Promise<string | undefined>;
 
 export const defaultTextReader: TextReader = async (path) => {
-  if (!existsSync(path)) return undefined;
-  // 目录也会过 existsSync，于是 readFile 抛 EISDIR —— 正好落进"存在但读不了"。
-  return readFile(path, 'utf8');
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    // 只有"不存在"算正常（绝大多数机器没有托管文件）。
+    if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined;
+    // 其余一律抛出去。
+    // ⚠️ 这里曾经是 `if (!existsSync(path)) return undefined` —— 一个把自己的承诺反过来的
+    // 短路：existsSync 在"文件在、但 stat 过来被拒"时也返回 false，于是 EACCES 这类
+    // "存在但读不了"被伪装成"没这个文件"，整层静默作废。而这是托管策略所在的层 ——
+    // 恰恰是设计里最不能安静的那一层。
+    throw error;
+  }
 };
 
 /** 托管策略文件的位置。`env` 与 `platform` 可注入，测试才不必碰系统目录。 */

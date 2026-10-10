@@ -1,7 +1,9 @@
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   defaultManagedPath,
+  defaultTextReader,
   resolvePolicy,
   type ResolvedPolicy,
   type ResolvePolicyDeps,
@@ -199,6 +201,30 @@ describe('托管策略：本设计唯一一条真正的 fail-open', () => {
     const { policy, warnings } = await load({});
     expect(info(policy, 'policy')?.state).toBe('missing');
     expect(warnings).toEqual([]);
+  });
+});
+
+describe('defaultTextReader：真实 IO 的那条分界线', () => {
+  // 上面每个用例都注入了假的 readText，所以这一小段真实实现此前一直没人碰过。
+  //
+  // ⚠️ 老实说：这三条**钉不住**那次修改。它曾经写成 `if (!existsSync(path)) return undefined`，
+  // 而出问题的那类输入是"文件在、stat 却被拒"（EACCES / ELOOP）—— existsSync 把它报成
+  // "没这个文件"，于是"存在但读不了必须吼出来"这条承诺被反转，整层静默作废。
+  // 这类路径没法在 Windows 上可移植地造出来（符号链接要管理员权限），所以改法是
+  // "按构造正确"而不是"按测试正确"：直接 readFile、只认 ENOENT。
+  // 留着这几条是为了锁住契约的两个方向 —— 它们将来会挡住把实现改回"猜文件在不在"的手。
+  it('真的存在且可读 → 返回内容', async () => {
+    expect(await defaultTextReader(fileURLToPath(import.meta.url))).toContain('defaultTextReader');
+  });
+
+  it('不存在 → undefined，这是正常情形（绝大多数机器没有托管文件）', async () => {
+    const missing = join(process.cwd(), '肯定没有这个目录', 'settings.json');
+    expect(await defaultTextReader(missing)).toBe(undefined);
+  });
+
+  it('存在但是个目录 → 抛，而不是伪装成"没这个文件"', async () => {
+    // 读目录在 POSIX 与 Windows 上都是 EISDIR。断言宽松到只要求"抛"，不钉错误码。
+    await expect(defaultTextReader(process.cwd())).rejects.toThrow();
   });
 });
 

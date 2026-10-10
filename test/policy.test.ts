@@ -137,7 +137,11 @@ describe('匹配：Bash', () => {
   });
 
   it('Bash(:*) 与 Bash 同义', () => {
-    expect(matchesRule(rule('Bash(:*)', 'deny'), call('Bash', { command: 'ls' }))).toBe(true);
+    const r = rule('Bash(:*)', 'deny');
+    expect(matchesRule(r, call('Bash', { command: 'ls' }))).toBe(true);
+    // 同义必须"全同"：隐藏工具那一处认的是 content === undefined，
+    // 只在匹配时等价的话，deny 了全部 Bash 却仍把 Bash 摆在模型眼前。
+    expect(fullyDeniedTools([r])).toEqual(['Bash']);
   });
 
   it('冒号前的空白不影响：`git push :*` 与 `git push:*` 同义', () => {
@@ -175,6 +179,11 @@ describe('匹配：路径 glob', () => {
   it('分隔符两侧归一：规则写反斜杠、调用给正斜杠也要命中', () => {
     const r = rule('Edit(C:\\Users\\x\\.npmrc)', 'deny');
     expect(matchesRule(r, call('Edit', { file_path: 'C:/Users/x/.npmrc' }))).toBe(true);
+  });
+
+  it('调用侧连续分隔符也折成一个 —— 只折规则侧会让规则安静地不命中', () => {
+    const r = rule('Read(/srv/data/.ssh/**)', 'deny');
+    expect(matchesRule(r, call('Read', { file_path: '/srv/data//.ssh/id_rsa' }))).toBe(true);
   });
 
   it('Write 与 Edit 也走路径匹配', () => {
