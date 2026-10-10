@@ -28,6 +28,8 @@ EOF
 cd /你的项目
 deepcode "跑一下测试，把失败的那条修掉"    # 一次性，跑完退出
 deepcode                                    # 不带参数 = 交互式 REPL
+deepcode --resume                           # 接上当前目录最近一次会话
+deepcode --resume=20261011-034855-a1b2      # 接上指定 id 的会话
 deepcode --help                             # 用法
 deepcode --version                          # 版本号
 ```
@@ -38,8 +40,9 @@ deepcode --version                          # 版本号
 node /path/to/DeepCode/bin/deepcode.mjs "..."
 ```
 
-除了 `--help` / `-h` 和 `--version` / `-V`，其余 `argv` 一律被拼成**一句提示词** ——
-这个 CLI 的参数没有别的含义，所以不必记开关。
+认的开关只有三组：`--help` / `-h`、`--version` / `-V` 和 `--resume` 系列（`--resume` / `--resume=<id>`），
+其余 `argv` 一律被拼成**一句提示词**。所以 `deepcode --resume "继续修测试"` 里那句话是提示词，不是 id ——
+指定 id 只能写成带等号的 `--resume=<id>`。
 
 > ⚠️ 别写成 `pnpm --dir /path/to/DeepCode dev "..."`。pnpm 会把脚本的 cwd 设成**包目录**，
 > 于是工作目录变成 DeepCode 仓库自己，模型会在错误的仓库里改文件。`bin/deepcode.mjs`
@@ -50,6 +53,8 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
 | 输入 | 效果 |
 |---|---|
 | `/help` | 列出可用命令与工具 |
+| `/diff` | 看本会话改过哪些文件（unified 格式，带着色） |
+| `/clear` | 清空上下文（磁盘上的转录保留） |
 | `/exit` | 退出（`Ctrl-D` 也行） |
 | `Ctrl-C` | 掐断当前这一回合（正在跑的模型请求与命令一起断），进程不退，可以接着聊；空闲时按 = 退出，同一回合里连按两次 = 强制退出 |
 
@@ -70,11 +75,12 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
   "apiKey": "sk-ant-...",
   "model": "claude-sonnet-5-5",
   "baseUrl": "https://api.anthropic.com",
+  "provider": "anthropic",
   "debug": false
 }
 ```
 
-四个字段都可省略。**字段名写错会被点名**，不会安静地不生效 —— 拼成 `modle` 你会看到一行
+五个字段都可省略。**字段名写错会被点名**，不会安静地不生效 —— 拼成 `modle` 你会看到一行
 `不认识的字段 "modle"`。JSON 语法错、顶层不是对象、类型不对，则直接报错并带上路径，不会退回默认值。
 
 > ⚠️ 项目级配置里放 `apiKey` 有明显风险：这个文件很容易跟着仓库一起提交出去。
@@ -90,6 +96,7 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
 | `DEEPCODE_MODEL` | 覆盖模型 id，默认 `claude-sonnet-5-5`。与 `ANTHROPIC_MODEL` 同时给时以它为准 |
 | `ANTHROPIC_MODEL` | 同上，兼容端点常用的名字 |
 | `ANTHROPIC_BASE_URL` | 覆盖 API 端点 |
+| `DEEPCODE_PROVIDER` | 选后端协议：`anthropic` / `openai`，默认 `anthropic`。写别的直接报错，**不静默退回默认值** |
 | `DEEPCODE_DEBUG` | 打开调试轨迹（走 stderr）：每次 dispatch 一行，说明这个事件被哪些 hook 应答、谁被跳过了。流式事件 `turn.step` 不打，否则会刷屏 |
 
 此外还会读取项目指令文件，拼进系统提示：`<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md`、
@@ -109,6 +116,28 @@ Anthropic 兼容端点只要改三样。这套变量名已经内置支持，所�
 ```
 
 认证头不用改：`x-api-key` 与 `Authorization: Bearer` 两种都收（DeepSeek 实测）。
+
+### OpenAI 兼容端点
+
+如果那个后端说的是 OpenAI 协议（`/chat/completions`），把 `provider` 设成 `openai`：
+
+```json
+{
+  "provider": "openai",
+  "apiKey": "sk-...",
+  "model": "deepseek-chat",
+  "baseUrl": "https://api.deepseek.com/v1"
+}
+```
+
+**`baseUrl` 要自带版本段**（这里的 `/v1`）。请求路径是 `${baseUrl}/chat/completions`，
+不做"看到没 `/v1` 就替你补上"的魔法 —— 那只能靠猜，而猜错的症状是一个 404。
+换端点时也照这个规矩写全。`provider` 省略时默认 `anthropic`。
+
+**模型 id 写错时，启动期查不出来**：端点各自认识哪些模型只有端点自己知道，
+所以启动期只查形状（非空、不含空白字符，拦 `claude sonnet` 这种手滑）。真写错了，
+请求失败时会得到一句点名模型 id 的提示（`模型 id "X" 在这个端点看来不存在……`），
+而不是一个光秃秃的 404。
 
 ### 排查：为什么它没走我的配置
 
@@ -158,6 +187,41 @@ reg delete "HKCU\Environment" /v ANTHROPIC_AUTH_TOKEN /f
 `"type":"new_api_error"` 是 one-api / new-api 这类**中转网关**的格式。看到后者，说明请求压根没发到你
 以为的那个端点。
 
+## 会话落盘
+
+每场会话都落成一份 JSONL，放在**用户级**目录下（不进项目目录，免得被跟着仓库提交出去）：
+
+```
+~/.deepcode/projects/<工作目录>/sessions/<id>.jsonl
+```
+
+Windows 上就是 `C:\Users\<你>\.deepcode\projects\<工作目录>\sessions\<id>.jsonl`。
+`<id>` 形如 `20261011-034855-a1b2`，按文件名排就是时间序。接会话：
+
+| 命令 | 接上 |
+|---|---|
+| `deepcode --resume` | 当前目录**最近一次**会话 |
+| `deepcode --resume=<id>` | 指定 id 的那一次 |
+
+`--resume` 只认当前目录自己的会话（每条转录里记着真实 cwd，撞名也不会接错）。
+找不到时：`--resume` 说这个目录还没有可接上的会话，`--resume=<id>` 会列出这个目录下有哪些 id，
+两者都以退出码 1 收场 —— 你明确要求恢复，没能恢复就不是成功。
+
+> ⚠️ **转录里是代码与文件内容。** 删掉那个 `.jsonl` 文件，就等于删掉那次会话 ——
+> 没有别的副本，也不做过期清理。
+
+落盘写不进去（`~/.deepcode` 只读、磁盘满）时**不拖垮产品**：打一行警告，然后照常跑完这一轮，
+只是这次 `--resume` 接不上。转录是便利功能，不该因为它能不能写而决定你能不能干活。
+
+## 着色与 spinner
+
+- `NO_COLOR`：设了**且非空**就关掉着色（空串等于没设）。
+- `FORCE_COLOR`：非空且不为 `0` 就打开（有些 CI 把它设成 `0` 而不是删掉，那与不设同义）。
+- 非 TTY（管道、重定向到文件、CI）自动关 —— 转义序列写进文件是明确有害的。
+- spinner（braille 帧）**只写 stderr**，且只在 TTY 下转；非 TTY 环境里它一个字节都不产出。
+
+关掉着色时输出与"根本没有这个功能"逐字节相同。
+
 ## 架构一句话
 
 引擎在每个调用点抛出一个事件，所有插件（**包括六个内建工具**）把自己的 hook 注册成中间件，
@@ -189,10 +253,10 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 
 ## 已知限制（MVP 有意不做）
 
-- **无会话落盘**：退出即丢，没有 `--resume`。
 - **中断只杀外壳**：`Bash` 在 Windows 上经 `cmd.exe` 起命令，`Ctrl-C` 掐断的是这层外壳，
   它下面的孙进程可能继续残留（没有进程组）。
-- **渲染只有纯文本**：没有 TUI、没有语法高亮，也不走 `ui.render` 事件。
+- **没有 TUI、没有语法高亮**：现在有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，
+  也不走 `ui.render` 事件（那一层排到 P3）。
 - **39 个事件里实现了 12 个**：其余 27 个已声明、未实现，用到时会抛 `NotImplementedError`。
 
 ## 开发
@@ -200,7 +264,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，7 个文件 73 个用例
+pnpm test        # 测试（全量）
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 

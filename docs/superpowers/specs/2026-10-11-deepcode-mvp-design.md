@@ -394,7 +394,7 @@ DeepCode/
 
 ### 9.2 模块 × 阶段矩阵
 
-| 模块 | **MVP** | **P1 会话与体验** | **P2 安全与策略** | **P3 扩展面** | **P4 组合面** | **P5 内建与分发** |
+| 模块 | **MVP** | **P1 会话与体验**（已完成） | **P2 安全与策略** | **P3 扩展面** | **P4 组合面** | **P5 内建与分发** |
 |---|---|---|---|---|---|---|
 | `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 | `AgentSpec` 全字段 | — |
 | **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 | — | — |
@@ -409,6 +409,20 @@ DeepCode/
 | **UI** | 纯文本流 | cli 层自用 Ink 组件（spinner / diff / 确认框，**不走事件**） | — | `ui.render` 数据树 + `$.ui.resolve` 逐 surface 元素表（**渲染首次暴露为事件给插件**） | 多 surface | 桌面 / IDE 扩展 |
 | **内建 mod** | — | `/diff` 雏形 | — | — | telemetry 零自由文本行协议 | diff 分屏 + agents-md 范式 |
 | **CI 分发** | lint + test | — | — | 校验器进 CI | 硬化三件套 | 安装面 + gateway + CHANGELOG 产品面 |
+
+> **P1 已完成（2026-10-11）**。实际交付是这 8 项，详见 `2026-10-11-deepcode-p1-design.md` §1：
+>
+> 1. 会话落盘（JSONL，用户级）+ `--resume`
+> 2. OpenAI 兼容 provider（配置切换）
+> 3. `/diff` + 本会话改动记录
+> 4. 表现原语：ANSI 调色板与单行 spinner
+> 5. 同一轮多个工具结果合并成一条消息
+> 6. 模型 id 形状校验 + API 404 翻成人话
+> 7. 座位顺序显式化（同 tier 内按插件分组）
+> 8. `ui.*` 八个事件的参数/结果类型（**只钉形状，仍不实现**）
+>
+> 矩阵里 P1 列属于"组合面"的"斜杠命令完备"由第 3 项（`/diff`、`/clear`）落地；
+> P1 列里 **TodoWrite / WebFetch / WebSearch** 本轮未做（不在三条出口标准内，理由见 P1 设计 §1）。
 
 ### 9.3 各阶段出口标准
 
@@ -447,10 +461,16 @@ DeepCode/
 6. **不用 ESLint**。只保留边界检查脚本与 `tsc --noEmit`，不引入 ESLint 生态。真正的价值来自类型与边界，风格规则留到 P1。
 7. **`engine.create` 折叠在 MVP 中是空转的**。`createEngine` 先折叠出 `$`，之后才逐个跑 `plugin.register` 准入。顺序不能反——`plugin.register` 的判定本身要经过链，而链要用 `$`；先注册后建 `$` 就成环了。代价是**没有任何插件能通过 `engine.create` 往 `$` 上加名词**。MVP 的八个插件都不加名词（工具只挂 `tool.call`，确认器只挂 `tool.check`），所以无害。但 P3 引入"插件扩展 `$`"时必须先解决这个先后顺序（可行方向：两趟注册，第一趟只收集 `engine.create` 的 hook，第二趟做准入）。在那之前，往 `engine.create` 上挂 hook 是**静默无效**的。
 
-**已知缺陷（两轮收尾评审发现，判为 LOW，留到 P1）**：
+**已知缺陷（两轮收尾评审发现，判为 LOW，留到 P1）**：**（两条均已在 P1 修掉，修法见各条下的"P1 已修"）**
 
 1. **一次 turn 里多个工具调用的结果会拆成多条 user 消息**，而不是合并成一条。`loop.ts` 每个 `tool_use` 推一条 `{role:'tool'}`，provider 各自转成一个 `user` 消息 —— 不会 400（Anthropic 会合并连续的同角色消息），但按官方的并行工具调用建议应当合并成一条。修法是让 `Message` 的 tool 形态支持一组结果。
+   **（P1 已修）** 工具结果**合并进中立层**：`Message` 的 tool 形态改成 `{role:'tool', results:[...]}`，
+   loop 里所有工具跑完之后推**一条**消息；落地时 Anthropic 转成一条带多个 `tool_result` 的 user 消息，
+   OpenAI 按其协议拆成多条 `tool_call_id` 消息。合并只发生在我们自己的中立层，不是为了省 token。
 2. **DEEPCODE_MODEL 之外没有模型校验**：模型 id 写错时错误来自 API 的 404，不是启动期就报。默认值已从疑似退役的 `claude-sonnet-4-5` 改为 `claude-sonnet-5-5`。
+   **（P1 已修）** 模型 id 走"**启动期查形状 + 请求失败翻译 404**"：`resolveSettings` 只查形状
+   （非空、不含空白字符），存在性仍交给端点 —— 两个 provider 非 2xx 时统一经 `providers/http.ts`
+   把 404 或响应里的 `model_not_found` 之类翻成一句点名模型 id 的提示。不硬编模型清单。
 
 **存疑（架构文档本身无法确认，需在本项目自行拍板）**：
 | 主题 | 待拍板的内容 |
