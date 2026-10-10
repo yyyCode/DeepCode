@@ -3665,6 +3665,33 @@ git add README.md
 git commit -m "docs: README 与 MVP 收尾"
 ```
 
+> **实施记录**：C4 三项都实际跑过。
+>
+> - **门禁**：`pnpm typecheck && pnpm lint && pnpm test` 全绿 —— 5 个测试文件 / **37 个测试**
+>   （dispatch 15、safety 7、e2e 2、cli 4、tools 9）。
+> - **边界脚本确实会失败**（不是只贴一份通过的日志）：往 `src/contract/tier.ts` 顶部加
+>   `import { Registry } from '../core/registry';` 后 `pnpm lint` 退出码 1，输出
+>   `✗ contract\tier.ts: 不允许 import core/（只允许 无）`；删掉后恢复通过。
+> - **README 与计划里那版草稿有实质差异**，都是实测出来的，不是改文风：
+>   1. 草稿只写了 `pnpm dev`，但那条路会把**本仓库**当工作目录。README 拆成两条：
+>      在本仓库里用 `pnpm dev`，要在别的项目里干活就用 `node /path/to/DeepCode/bin/deepcode.mjs`，
+>      并明确警告别写 `pnpm --dir … dev` —— pnpm 会把脚本 cwd 设成包目录，
+>      于是一句话下去，模型在错的仓库里改文件。
+>   2. 补了键位表，其中 `Ctrl-C` 是**三态**的（掐断本回合 / 空闲时退出 / 同回合连按两次强制退出），
+>      配 `cli/turns.ts` 那套 50ms 去重逻辑。
+>   3. 安全清单补了三条实现里真实存在、草稿没写的：不认识的工具拒绝而非放行；
+>      `Write` 覆盖前必须先 `Read` 过；以及**有意没有** `--yes`（非交互环境没人能按 `y`，
+>      那就写不了文件 —— 谁加自动放行开关谁就是在开倒车）。
+>   4. 新增"已知限制"，只写验证过的：无会话落盘、Windows 下 shell 孙进程成孤儿、
+>      纯文本渲染、39 个事件实现 12 个。
+> - **收尾前做了一轮独立评审**，查出四处"门禁全绿、跑起来是坏的"缺陷，已修并各配一条回归测试
+>   （`9008f4d` + `test/safety.test.ts`）：确认提示没有出口（Ctrl-D/Ctrl-C 时整个会话挂死）、
+>   中断后命令照跑完（已 abort 的 signal 不补发事件）、`Edit` 在校验与写入之间文件被改过时静默写坏、
+>   被掐断的 turn 还退避重试一秒并误报"provider 出错"。
+>   每条测试都做过**反向验证**：把修复改回去，测试必须失败。其中一条最初写成"看命令有没有留下副作用"，
+>   改回修复后照样通过 —— 那是在跟 `kill` 赛跑，不是断言合同；改成断言 `spawn` 未被调用才算数。
+> - Task 20（C3 真机端到端）需要真实 `ANTHROPIC_API_KEY` 与 TTY，**未由我执行**，命令已备好留给你跑。
+
 > **C4 出口**：MVP 完成。下一个动作是写 P1 的计划（会话落盘 + `--resume` + Ink TUI + OpenAI 兼容适配器），见设计文档 §9.2。
 
 ---
