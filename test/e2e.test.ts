@@ -150,8 +150,37 @@ describe('E2E：脚本化模型的完整 turn', () => {
 
     expect(asked).toHaveLength(1);
     expect(await readFile(target, 'utf8')).toBe('original\n');
-    const toolResult = messages.find((m) => m.role === 'tool') as any;
-    expect(toolResult.isError).toBe(true);
-    expect(toolResult.content).toContain('拒绝');
+    const toolMessage = messages.find((m) => m.role === 'tool') as Extract<Message, { role: 'tool' }>;
+    expect(toolMessage.results[0]!.isError).toBe(true);
+    expect(toolMessage.results[0]!.content).toContain('拒绝');
+  });
+
+  it('一轮里模型要两个工具，结果合并成一条 tool 消息', async () => {
+    const a = join(root, 'a.txt');
+    const b = join(root, 'b.txt');
+    await writeFile(a, 'AAA\n', 'utf8');
+    await writeFile(b, 'BBB\n', 'utf8');
+
+    const { h, engine } = buildWorld([]);
+    const provider = scriptedProvider([
+      [
+        { type: 'tool_use', id: 'u1', name: 'Read', input: { file_path: a } },
+        { type: 'tool_use', id: 'u2', name: 'Read', input: { file_path: b } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text', text: '都看过了。' }, { type: 'done', stopReason: 'end_turn' }],
+    ]);
+
+    const messages: Message[] = [{ role: 'user', content: '两个都读一下' }];
+    await runTurn(
+      { $: engine, provider, signal: new AbortController().signal, dispatch: h.dispatch, systemPrompt: 'x', turnIndex: 0 },
+      messages,
+    );
+
+    const toolMessages = messages.filter((m) => m.role === 'tool');
+    expect(toolMessages).toHaveLength(1);
+    const results = (toolMessages[0] as Extract<Message, { role: 'tool' }>).results;
+    expect(results.map((r) => r.toolUseId)).toEqual(['u1', 'u2']);
+    expect(results[0]!.content).toContain('AAA');
   });
 });

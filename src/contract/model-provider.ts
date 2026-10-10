@@ -1,12 +1,24 @@
+export type ToolResult = {
+  readonly toolUseId: string;
+  readonly content: string;
+  readonly isError: boolean;
+};
+
 /** 发给模型的一条消息。工具结果在 Anthropic 协议里也是 user 消息，这里保持中立表示。 */
 export type Message =
   | { readonly role: 'user'; readonly content: string }
   | { readonly role: 'assistant'; readonly content: readonly ContentBlock[] }
   | {
       readonly role: 'tool';
-      readonly toolUseId: string;
-      readonly content: string;
-      readonly isError: boolean;
+      /**
+       * 一轮里模型可以同时要多个工具，结果**合并成一条消息**。
+       *
+       * 合并只发生在这个中立层：Anthropic 要"一条 user 消息里 N 个 tool_result block"，
+       * OpenAI 要"N 条 role:'tool' 消息"。中立层一旦选边，另一边就必然错 ——
+       * 所以由各自的 provider 在转换时决定怎么摊开。
+       * 这不是为了省 token：OpenAI 那边最终发出去的仍然是 N 条消息。
+       */
+      readonly results: readonly ToolResult[];
     };
 
 export type ContentBlock =

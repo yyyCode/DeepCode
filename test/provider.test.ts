@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAnthropicProvider } from '../src/providers/anthropic';
-import type { StreamEvent } from '../src/contract/model-provider';
+import type { Message, StreamEvent } from '../src/contract/model-provider';
 
 /**
  * 这些测试盯的是 SSE 解析 —— 之前**一个测试都没有**，于是整段代码只有真 API 才会走到。
@@ -25,12 +25,12 @@ function stub(chunks: readonly string[]): void {
   vi.stubGlobal('fetch', vi.fn(async () => sseResponse(chunks)));
 }
 
-async function collect(): Promise<StreamEvent[]> {
+async function collect(messages: readonly Message[] = []): Promise<StreamEvent[]> {
   const provider = createAnthropicProvider({ apiKey: 'k', model: 'm' });
   const events: StreamEvent[] = [];
   for await (const event of provider.stream({
     system: 's',
-    messages: [],
+    messages,
     tools: [],
     signal: new AbortController().signal,
   })) {
@@ -108,5 +108,40 @@ describe('Anthropic SSE 解析', () => {
     );
 
     await expect(collect()).rejects.toThrow(/401.*no key/s);
+  });
+
+  it('一条带两个结果的 tool 消息 → 一条 user 消息里两个 tool_result block', async () => {
+    // toAnthropicMessages 不是 export 的，所以走 provider 整条路径，把请求体截下来看。
+    let body: string | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        body = init.body as string;
+        return sseResponse(['event: message_stop\ndata: {}\n\n']);
+      }),
+    );
+
+    await collect([
+      {
+        role: 'tool',
+        results: [
+          { toolUseId: 'u1', content: 'AAA', isError: false },
+          { toolUseId: 'u2', content: 'BBB', isError: false },
+        ],
+      },
+    ]);
+
+    const sent = JSON.parse(body!) as { messages: unknown };
+    // 中立层里是一条 tool 消息；Anthropic 需要的是**一条 user 消息里的两个 block**，
+    // 拆成两条 user 消息的话第二个 tool_result 会找不到对应的 tool_use。
+    expect(sent.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'u1', content: 'AAA', is_error: false },
+          { type: 'tool_result', tool_use_id: 'u2', content: 'BBB', is_error: false },
+        ],
+      },
+    ]);
   });
 });

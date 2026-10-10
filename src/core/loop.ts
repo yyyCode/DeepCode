@@ -1,4 +1,10 @@
-import type { ContentBlock, Message, ModelProvider, ToolSpec } from '../contract/model-provider';
+import type {
+  ContentBlock,
+  Message,
+  ModelProvider,
+  ToolResult,
+  ToolSpec,
+} from '../contract/model-provider';
 import type { Args, EventName, Result } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
 import { CORE_ORIGIN, type Origin } from '../contract/next';
@@ -109,15 +115,14 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
 
     if (toolUses.length === 0) break;
 
+    // 工具仍然**串行**执行：并行 Bash 的交错输出对用户没有任何好处，不确定性倒是白送的。
+    // 但结果**汇总成一条**消息 —— 一轮里模型要的几个工具是同一件事的几个面，
+    // 拆成多条消息会让支持并行工具调用的端点以为这是几轮（设计 §5）。
+    const results: ToolResult[] = [];
     for (const use of toolUses) {
-      const output = await runOneTool(ctx, use);
-      messages.push({
-        role: 'tool',
-        toolUseId: use.id,
-        content: output.text,
-        isError: output.isError,
-      });
+      results.push(await runOneTool(ctx, use));
     }
+    messages.push({ role: 'tool', results });
   }
 
   await ctx.dispatch(
@@ -132,7 +137,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
 async function runOneTool(
   ctx: LoopContext,
   use: Extract<ContentBlock, { type: 'tool_use' }>,
-): Promise<{ text: string; isError: boolean }> {
+): Promise<ToolResult> {
   const check = await ctx.dispatch(
     'tool.check',
     { tool: use.name, input: use.input },
@@ -140,13 +145,13 @@ async function runOneTool(
   );
 
   if (check.decision === 'deny') {
-    return { text: `ERROR: 已拒绝 —— ${check.rule ?? '没有给出理由'}`, isError: true };
+    return { toolUseId: use.id, content: `ERROR: 已拒绝 —— ${check.rule ?? '没有给出理由'}`, isError: true };
   }
 
   if (check.decision === 'ask') {
     const answer = await ctx.$.ui.ask(`执行 ${use.name}? (y/N) `);
     if (!/^y(es)?$/i.test(answer.trim())) {
-      return { text: 'ERROR: 用户拒绝了这次操作', isError: true };
+      return { toolUseId: use.id, content: 'ERROR: 用户拒绝了这次操作', isError: true };
     }
   }
 
@@ -157,11 +162,11 @@ async function runOneTool(
   );
 
   if ('deny' in result) {
-    return { text: `ERROR: ${result.deny}`, isError: true };
+    return { toolUseId: use.id, content: `ERROR: ${result.deny}`, isError: true };
   }
 
-  const text = typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
-  return { text, isError: text.startsWith('ERROR:') };
+  const content = typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
+  return { toolUseId: use.id, content, isError: content.startsWith('ERROR:') };
 }
 
 function sleep(ms: number): Promise<void> {

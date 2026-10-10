@@ -107,14 +107,12 @@ function toAnthropicMessages(messages: readonly Message[]): unknown[] {
     if (message.role === 'tool') {
       return {
         role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: message.toolUseId,
-            content: message.content,
-            is_error: message.isError,
-          },
-        ],
+        content: message.results.map((result) => ({
+          type: 'tool_result',
+          tool_use_id: result.toolUseId,
+          content: result.content,
+          is_error: result.isError,
+        })),
       };
     }
     return {
