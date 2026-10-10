@@ -98,7 +98,7 @@ async function main(): Promise<void> {
 
   const turns = createTurnSignals();
   const palette = createPalette();
-  const render = createRenderer({ palette });
+  const render = createRenderer();
   // readline 全进程只建这一次：REPL 的行输入与工具确认提示共用同一个实例。
   const rl = createInterface({
     input: process.stdin,

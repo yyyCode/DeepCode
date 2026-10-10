@@ -1,5 +1,4 @@
 import type { UiSink } from '../core/nouns/ui';
-import type { Palette } from './ansi';
 import { createSpinner, type Spinner } from './spinner';
 
 /**
@@ -15,12 +14,6 @@ export type Renderer = UiSink & {
 };
 
 export type RendererOptions = {
-  /**
-   * 预留：目前渲染器自己的行不做着色 —— `/diff` 与确认提示的着色由各自的调用点
-   * 拿着同一份 palette 完成（见 cli/commands.ts、cli/prompt.ts）。留在这里是为了
-   * 让"整个 CLI 只有一份 palette"这件事在装配处一眼可见，而不是散落在各处现建。
-   */
-  readonly palette?: Palette;
   readonly spinner?: Spinner;
   readonly stream?: NodeJS.WriteStream;
 };
