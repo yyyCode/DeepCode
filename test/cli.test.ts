@@ -124,6 +124,69 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
   });
 });
 
+describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问下标）', () => {
+  /**
+   * 照 e2e buildWorld 的适配器写法，把 cliPlugins() 的**真实清单**按真实装配顺序
+   * 注册进 harness 的注册面 —— createEngine 就是在 tier 'builtin' 上按列表顺序 register 的。
+   * 于是注册面里的 pluginOrder 与真实运行时一致，断言才有意义。
+   */
+  function registered() {
+    const { render } = spyRenderer();
+    const plugins = cliPlugins({
+      render,
+      changes: createSessionChanges(),
+      messages: [],
+      root: process.cwd(),
+      palette: createPalette(false),
+    });
+
+    const h = createHarness();
+    for (const plugin of plugins) {
+      plugin.register(((pattern: string, second: any, third?: any) => {
+        if (third !== undefined) {
+          h.on('builtin', plugin.name, pattern, second as Record<string, unknown>, third as EventHook);
+        } else {
+          h.on('builtin', plugin.name, pattern, second as EventHook);
+        }
+      }) as any);
+    }
+    return h;
+  }
+
+  it('session-changes 必须排在 tool-write / tool-edit 之前 —— 顺序即契约', () => {
+    // 反向钉住 plugins.ts 里 createChangesPlugin 与 ...coreTools 那两行的**先后**。
+    // 同 tier 内先装载者在外层，而 session-changes 要在工具自己的 hook 跑之前抢到文件的
+    // "原样"。调个个儿之后它落进 coreTools 之后，next 回来时文件已经写完，before 成了
+    // after 的副本，/diff 永远空白 —— 而 typecheck / lint / 全量测试全都照常通过。
+    // 这里问注册面拿 hooksFor 的顺序，不碰数组下标：重排清单里任何无关的一项都不会误伤。
+    const h = registered();
+
+    for (const [tool, plugin] of [
+      ['Write', 'tool-write'],
+      ['Edit', 'tool-edit'],
+    ] as const) {
+      const order = h.registry.hooksFor('tool.call', { tool }).map((r) => r.plugin);
+      const changesAt = order.indexOf('session-changes');
+      const toolAt = order.indexOf(plugin);
+      expect(changesAt).toBeGreaterThanOrEqual(0); // 它确实应答了这个工具
+      expect(toolAt).toBeGreaterThanOrEqual(0); // 工具也确实应答了
+      expect(changesAt).toBeLessThan(toolAt); // 且在外层
+    }
+  });
+
+  it('/diff 与 /clear 都有应答者（漏装的话命令静默失效）', () => {
+    // 同类"插件漏装"的静默失效：清单里少了 createSessionCommands，/diff、/clear 就没人应答，
+    // command.run 走 core 兜底返回 handled:false，人肉点命令才会发现 ——
+    // 而 typecheck / lint / 其余测试全绿。这里同样问注册面，把两个名字钉死。
+    const h = registered();
+    const responders = (name: string) =>
+      h.registry.hooksFor('command.run', { name }).map((r) => r.plugin);
+
+    expect(responders('diff')).toContain('session-commands');
+    expect(responders('clear')).toContain('session-commands');
+  });
+});
+
 describe('cli 参数：开关不能被当成话发给模型', () => {
   it('--help / -h 是看用法', () => {
     expect(parseArgs(['--help'])).toEqual({ kind: 'help' });
