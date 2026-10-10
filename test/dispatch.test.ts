@@ -184,6 +184,36 @@ describe('链语义', () => {
     expect(built.registry.hooksFor('tool.check', {}).map((r) => r.tier)).toEqual(['builtin']);
   });
 
+  it('next.to 的目标不比调用者更靠内时抛错，不静默照跑', async () => {
+    const failures: string[] = [];
+
+    // 坐在 builtin，却想跳到 builtin（同级）与 append（更靠外）—— 三个都必须抛。
+    // 每个 target 各起一个 harness：这里的 hook 是"接住后直接返回"，而
+    // 不调 next 直接返回就结束链，共用 harness 的话只有第一个探针会跑。
+    for (const target of ['builtin', 'append', 'user'] as const) {
+      const h = createHarness({ coreImpls: { 'tool.call': () => ({ value: 'core' }) } });
+      h.on('builtin', `probe-${target}`, CALL, async (_$, e, next) => {
+        try {
+          return await next.to(e, target as never);
+        } catch (error) {
+          failures.push(String(error));
+          return { value: 'caught' };
+        }
+      });
+      expect(await h.dispatch(CALL, args, CORE_ORIGIN)).toEqual({ value: 'caught' });
+    }
+
+    expect(failures).toHaveLength(3);
+    expect(failures.join('\n')).toContain('只能向下跳');
+  });
+
+  it('靠外的层往下跳靠内的层照常放行', async () => {
+    const h = createHarness({ coreImpls: { 'tool.call': () => ({ value: 'core' }) } });
+    h.on('prepend', 'guard', CALL, async (_$, _e, next) => next.to(_e, 'builtin'));
+
+    expect(await h.dispatch(CALL, args, CORE_ORIGIN)).toEqual({ value: 'core' });
+  });
+
   it('next.signal / origin / budget / is 都挂上了', async () => {
     const controller = new AbortController();
     const h = createHarness({

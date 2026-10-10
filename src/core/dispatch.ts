@@ -116,8 +116,20 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
 
       const next = ((next_e: unknown) => descend(index + 1, next_e)) as any;
 
-      /** 只向下跳：跳过那些比目标 tier 更靠外的层。 */
+      /**
+       * 只向下跳：跳过比目标 tier 更靠外的层。
+       *
+       * 目标必须**严格比调用者靠内**，否则抛。静默不跳会让一个本意想"跳过组织层"
+       * 的插件以为自己跳成功了，而实际裁决仍被组织层持有 —— 行为侥幸是对的，但没人
+       * 知道它错。抛出去会被故障隔离接住、跳过该 hook，是安全的方向（出口标准 1：
+       * `next.to` 只能向下跳，有测试证明）。
+       */
       next.to = (next_e: unknown, target: TargetTier) => {
+        if (tierIndex(target) <= tierIndex(self.tier)) {
+          throw new Error(
+            `next.to(${target}) 只能向下跳：调用者坐在 ${self.tier}，目标不比它更靠内。`,
+          );
+        }
         let i = index + 1;
         while (i < hooks.length && tierIndex(hooks[i]!.tier) < tierIndex(target)) i++;
         return descend(i, next_e);
