@@ -368,3 +368,7 @@ start site/index.html      # Windows；macOS 用 open，Linux 用 xdg-open
 
 页面里的每个数字与断言都能追到本文件或 `docs/` 里的具体位置；`site/` 不在 `tsconfig.json`
 的 `include` 里，也不被 `check-boundaries.mjs` 扫描，对上面三条命令零影响。
+
+**部署**：产物就是 `site/` 这**一整个目录**，拷到任意静态主机即可（GitHub Pages / Netlify / 任意 nginx），
+没有构建步骤。页面里没有一处绝对路径，放在域名根或子路径下行为一致；文档类链接指向 GitHub 上的文件，
+不依赖仓库内的相对路径 —— 所以**部署 `site/` 时不需要连 `docs/` 一起带**。
