@@ -399,8 +399,8 @@ DeepCode/
 | `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 | `AgentSpec` 全字段 | — |
 | **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 | — | — |
 | **provider** | Anthropic 适配器 | OpenAI 兼容适配器 | gateway / `base_url` 收口 | — | — | — |
-| **工具** | 6 个核心工具 | +TodoWrite/WebFetch/WebSearch | 按权限过滤工具可见性 | MCP 桥接 | Task 工具（派子代理） | — |
-| **权限安全** | 最小确认 y/N | — | 5 层来源 + allow/ask/deny（含 `Bash(git push:*)` 带参匹配）+ `sec-default` 守门器 + deny 带规则名且可重放 | — | 沙箱（**仅 Bash**） | MDM 托管推送 |
+| **工具** | 6 个核心工具 | +TodoWrite/WebFetch/WebSearch | 按权限过滤工具可见性 **已完成**（只对整工具 deny 生效，见 P2 设计 §5.2） | MCP 桥接 | Task 工具（派子代理） | — |
+| **权限安全** | 最小确认 y/N | — | 5 层来源 + allow/ask/deny（含 `Bash(git push:*)` 带参匹配）+ `sec-default` 守门器 + deny 带规则名（**不做重放**，见 P2 设计 §11 偏差 1）**已完成** | — | 沙箱（**仅 Bash**） | MDM 托管推送 |
 | **指令文件** | — | CLAUDE.md 两层 | — | — | AGENTS.md 惰性嵌套 + 双层去重 | 五层优先级 + 托管下发 |
 | **扩展面** | — | — | — | 拆 workspaces + `plugin.json` + 五类约定目录 + `${CLAUDE_PLUGIN_ROOT}` + `validate` 子命令 | marketplace | 第三方插件生态 |
 | **hooks** | — | — | — | classic hooks（stdin/stdout JSON · exit 0/1/2 · matcher · 按事件输出白名单） | hookify DSL | — |
@@ -480,6 +480,15 @@ DeepCode/
 | 工具超时 | Bash 的默认超时上限文档未给权威值 |
 | 上下文压缩 | 完全不可见，P4 需自行设计触发阈值与压缩策略 |
 | worker 批处理 | "共享同一 worker 的相邻 plugin 作为一个批次落座"未在类型契约中声明，MVP 不实现 |
+
+**P2 的已知偏差（2026-10-11，与上面 MVP 那批同格式，逐条见 `2026-10-11-deepcode-p2-design.md` §11）**：
+
+1. **不做 deny 重放。** 重放跑第二遍在启动期冻结的规则下必然得到与第一遍相同的答案，是装样子；改由 `sec-default` 直接把策略裁决拿在手里，比重放更强。
+2. **`sec-default` 不读 `$.settings.read`，规则在启动期注入。** 管理员中途换策略在个人 CLI 上不是真实场景，启动期读一次更简单也更好测。
+3. **`tool.check` 的规则不由内核求值，而由插件求值。** 为守住"内核里没有硬编码的工具表"这条线；代价是三条 `combine` 分支靠注释与测试维持，而不是靠类型。
+4. **不做 `PermissionUpdate`（`/allow` 式写回 settings）。** 没有它，加一条 allow 规则得手改 JSON —— 本轮最大的便利性缺口，如实记下。
+5. **`/help` 不反映工具隐藏。** 隐藏只作用于模型可见清单，那才是承重的那一份；被隐藏的工具由 `/permissions` 明确列出。
+6. **策略层没有环境变量来源。** 一个环境变量就能改掉权限，等于在规则引擎上开后门；托管策略必须来自文件。
 
 ---
 

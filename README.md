@@ -32,6 +32,7 @@ deepcode --resume                           # 接上当前目录最近一次会�
 deepcode --resume=20261011-034855-a1b2      # 接上指定 id 的会话
 deepcode --help                             # 用法
 deepcode --version                          # 版本号
+deepcode --settings=./prod.json "..."       # 追加一层权限设置（flag 来源）
 ```
 
 不用全局命令也行，等价：
@@ -40,7 +41,7 @@ deepcode --version                          # 版本号
 node /path/to/DeepCode/bin/deepcode.mjs "..."
 ```
 
-认的开关只有三组：`--help` / `-h`、`--version` / `-V` 和 `--resume` 系列（`--resume` / `--resume=<id>`），
+认的开关只有三组，外加 `--settings=<路径>`：`--help` / `-h`、`--version` / `-V` 和 `--resume` 系列（`--resume` / `--resume=<id>`），
 其余 `argv` 一律被拼成**一句提示词**。所以 `deepcode --resume "继续修测试"` 里那句话是提示词，不是 id ——
 指定 id 只能写成带等号的 `--resume=<id>`。
 
@@ -187,6 +188,74 @@ reg delete "HKCU\Environment" /v ANTHROPIC_AUTH_TOKEN /f
 `"type":"new_api_error"` 是 one-api / new-api 这类**中转网关**的格式。看到后者，说明请求压根没发到你
 以为的那个端点。
 
+## 权限
+
+`config.json` 管连接，权限是另一套：`.deepcode/settings.json`。
+
+````json
+{
+  "permissions": {
+    "allow": ["Read"],
+    "ask":   ["Bash"],
+    "deny":  ["Bash(git push:*)", "WebSearch"]
+  }
+}
+````
+
+三组数组都可省略。五个来源从低到高：
+
+| 来源 | 路径 |
+|---|---|
+| `user` | `~/.deepcode/settings.json` |
+| `project` | `<工作目录>/.deepcode/settings.json` |
+| `local` | `<工作目录>/.deepcode/settings.local.json` |
+| `flag` | `deepcode --settings=<路径>` |
+| `policy` | 托管文件，见下 |
+
+**`policy` 这一层刻意没有环境变量来源。** `config.json` 有（"别把 key 写进文件"是真需求），
+权限不一样 —— 一个环境变量就能改掉权限，等于在规则引擎上开了个后门。托管策略必须来自文件：
+
+- Windows：`%ProgramFiles%\DeepCode\managed-settings.json`
+- 其它平台：`/etc/deepcode/managed-settings.json`
+
+> 托管文件存在但**读不了**时，这一层按空处理，只打一行醒目的警告。这是本设计里唯一一条
+> 真正的 fail-open，且无法消除：策略文件按定义是可选的，不存在时静默是正确行为；
+> 存在却读不了时，"拒绝启动"对一个个人 CLI 是过度反应。**看到那行警告就是没有守护。**
+
+### 规则怎么写
+
+| 写法 | 含义 |
+|---|---|
+| `Bash` | 该工具的**所有**调用 |
+| `Bash(git push)` | 命令行恰好等于 `git push` |
+| `Bash(git push:*)` | 命令行以 `git push` 开头，按空白 token 边界 —— `git push origin main` ✓，`git pushup` ✗ |
+| `Read(~/.ssh/**)` | `file_path` 按 glob 匹配：`*` 单段、`**` 跨段 |
+| `Edit(...)` / `Write(...)` | 同 `Read`，都匹配 `file_path` |
+| 其它工具带括号 | **不支持**：不命中，且启动时警告一次 |
+
+`:` 是 token 边界，不是通配符 —— 当通配符的话 `Bash(git push:*)` 会要求命令里真有个冒号，
+`git push origin main` 没有，规则永远不命中，安静地失效。
+
+> ⚠️ **前缀匹配不懂 shell 语法，"藏在后面"的命令它看不见。** 规则比的是命令行**串的开头**：
+> `Bash(git push:*)` 拦得住 `git push origin main`，也拦得住 `git push origin main; rm -rf ~`
+> （开头就是 `git push `），但拦不住 `true && git push origin main` —— 开头是 `true`，
+> 规则不命中。所以 deny 是给手滑与误操作加的一道闸，**不是反对抗手段**：写得出绕开写法的
+> 东西照样绕得过去。真要封死得靠进程权限或沙箱，那排到 P3/P4。
+
+路径规则按**绝对路径**匹配（`~` 会展开成主目录）；相对路径不会命中。大小写按平台原样比较，
+不替文件系统做归一 —— 猜错的症状是一条防御规则悄悄不命中。
+
+### 谁赢
+
+**更严的永远赢：`deny` > `ask` > `allow`。** 与规则写在哪一层、在同一数组里排第几都无关 ——
+重排一下配置文件不会换行为。托管策略因此天然压过个人规则：它坐 `prepend`，
+个人规则坐 `user`，而**个人规则掀不翻任何一条 deny**（`allow` 规则的效力上限是把 `ask` 变成 `allow`）。
+
+会话里用 `/permissions` 看当前生效的规则、每条来自哪一层、哪些工具被隐藏、哪些规则没生效。
+
+**没有 `--yes` / 自动放行。** 托管策略里也不写 `allow`：策略说"不用问"会被当成自动放行开关，
+与下面「安全」一节那条底线冲突 —— 守门器只在策略**更严**时才插手。
+
 ## 会话落盘
 
 每场会话都落成一份 JSONL，放在**用户级**目录下（不进项目目录，免得被跟着仓库提交出去）：
@@ -249,7 +318,15 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 不限工作目录。确认提示是唯一的一道闸，而且它拦的是「要不要动手」，不是「动哪里」 ——
 所以别在装着重要东西的机器上放它乱跑。沙箱化（含 Bash 的）在设计文档里排到 P2。
 
-完整的权限系统（settings 来源优先级、allow/ask/deny 规则、`sec-default` 守门器）是下一个阶段的事。
+上面这些是**核心**（`prepend` 的 `sec-default` 与 `user` 的 `permissions` 两个插件之外，
+引擎一行安全逻辑都没有）。P2 加了可配置的规则层：
+
+- 五层 settings 来源、`allow` / `ask` / `deny` 规则、`/permissions` 审计输出 —— 见上面「权限」一节。
+- 托管策略由 `sec-default` **持有裁决**：跑完整条链后，若下端把策略的更严判定放宽了，直接拿
+  策略的规则原文推翻它。它自己抛错时兜底成 deny —— 不能指望 dispatch 的故障隔离替它兜，
+  那会把抛错的 hook 跳过并继续跑下层，于是保护无声消失。
+- 按权限过滤工具可见性：整工具 deny（`deny: ["WebSearch"]`）会让它从**模型可见清单**里消失。
+  参数化 deny 绝不隐藏整个工具 —— 为拦一条命令藏掉整个 Bash 是灾难。
 
 ## 已知限制（MVP 有意不做）
 
@@ -258,13 +335,17 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 - **没有 TUI、没有语法高亮**：现在有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，
   也不走 `ui.render` 事件（那一层排到 P3）。
 - **39 个事件里实现了 12 个**：其余 27 个已声明、未实现，用到时会抛 `NotImplementedError`。
+- **非 TTY 下 REPL 收不到输入**：`echo '/diff' | deepcode` 这种喂法**无效**。readline 在
+  `createInterface` 之后就开始读，而 `main()` 到 `startRepl` 挂上第一个监听之间还隔着好几个
+  `await`（找或建会话转录、建引擎、`session.start`、读指令文件）—— 管道里的那几行就在这段
+  空窗里被读掉、扔了。要脚本化请用一次性模式 `deepcode "..."`，那条路是好的。
 
 ## 开发
 
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，11 个文件 142 个用例
+pnpm test        # 测试，15 个文件 252 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
@@ -272,4 +353,5 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 
 - 设计：[`docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md`](docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md)
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
+- P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
 - 架构参考：`claude-code-架构分析/`
