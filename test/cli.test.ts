@@ -243,6 +243,33 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
     expect(action.text).toBe('把 这个 改了');
   });
 
+  it('--settings=<路径> 被认出来，并从提示词里摘掉', () => {
+    expect(parseArgs(['--settings=/etc/x.json', '改一下 X'])).toEqual({
+      kind: 'prompt',
+      text: '改一下 X',
+      resume: { kind: 'none' },
+      settings: '/etc/x.json',
+    });
+  });
+
+  it('裸 --settings 是普通提示词文本，不是开关', () => {
+    expect(parseArgs(['--settings', 'foo'])).toEqual({
+      kind: 'prompt',
+      text: '--settings foo',
+      resume: { kind: 'none' },
+      settings: undefined,
+    });
+  });
+
+  it('--settings= 空值等于没给', () => {
+    expect(parseArgs(['--settings='])).toEqual({
+      kind: 'prompt',
+      text: '',
+      resume: { kind: 'none' },
+      settings: undefined,
+    });
+  });
+
   it('--help 优先于 --resume', () => {
     expect(parseArgs(['--help', '--resume'])).toEqual({ kind: 'help' });
   });

@@ -13,7 +13,7 @@ export type ResumeTarget =
 export type StartupAction =
   | { kind: 'help' }
   | { kind: 'version' }
-  | { kind: 'prompt'; text: string; resume: ResumeTarget };
+  | { kind: 'prompt'; text: string; resume: ResumeTarget; settings: string | undefined };
 
 /** `-V` 而不是 `-v`：后者在太多工具里是 verbose，别去抢那个字母。 */
 const HELP_FLAGS = ['--help', '-h'];
@@ -22,12 +22,16 @@ const VERSION_FLAGS = ['--version', '-V'];
 /** 只认等号形态，没有 `-r` 短开关（`-v` 的教训：别去抢别处有含义的短字母）。 */
 const RESUME = '--resume';
 
+/** 同样只认等号形态：它指向一个文件路径，裸写没法跟提示词区分开。 */
+const SETTINGS = '--settings';
+
 export function parseArgs(argv: readonly string[]): StartupAction {
   // help 优先于 version，两者都优先于 resume 与提示词。
   if (argv.some((arg) => HELP_FLAGS.includes(arg))) return { kind: 'help' };
   if (argv.some((arg) => VERSION_FLAGS.includes(arg))) return { kind: 'version' };
 
   let resume: ResumeTarget = { kind: 'none' };
+  let settings: string | undefined;
   const rest: string[] = [];
 
   for (const arg of argv) {
@@ -42,11 +46,19 @@ export function parseArgs(argv: readonly string[]): StartupAction {
       resume = id === '' ? { kind: 'latest' } : { kind: 'id', id };
       continue;
     }
+    // `--settings=<路径>`：沿用 `--resume=<id>` 的先例，**只认等号形式**。
+    // 裸 `--settings` 仍是被拼进提示词的普通文本 —— 它没有"默认值"可言，
+    // 与 `--resume`（裸写 = 最近一次）不一样。
+    if (arg.startsWith(`${SETTINGS}=`)) {
+      const value = arg.slice(SETTINGS.length + 1).trim();
+      settings = value === '' ? undefined : value;
+      continue;
+    }
     // 认出来的开关要从提示词里摘掉，否则 "--resume" 会被当成话发给模型。
     rest.push(arg);
   }
 
-  return { kind: 'prompt', text: rest.join(' ').trim(), resume };
+  return { kind: 'prompt', text: rest.join(' ').trim(), resume, settings };
 }
 
 export function readVersion(): string {
@@ -63,6 +75,7 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
   deepcode                 不带参数进入交互式会话
   deepcode --resume        接上当前目录最近一次会话
   deepcode --resume=<id>   接上指定会话
+  deepcode --settings=<路径>  改用这份权限设置（压不过托管策略）
   deepcode --help          显示这份说明
   deepcode --version       显示版本号
 
@@ -83,6 +96,14 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 会话落盘
   ~/.deepcode/projects/<工作目录>/sessions/<id>.jsonl
   转录里有代码内容，删掉文件就等于删掉那次会话。
+
+权限：
+  allow / ask / deny 三组规则，写在 .deepcode/settings.json 里，五个来源从低到高：
+  ~/.deepcode/settings.json < <项目>/.deepcode/settings.json <
+  <项目>/.deepcode/settings.local.json < --settings=<路径> < 托管策略文件
+  （Windows 是 %ProgramFiles%\DeepCode\managed-settings.json）。
+  规则形如 "Bash"、"Read(~/.ssh/**)"、"Bash(git push:*)"。更严的永远赢。
+  会话里用 /permissions 看当前生效的规则。
 
 安全
   Read / Glob / Grep 只读，不询问。
