@@ -5,6 +5,8 @@ import type {
   StreamEvent,
   ToolSpec,
 } from '../contract/model-provider';
+import { describeHttpFailure } from './http';
+import { sseFrames } from './sse';
 
 export type AnthropicConfig = {
   apiKey: string;
@@ -38,7 +40,7 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
       });
 
       if (!response.ok) {
-        throw new Error(`anthropic ${response.status}: ${await response.text()}`);
+        throw new Error(await describeHttpFailure('anthropic', response, config.model));
       }
       if (!response.body) throw new Error('anthropic: 响应没有 body');
 
@@ -128,33 +130,4 @@ function toAnthropicMessages(messages: readonly Message[]): unknown[] {
 
 function toAnthropicTool(tool: ToolSpec): unknown {
   return { name: tool.name, description: tool.description, input_schema: tool.inputSchema };
-}
-
-/** 逐帧读 SSE。Anthropic 的流是 `event: X\ndata: {...}\n\n`。 */
-async function* sseFrames(
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<{ event: string; data: string }> {
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true });
-
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary !== -1) {
-      const raw = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      let event = '';
-      const dataLines: string[] = [];
-      for (const line of raw.split('\n')) {
-        if (line.startsWith('event:')) event = line.slice(6).trim();
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
-      }
-      if (event && dataLines.length > 0) {
-        yield { event, data: dataLines.join('\n') };
-      }
-      boundary = buffer.indexOf('\n\n');
-    }
-  }
 }

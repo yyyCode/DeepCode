@@ -45,10 +45,13 @@ export type StreamRequest = {
 };
 
 /**
- * MVP 只有 Anthropic 一个实现，但接口先立着：
- * 之后加 OpenAI 兼容适配器时，事件链与 agent loop 一行都不用改。
+ * 早先只有 Anthropic 一个实现，但接口先立着：加上 OpenAI 兼容适配器时，
+ * 事件链与 agent loop 一行都没改。再添一家亦然。
  */
 export type ModelProvider = {
   readonly name: string;
   stream(req: StreamRequest): AsyncIterable<StreamEvent>;
 };
+
+/** 后端协议族。加第三家时这里加一项，`providers/index.ts` 加一条分支。 */
+export type ProviderKind = 'anthropic' | 'openai';

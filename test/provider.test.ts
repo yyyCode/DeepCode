@@ -74,6 +74,23 @@ describe('Anthropic SSE 解析', () => {
     ]);
   });
 
+  it('没有事件名的帧在 Anthropic 侧被丢掉（sse.ts 共用后的行为不变）', async () => {
+    // sseFrames 搬到 sse.ts 后，只带 data、不带 event 的帧也会被产出（OpenAI 要用）。
+    // Anthropic 侧只认有名字的帧，所以这些帧必须像以前一样被丢弃，
+    // 而不是被当成某个分支去解析。这是一条回归护栏。
+    stub([
+      'data: {"type":"ping"}\n\n',
+      'event: content_block_delta\ndata: {"index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
+      'data: {"type":"ignored"}\n\n',
+      'event: message_stop\ndata: {}\n\n',
+    ]);
+
+    expect(await collect()).toEqual([
+      { type: 'text', text: 'ok' },
+      { type: 'done', stopReason: 'end_turn' },
+    ]);
+  });
+
   it('tool_use 的 partial_json 逐片累积成一个完整 input', async () => {
     stub([
       'event: content_block_start\ndata: {"index":0,"content_block":{"type":"tool_use","id":"t1","name":"Read"}}\n\n',
