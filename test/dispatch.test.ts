@@ -206,6 +206,19 @@ describe('链语义', () => {
       NotImplementedError,
     );
   });
+
+  it('ui.* 已声明但未实现：落到它仍然抛 NotImplementedError', async () => {
+    const h = createHarness();
+    // { tree: { type: 'root' } } 能编译过，本身就是对 ui.render 精确类型的断言 ——
+    // 收窄前它是 Record<string, unknown>，任何形状都收，这条测试就失去意义。
+    await expect(
+      h.dispatch('ui.render', { tree: { type: 'root' } }, CORE_ORIGIN),
+    ).rejects.toBeInstanceOf(NotImplementedError);
+    // 顺带钉住 message 格式（见 src/core/errors.ts 的 constructor）。
+    await expect(
+      h.dispatch('ui.render', { tree: { type: 'root' } }, CORE_ORIGIN),
+    ).rejects.toThrow('event not implemented in MVP: ui.render');
+  });
 });
 
 describe('座位算法：同 tier 内按插件分组', () => {

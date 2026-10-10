@@ -45,21 +45,51 @@ export type EventResult = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// 第二族：只声明、未实现的事件（约 28 个）
+// 第二族：只声明、未实现的事件
 //
 // core 落到它们时抛 NotImplementedError。现在就冻结，是因为事件目录
 // 是这套架构里最容易返工的部分 —— 见设计文档 §3.3。
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * 渲染树：纯数据，不为任何 surface 选边（设计 §7.2）。
+ *
+ * `ui.render` 本身**仍然不实现** —— 落到它照样抛 NotImplementedError。这里只是把形状钉住，
+ * 而且是**暂定**的：P3 真接上时该改就改，别为了"契约不改"将就一个想当然的数据树。
+ */
+export type RenderNode = {
+  readonly type: string;
+  readonly props?: Readonly<Record<string, unknown>>;
+  readonly children?: readonly RenderNode[];
+};
+
+/** P3 才实现的一族。形状暂定，理由见 RenderNode。 */
+export type UiEventArgs = {
+  'ui.render': { readonly tree: RenderNode; readonly surface?: string };
+  'ui.press': { readonly key: string; readonly ctrl?: boolean };
+  'ui.input': { readonly value: string };
+  'ui.select': { readonly items: readonly string[]; readonly index?: number };
+  'ui.message': { readonly text: string; readonly level?: 'info' | 'warn' | 'error' };
+  'ui.scroll': { readonly delta: number };
+  'ui.focus': { readonly target: string };
+  'ui.resolve': { readonly element: string };
+};
+
+export type UiEventResult = {
+  'ui.render': Record<string, never>;
+  'ui.press': { readonly handled?: boolean };
+  'ui.input': { readonly handled?: boolean };
+  'ui.select': { readonly index?: number };
+  'ui.message': Record<string, never>;
+  'ui.scroll': Record<string, never>;
+  'ui.focus': Record<string, never>;
+  'ui.resolve': unknown;
+};
+
+export type UiEventName = keyof UiEventArgs;
+
+/** 除 `ui.*` 之外的声明-only 事件：`ui.*` 已有精确类型，见 UiEventArgs。 */
 export type UnimplementedEvent =
-  | 'ui.render'
-  | 'ui.press'
-  | 'ui.input'
-  | 'ui.select'
-  | 'ui.message'
-  | 'ui.scroll'
-  | 'ui.focus'
-  | 'ui.resolve'
   | 'agent.offer'
   | 'agent.spawn'
   | 'prompt.fill'
@@ -80,10 +110,10 @@ export type UnimplementedEvent =
   | 'session.detach'
   | 'session.measure';
 
-export type AllEventArgs = EventArgs & {
-  readonly [K in UnimplementedEvent]: Record<string, unknown>;
-};
-export type AllEventResult = EventResult & { readonly [K in UnimplementedEvent]: unknown };
+export type AllEventArgs = EventArgs &
+  UiEventArgs & { readonly [K in UnimplementedEvent]: Record<string, unknown> };
+export type AllEventResult = EventResult &
+  UiEventResult & { readonly [K in UnimplementedEvent]: unknown };
 
 export type EventName = keyof AllEventArgs;
 export type Args<N extends EventName> = AllEventArgs[N];
