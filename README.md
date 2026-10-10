@@ -351,6 +351,7 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 
 ## 设计文档
 
+- 项目简介（一页纸，给第一次听说的人）：[`docs/项目简介.md`](docs/项目简介.md)
 - 设计：[`docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md`](docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md)
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
 - P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
