@@ -208,6 +208,47 @@ describe('链语义', () => {
   });
 });
 
+describe('座位算法：同 tier 内按插件分组', () => {
+  it('同一插件晚注册的 hook 仍然排回自己那一组，不插到别人后面', async () => {
+    const h = createHarness();
+    const order: string[] = [];
+    // alpha 先装载，beta 后装载；alpha 的第二个 hook 在 beta 之后才注册。
+    h.on('builtin', 'alpha', 'turn.start', async (_$, e, next) => {
+      order.push('alpha-1');
+      return next(e);
+    });
+    h.on('builtin', 'beta', 'turn.start', async (_$, e, next) => {
+      order.push('beta');
+      return next(e);
+    });
+    h.on('builtin', 'alpha', 'turn.start', async (_$, e, next) => {
+      order.push('alpha-2');
+      return next(e);
+    });
+
+    // turn.start 是通知事件，链尾兜底返回 {}，不需要 coreImpls 兜。
+    await h.dispatch('turn.start', { index: 0 }, CORE_ORIGIN);
+    // 老的 (tier, seq) 排序会给出 ['alpha-1', 'beta', 'alpha-2'] —— alpha-2 插到了 beta 后面。
+    expect(order).toEqual(['alpha-1', 'alpha-2', 'beta']);
+  });
+
+  it('tier 比插件顺序更权威：晚装载的 user 层仍在外层', async () => {
+    const h = createHarness();
+    const order: string[] = [];
+    h.on('user', 'late', 'turn.start', async (_$, e, next) => {
+      order.push('user');
+      return next(e);
+    });
+    h.on('builtin', 'early', 'turn.start', async (_$, e, next) => {
+      order.push('builtin');
+      return next(e);
+    });
+
+    await h.dispatch('turn.start', { index: 0 }, CORE_ORIGIN);
+    expect(order).toEqual(['user', 'builtin']);
+  });
+});
+
 describe('fail-closed', () => {
   it('tool.check 无人应答时，链尾返回 deny 而不是 allow', async () => {
     // 故意走真实的 createEngine，不借 harness 塞桩。
