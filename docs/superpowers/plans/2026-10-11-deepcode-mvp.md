@@ -3497,12 +3497,12 @@ git commit -m "feat(cli): REPL、一次性模式与 deepcode 可执行入口"
 这是**手动**检查点。前面所有测试都跑在 mock 世界里，这一次要真连模型。
 
 > **准备状态**：验收目录已经建好，在 `C:\Users\86178\deepcode-accept`（Git Bash 里是
-> `~/deepcode-accept`），两个文件按下面 Step 1 的内容写好了 —— 在 Windows 上直接 `cd` 过去即可，
+> `~/deepcode-accept`），三个文件按下面 Step 1 的内容写好了 —— 在 Windows 上直接 `cd` 过去即可，
 > 不必再手工建。改坏了也没关系，就是拿来做靶子的。
 
 - [ ] **Step 1: 准备一个真实验收场景**
 
-在一个**临时目录**里建两个文件（不要在自己的仓库里试，因为这一步会真的改文件）：
+在一个**临时目录**里建三个文件（不要在自己的仓库里试，因为这一步会真的改文件）：
 
 ```bash
 mkdir -p /tmp/deepcode-accept && cd /tmp/deepcode-accept
@@ -3515,27 +3515,62 @@ cat > utils.test.ts <<'EOF'
 import { expect, it } from 'vitest';
 import { parseDate } from './utils';
 
-it('保留时区偏移', () => {
+it('显式带偏移的时间，按原偏移理解', () => {
   expect(parseDate('2026-10-11T10:00:00+08:00').toISOString()).toBe('2026-10-11T02:00:00.000Z');
 });
+
+it('没带时区的时间一律当北京时间（UTC+8），跟机器在哪个时区无关', () => {
+  // 为什么要折腾这一下 TZ：开发机本身就在东八区，不把它假装成别的时区，
+  // `new Date(input)` 这种"靠机器本地时区蒙对"的实现照样能过 ——
+  // 那条测试就只是在确认"我人在中国"，而不是在确认代码对不对。
+  const before = process.env.TZ;
+  process.env.TZ = 'UTC';
+  try {
+    expect(parseDate('2026-10-11 10:00:00').toISOString()).toBe('2026-10-11T02:00:00.000Z');
+    expect(parseDate('2026-10-11T10:00:00').toISOString()).toBe('2026-10-11T02:00:00.000Z');
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
+});
+EOF
+# 让"跑测试确认"这半句真的可执行：本目录没有依赖，直接借用 DeepCode 仓库里的 vitest。
+cat > package.json <<'EOF'
+{
+  "name": "deepcode-accept",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node F:/ts/DeepCode/node_modules/vitest/vitest.mjs run" }
+}
 EOF
 ```
+
+> **这个夹具是改过的版本，第一版是空转的。** 初稿的 `utils.test.ts` 只有那条显式 `+08:00`
+> 的断言，而 `new Date('2026-10-11T10:00:00+08:00')` 本来就返回正确结果 —— 测试一开始就绿，
+> 模型会理直气壮地回答"已通过、无需改动"，整场验收什么都验不到（而且开发机本地时区就是
+> `Asia/Shanghai`，"按北京时间解释"这条要求靠 `new Date` 蒙也能蒙对）。
+> 现在这条测试把机器假装成 UTC 再断言，**未修的 `utils.ts` 必须失败** —— 实测：
+> 修之前 `1 failed | 1 passed`，套用参考实现后 `2 passed`，还原后又变回红。
+> 两边都验过，才算这个靶子有牙。
 
 - [ ] **Step 2: 跑起来**
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
 cd /tmp/deepcode-accept
+# 不必再 export ANTHROPIC_API_KEY：用户级配置 C:\Users\86178\.deepcode\config.json 里已经有了。
 # 别用 `pnpm --dir /path/to/DeepCode dev`：pnpm 会把脚本的 cwd 设成**包目录**，
 # 于是工具的工作目录变成 DeepCode 仓库本身，而不是这个验收目录 —— 模型会在
 # 错误的仓库里改文件。直接跑 bin 并给绝对路径：bin 是在自己所在位置解析 tsx 的，
 # 从哪个目录 cd 过去都能跑，而 cwd 保持为验收目录。
-node F:/ts/DeepCode/bin/deepcode.mjs "给 utils.ts 里的 parseDate 加上时区处理，然后跑测试确认"
+node F:/ts/DeepCode/bin/deepcode.mjs "给 utils.ts 里的 parseDate 加上时区处理：没带时区的时间按北京时间（UTC+8）算，然后跑测试确认"
 ```
 
 （Git Bash 的 `/tmp` 指向 Windows 临时目录；用 `~/deepcode-accept` 也一样。）
 
-Expected: 模型先 Read `utils.ts`，再 Edit 它；Edit 之前终端打印出 `-  return new Date(input);` / `+  ...` 并停下来等 `执行 Edit? (y/N)`。
+Expected: 模型先 Read `utils.ts`、再 `npm test` 看到红的，然后 Edit `utils.ts`；Edit 之前终端打印出
+`-  return new Date(input);` / `+  ...` 并停下来等 `执行 Edit? (y/N)`。按 `y` 之后它应当再跑一次测试，
+告诉你 `2 passed`。**如果它第一句就说"测试已经通过、无需改动"，那是它没跑测试** —— 这正是初版夹具
+的毛病，现在红是已知状态。
 
 - [ ] **Step 3: 在同一次会话里顺手验三件事**
 
