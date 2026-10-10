@@ -3119,6 +3119,11 @@ git commit -m "test: C2 检查点 —— 六个工具与 mock provider E2E"
 - Create: `src/cli/prompt.ts`
 - Create: `src/cli/render.ts`
 
+> **实施记录**：`render.ts` 落地时多了一个 `atLineStart` 状态，`print` / `notice` /
+> `newline` 都会先补上那半行。原来 `newline()` 只在 TTY 下无条件写一个 `\n`，是够用的 ——
+> 那会儿 `delta` 是死代码，没有任何东西会停在行中间。一旦增量打印真接上（见 Task 19），
+> 工具预览和通知就会接到半句话后面，这个状态从"没必要"变成"必需"。
+
 - [ ] **Step 1: 写 `src/cli/prompt.ts`**
 
 非 TTY 时 `ask` 返回 `'n'` —— 这是 fail-closed 在交互层的体现（管道、CI 里没人能按 y）。
@@ -3199,7 +3204,28 @@ git commit -m "feat(cli): 输入 sink 与流式渲染"
 - Create: `src/cli/repl.ts`
 - Create: `src/cli/main.ts`
 - Create: `bin/deepcode.mjs`
-- Modify: `README.md`（只需一句用法，Task 21 再补全）
+- Modify: `src/builtins/commands.ts`（`/exit` 那处，见 Step 2 末尾）
+
+README 归 Task 21 一次写成，本任务不碰它（写了也是马上被覆盖）。
+
+> **实施记录**：本任务实际多落了三个文件，计划里没有 —— 它们是两个只在真机上才暴露的
+> 空洞，测试全绿也照样在：
+>
+> - **`src/cli/stream.ts`**：把 `turn.step` 的增量写进渲染器。计划漏了它，而它是
+>   **产品能不能说话**的分界线 —— `render.delta` 被定义出来却没有任何调用者，
+>   于是模型说的话一个字都到不了终端（内核负责抛事件，插件负责应答；
+>   `NOTIFICATION_EVENTS` 的兜底只是安静地返回 `{}`）。当时的 typecheck / lint /
+>   C1 / C2 全绿，因为它们断言的是事件链与文件内容，不是终端上有没有字。
+> - **`src/cli/plugins.ts`**：插件清单从 `main()` 里抽出来，好让测试钉住"文本出口
+>   确实在这份清单里"。不抽的话"少装一个插件"只能靠人肉端到端发现。
+> - **`src/cli/turns.ts`**：每个 turn 一个 `AbortSignal`。原计划全进程共用一个
+>   `controller`，而 `AbortSignal` 一旦 abort 就回不去 —— 按一次 Ctrl-C 之后，
+>   往后每个 turn 都拿着已 abort 的 signal 去 fetch，会话当场变成尸体，
+>   而 loop 还在提示"会话保留，可以继续输入"。连带 `CoreNounsDeps.signal` 与
+>   `DispatcherDeps.signal` 从 `AbortSignal` 改成 `() => AbortSignal`。
+>
+> 三个都有测试钉住（`test/cli.test.ts`），其中最后一条走真实 `createEngine` +
+> 真实 `runTurn` + `cliPlugins(render)`。
 
 - [ ] **Step 1: 写 `src/cli/repl.ts`**
 
@@ -3290,19 +3316,10 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
 - [ ] **Step 2: 写 `src/cli/main.ts`**
 
 ```ts
-import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { createInterface } from 'node:readline';
-import { createEngine } from '../core/create';
-import { createAnthropicProvider } from '../providers/anthropic';
-import { coreTools } from '../builtins/tools';
-import { confirmPlugin } from '../builtins/confirm';
-import { commandsPlugin } from '../builtins/commands';
-import { createPromptSink } from './prompt';
-import { createRenderer } from './render';
-import { startRepl } from './repl';
-import type { Plugin } from '../contract/plugin';
+// import 清单只认本任务末尾那份"配套的 import 清单"，不要在这里另列一份。
+// 原先这里有一份和它不一致的旧清单（少 CORE_ORIGIN / Message / runTurn，
+// 多一个从头到尾没人用的 Plugin）—— 照着旧的那份写会编译不过。
+```
 
 /** 项目指令文件。MVP 只看两层：项目与用户。嵌套懒加载是 P4 的事。 */
 async function loadInstructions(root: string, home: string): Promise<string> {
@@ -3416,6 +3433,30 @@ import { startRepl } from './repl';
 
 `main()` 之外还要有 `loadInstructions` 与 `SYSTEM_PROMPT`（见 Step 2 上半段）。注意 `provider` 是**独立的变量**而不是从 `$` 上取：`$.model` 是个只暴露 `stream` 的名词，`runTurn` 要的是完整的 `ModelProvider`。
 
+**顺带修一处 `src/builtins/commands.ts`。** `/exit` 的 hook 目前是：
+
+```ts
+process.exitCode = 0;
+process.kill(process.pid, 'SIGINT');
+return { handled: true };
+```
+
+那句 `process.kill` 是错的，删掉它、只留 `process.exitCode = 0`。两个理由：
+
+1. 它多余 —— `startRepl` 收到 `handled: true` 后会自己 `break`，退出路径本来就是干净的。
+2. 它会伤到这次新加的 SIGINT 处理器：`main.ts` 在 Ctrl-C 上挂了一个处理器，自己给自己发 SIGINT 就会把它一并触发。POSIX 上只是顺手 abort 一次 `controller`（无害但莫名其妙）；Windows 上 `process.kill` 对非 0 信号是**无条件终止进程**，于是 `session.end` 根本来不及 dispatch、退出码也不受 `exitCode = 0` 控制。
+
+```ts
+    on(
+      'command.run',
+      { name: 'exit' },
+      () => {
+        process.exitCode = 0;
+        return { handled: true };
+      },
+    );
+```
+
 - [ ] **Step 3: 写 `bin/deepcode.mjs`**
 
 ```js
@@ -3441,7 +3482,7 @@ Expected: 无错误。若报 `createEngine` 的参数类型不匹配，逐一核
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/cli/ src/core/nouns/index.ts src/core/create.ts bin/ package.json
+git add src/cli/ bin/ src/builtins/commands.ts
 git commit -m "feat(cli): REPL、一次性模式与 deepcode 可执行入口"
 ```
 
@@ -3481,19 +3522,29 @@ EOF
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 cd /tmp/deepcode-accept
-pnpm --dir /path/to/DeepCode dev "给 utils.ts 里的 parseDate 加上时区处理，然后跑测试确认"
+# 别用 `pnpm --dir /path/to/DeepCode dev`：pnpm 会把脚本的 cwd 设成**包目录**，
+# 于是工具的工作目录变成 DeepCode 仓库本身，而不是这个验收目录 —— 模型会在
+# 错误的仓库里改文件。直接跑 bin 并给绝对路径：bin 是在自己所在位置解析 tsx 的，
+# 从哪个目录 cd 过去都能跑，而 cwd 保持为验收目录。
+node F:/ts/DeepCode/bin/deepcode.mjs "给 utils.ts 里的 parseDate 加上时区处理，然后跑测试确认"
 ```
+
+（Git Bash 的 `/tmp` 指向 Windows 临时目录；用 `~/deepcode-accept` 也一样。）
 
 Expected: 模型先 Read `utils.ts`，再 Edit 它；Edit 之前终端打印出 `-  return new Date(input);` / `+  ...` 并停下来等 `执行 Edit? (y/N)`。
 
 - [ ] **Step 3: 在同一次会话里顺手验三件事**
 
 1. **按 `n`** → 工具不执行，模型收到 `ERROR: 用户拒绝了这次操作` 并继续对话（而不是崩掉）。
-2. **让模型跑一次会记住的命令**（如 `sleep 30`），然后在它跑的时候按 **Ctrl-C** → 命令被掐断，进程不退出。
+2. **让模型跑一条耗时的命令，在它跑的时候按 Ctrl-C** → 命令被掐断，进程不退出。
+   Windows 的 cmd 里没有 `sleep`，改说"跑 `ping -n 30 127.0.0.1`"。
+   **再补一句最关键的下半场**：中断之后**继续对话**，下一个 turn 必须照常工作 ——
+   这条是 per-turn signal 的验收点（见 `cli/turns.ts`）。中断只掐断这一次，不是废掉会话。
+   空闲时按 Ctrl-C 应当直接退出。
 3. **管道模式**（非 TTY）验证写入被拒：
 
 ```bash
-echo "把 utils.ts 里 parseDate 的返回值改成 null" | pnpm --dir /path/to/DeepCode dev
+echo "把 utils.ts 里 parseDate 的返回值改成 null" | node F:/ts/DeepCode/bin/deepcode.mjs
 ```
 
 Expected: 模型要求 Edit，但因为 stdin 不是 TTY，`ask` 直接返回 `'n'`，文件**未被修改**。

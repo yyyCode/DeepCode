@@ -128,6 +128,8 @@ core 落到这些事件时抛 `NotImplementedError`，由 dispatch 捕获降级�
 
 兜底之所以写在链尾、而不是列进 `createEngine` 的 `coreImpls`：那份清单先后漏过两次（初版内核忘了，E2E 的测试桩也忘了），两次的表现都是产品/测试一开口就崩而 `typecheck` 全绿。链尾只有一处，没有第二个地方可以漏。
 
+五个通知事件里**只有 `turn.step` 需要一个真正的应答者**：`cli/stream.ts` 把每个增量写进渲染器。别的四条"没人听"就是字面意思上的没人听；`turn.step` 没人听，等于模型说的话一个字都到不了用户眼前 —— 而事件链、文件内容、`typecheck` 全都正常。所以这条 hook 由 `cli/plugins.ts` 显式装载，并有端到端测试钉住那份清单。
+
 ### 3.4 `next` 协议（全签名实现）
 
 ```ts
@@ -252,6 +254,8 @@ REPL 读一行
 | 用户 Ctrl-C | `AbortSignal` 贯穿 `next.signal`，同时掐断 provider 流与 Bash 子进程 |
 | 契约漂移 | 编译期抓（单一契约文件 + lint 边界） |
 
+**Ctrl-C 是"掐断这一次"，不是"废掉这个会话"。** `AbortSignal` 一旦 abort 就回不去，所以 `CoreNounsDeps.signal` 收的是**工厂** `() => AbortSignal` 而不是 signal 本身，`cli/turns.ts` 每个 turn 现取一个：第一次 Ctrl-C 掐断当前 turn（provider 流与 Bash 子进程一起断），进程保留、下一个 turn 拿全新 signal；空闲时按 = 退出，同一个 turn 里连按两次 = 强制退出（130）。构造时就把 signal 定死的话，一次中断之后再无 turn 能跑，而 loop 还在提示"会话保留，可以继续输入" —— 那是句假话。
+
 ### 5.2 fail-closed 的唯一落点
 
 `tool.check` 若走到链尾无人应答，结果是 **`deny`，不是 `allow`**。
@@ -338,7 +342,7 @@ DeepCode/
 │   ├── providers/    anthropic.ts（实现 contract/model-provider）
 │   ├── builtins/     tools/{read,write,edit,bash,glob,grep}.ts + tools/index.ts
 │   │                 confirm.ts · commands.ts
-│   └── cli/          main.ts · repl.ts · render.ts · prompt.ts
+│   └── cli/          main.ts · repl.ts · render.ts · prompt.ts · stream.ts · plugins.ts · turns.ts
 ├── test/             harness.ts · dispatch.test.ts · tools.test.ts · e2e.test.ts
 └── docs/superpowers/{specs,plans}/
 ```
