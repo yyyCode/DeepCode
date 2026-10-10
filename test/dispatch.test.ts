@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createHarness, scriptedProvider } from './harness';
 import { createEngine } from '../src/core/create';
 import { CORE_ORIGIN } from '../src/contract/next';
+import type { Plugin } from '../src/contract/plugin';
 import { NotImplementedError } from '../src/core/errors';
 
 const CALL = 'tool.call';
@@ -138,6 +139,49 @@ describe('链语义', () => {
     const result = await h.dispatch(CALL, args, CORE_ORIGIN);
     expect(result).toEqual({ value: 'core' }); // 确实落到了内核
     expect(visited).toEqual(['usr']);          // append 与 builtin 被跳过
+  });
+
+  it('座位表：插件被装在表里指定的 tier 上，不是插件自己说的地方', async () => {
+    const probe: Plugin = {
+      name: 'probe',
+      uses: [],
+      register(on) {
+        on('tool.check', async (_$, _e, next) => next(_e));
+      },
+    };
+
+    const built = await createEngine({
+      plugins: [probe],
+      seating: { probe: 'prepend' },
+      signal: () => new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+    });
+
+    expect(built.registry.hooksFor('tool.check', {}).map((r) => r.tier)).toEqual(['prepend']);
+  });
+
+  it('座位表没列到的插件坐 builtin —— 既有装配一行都不用改', async () => {
+    const probe: Plugin = {
+      name: 'probe',
+      uses: [],
+      register(on) {
+        on('tool.check', async (_$, _e, next) => next(_e));
+      },
+    };
+
+    const built = await createEngine({
+      plugins: [probe],
+      signal: () => new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+    });
+
+    expect(built.registry.hooksFor('tool.check', {}).map((r) => r.tier)).toEqual(['builtin']);
   });
 
   it('next.signal / origin / budget / is 都挂上了', async () => {

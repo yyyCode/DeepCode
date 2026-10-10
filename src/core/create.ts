@@ -1,5 +1,6 @@
 import type { EngineInterface } from '../contract/engine';
 import type { Plugin, On } from '../contract/plugin';
+import type { Tier } from '../contract/tier';
 import { CORE_ORIGIN } from '../contract/next';
 import { Registry } from './registry';
 import { createDispatcher, type CoreImpls, type DispatchFn } from './dispatch';
@@ -7,6 +8,15 @@ import { createCoreNouns, type CoreNounsDeps } from './nouns';
 
 export type CreateEngineDeps = CoreNounsDeps & {
   plugins: readonly Plugin[];
+  /**
+   * 插件名 → tier。没列到的一律 `builtin`。
+   *
+   * 座位由**调用方**钉（生产里是 `cliPlugins` 返回的那张表），不做成 `Plugin.tier`：
+   * 让插件自述自己的权威，正是这套 tier 机制要防的东西 —— 架构文档的说法是判定读
+   * "CLI 钉在模块上的 tier，而不是模块自述的任何东西"。默认 `builtin` 让既有测试
+   * 一行都不用改。
+   */
+  seating?: Readonly<Record<string, Tier>>;
   /** 覆盖 CoreNounsDeps 里同名的工厂，类型一致。 */
   signal: () => AbortSignal;
 };
@@ -71,25 +81,26 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
   )) as EngineInterface;
   engine = folded;
 
-  // 准入 + 注册
+  // 准入 + 注册。座位读的是 deps.seating 这张表，不是插件自己说的。
   for (const plugin of deps.plugins) {
+    const tier: Tier = deps.seating?.[plugin.name] ?? 'builtin';
     const verdict = await dispatch(
       'plugin.register',
-      { name: plugin.name, tier: 'builtin', uses: plugin.uses },
+      { name: plugin.name, tier, uses: plugin.uses },
       CORE_ORIGIN,
     );
     if ('refuse' in verdict) {
       coreNouns.logger.warn(`插件 ${plugin.name} 被拒绝加载：${verdict.refuse}`);
       continue;
     }
-    plugin.register(makeOn(registry, plugin.name, 'builtin'));
+    plugin.register(makeOn(registry, plugin.name, tier));
   }
 
   return { $: engine, registry, dispatch };
 }
 
 /** 给插件一个绑定了它自己身份与座位的 on。 */
-function makeOn(registry: Registry, plugin: string, tier: 'builtin' | 'user'): On {
+function makeOn(registry: Registry, plugin: string, tier: Tier): On {
   const on = ((pattern: string, second: unknown, third?: unknown) => {
     const hook = (third ?? second) as any;
     const matcher = third ? (second as Record<string, unknown>) : undefined;
