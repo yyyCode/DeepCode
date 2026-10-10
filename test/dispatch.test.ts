@@ -7,6 +7,18 @@ import { NotImplementedError } from '../src/core/errors';
 const CALL = 'tool.call';
 const args = { tool: 'Read', input: {}, toolUseId: 't1' };
 
+/** 真实引擎，不借 harness 的桩 —— 用来钉内核实现本身的行为。 */
+async function realEngine() {
+  return createEngine({
+    plugins: [],
+    signal: new AbortController().signal,
+    provider: scriptedProvider([]),
+    ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+    sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+    env: {},
+  });
+}
+
 describe('链语义', () => {
   it('按 tier 由外到内执行，内核在最内层', async () => {
     const h = createHarness({
@@ -202,16 +214,39 @@ describe('fail-closed', () => {
     // fail-closed 是 src/core/create.ts 里那条内核实现的属性，用测试自己提供的桩去测
     // 等于自问自答：把内核那条改成 allow，桩版本照样绿。这条是 MVP 唯一一条 fail-closed，
     // 也是 P2 全部安全性质的种子，必须真的钉在内核实现上。
-    const built = await createEngine({
-      plugins: [],
-      signal: new AbortController().signal,
-      provider: scriptedProvider([]),
-      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
-      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
-      env: {},
-    });
+    const built = await realEngine();
 
     const result = await built.dispatch('tool.check', { tool: 'Bash', input: {} }, CORE_ORIGIN);
     expect(result.decision).toBe('deny');
+  });
+});
+
+describe('生命周期事件的内核 no-op', () => {
+  // 这不是凑数是覆盖。这些事件在 MVP 里没有插件会应答，内核若也不给实现，
+  // dispatch 就会抛 NotImplementedError —— 而 loop 的第一行是 turn.start、
+  // CLI 的第一行是 session.start。曾经真实断在这里：产品一开口就崩，
+  // 而 typecheck 与 C1 全绿，只有手动端到端才发现。
+  const lifecycle: ReadonlyArray<readonly [string, unknown]> = [
+    ['session.start', { sessionId: 's1', cwd: '.', root: '.' }],
+    ['session.end', { reason: 'exit' }],
+    ['turn.start', { index: 0 }],
+    ['turn.step', { delta: 'hi' }],
+    ['turn.complete', { stopReason: 'end_turn', inputTokens: 0, outputTokens: 0 }],
+  ];
+
+  it('五个生命周期事件都能 dispatch，且不抛', async () => {
+    const built = await realEngine();
+    for (const [event, args] of lifecycle) {
+      await expect((built.dispatch as any)(event, args, CORE_ORIGIN)).resolves.toEqual({});
+    }
+  });
+
+  it('真正未实现的事件仍然抛 NotImplementedError', async () => {
+    // 上面那条的另一半：no-op 只针对生命周期事件，
+    // NotImplementedError 必须继续为那 27 个真未实现的事件保留意义。
+    const built = await realEngine();
+    await expect(
+      (built.dispatch as any)('agent.spawn', {}, CORE_ORIGIN),
+    ).rejects.toBeInstanceOf(NotImplementedError);
   });
 });

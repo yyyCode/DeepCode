@@ -12,8 +12,17 @@ export type EventHookFor<N extends EventName> = (
 ) => Result<N> | Promise<Result<N>>;
 
 export type On = {
+  /** 精确事件名：`pattern: N` 让 N 从字面量推断出来，hook 的 `e` 才有精确类型。 */
   <N extends EventName>(pattern: N, hook: EventHookFor<N>): void;
-  <N extends EventName>(pattern: string, matcher: Record<string, unknown>, hook: EventHookFor<N>): void;
+  /**
+   * 精确事件名 + matcher。
+   *
+   * `pattern` 必须写 `N` 而不是 `string`：写成 `string` 时 N 在参数表里没有推断位置，
+   * 会退化成整个 `EventName` 联合，`e` 随之变成 12 个事件的并集 —— 于是 `e.input`
+   * 在并集上并不存在，六个内建工具全部编译不过。
+   */
+  <N extends EventName>(pattern: N, matcher: Record<string, unknown>, hook: EventHookFor<N>): void;
+  /** 通配 / 否定模式（`tool.*`、`!x`）走这条：模式静态定不了事件，hook 退回宽类型。 */
   (pattern: string, hook: EventHook): void;
 };
 

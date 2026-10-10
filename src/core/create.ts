@@ -43,6 +43,19 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     // P1 的斜杠命令展开 / prompt.fill / 附件都会挂到这里，届时改的是插件不是内核。
     'prompt.submit': () => ({ handled: false }) as const,
 
+    // 生命周期通知事件：内核"无话可说"才是正常状态 —— 它们存在是为了让插件
+    // 能观察（P1 的状态栏、遥测、自动保存都会挂上来）。
+    //
+    // 这几条 no-op 不是可有可无的装饰。dispatch 在没有 hook、也没有内核实现时
+    // 会抛 NotImplementedError，而 loop 的第一行就是 turn.start、CLI 的第一行
+    // 就是 session.start：少了它们，产品和启动即崩之间只隔一次 dispatch。
+    // 它们同时也是 NotImplementedError 只用来指那 27 个真未实现事件的保证。
+    'session.start': () => ({}) as const,
+    'session.end': () => ({}) as const,
+    'turn.start': () => ({}) as const,
+    'turn.step': () => ({}) as const,
+    'turn.complete': () => ({}) as const,
+
     'tool.describe': (e) => {
       throw new Error(`no description registered for tool: ${String(e.tool)}`);
     },
