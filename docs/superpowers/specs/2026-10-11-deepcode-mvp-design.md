@@ -46,16 +46,20 @@
 │ core/           agent loop · dispatch 链 · TIERS 座位 ·    │  引擎内核
 │                 engine.create 折叠 · next 协议 · 故障隔离  │
 ├──────────────────────────────────────────────────────────┤
-│ providers/      ModelProvider 接口 + AnthropicAdapter      │
+│ providers/      AnthropicAdapter（实现 contract 的接口）   │
 ├──────────────────────────────────────────────────────────┤
-│ contract/       EventOf / Args / Result / EngineInterface  │  唯一事实源
-│                 Tier / TIERS / Next 签名 —— 零 import      │
+│ contract/       Args<N> / Result<N> / EventName / Tier /   │  唯一事实源
+│                 Next / ModelProvider / EngineInterface     │  零 import
+│                 —— 插件接口也在这一层，否则 core 得依赖     │
+│                    providers，依赖方向就反了               │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ### 2.1 依赖规则
 
-用 ESLint `import/no-restricted-paths` 强制，违反即 CI 失败：
+用一个约 30 行的脚本 `scripts/check-boundaries.mjs` 静态扫描 `src/**/*.ts` 的 import 语句来强制，违反即 `pnpm lint` 失败：
+
+> 不用 ESLint 的 `import/no-restricted-paths` 规则：flat config 下该插件的支持不稳定，而我们要的只是"某个目录不许 import"，一个读文件+正则的脚本更简单也更可靠（见 §10 偏差 6）。
 
 | 包 | 允许依赖 | 说明 |
 |---|---|---|
@@ -123,19 +127,26 @@ core 落到这些事件时抛 `NotImplementedError`，由 dispatch 捕获降级�
 ### 3.4 `next` 协议（全签名实现）
 
 ```ts
-export type Next<N extends EventName> = {
-  (e: Args<N>): Promise<Result<N>>;
-  readonly to: (e: Args<N>, tier: TargetTier) => Promise<Result<N>>;
+// next.ts 不认识事件名，只认识"参数类型 E / 结果类型 R"。
+// 这样 events.ts 可以 import next.ts，反过来不成立 —— 避免循环。
+export type Next<E, R> = {
+  (e: E): Promise<R>;
+  readonly to: (e: E, tier: TargetTier) => Promise<R>;
   readonly signal: AbortSignal;
-  readonly is: <M>(pattern: M, e: unknown) => boolean;
-  readonly event: N;
+  readonly is: (pattern: string) => boolean;
+  readonly event: string;
   readonly origin: Origin;
-  readonly trace: readonly TraceEntry<N>[];
-  readonly budget: { readonly ms: number; readonly remainingMs: number };
+  readonly trace: readonly TraceEntry[];
+  readonly budget: NextBudget;
 };
+
+// events.ts 里把它按事件特化，插件作者看到的就是这个：
+export type NextFor<N extends EventName> = Next<Args<N>, Result<N>>;
 
 export const HOOK_BUDGET = { ms: 10_000, catchMs: 1_000 } as const;
 ```
+
+`Next<E, R>` 上刻意**没有** `readonly trace: readonly TraceEntry<N>[]` 那种带事件名的成员——那会迫使 `next.ts` import `events.ts`，而 `events.ts` 已经 import 了 `next.ts`。事件名通过 `next.event: string` 与 `next.is(pattern)` 提供，运行时完全够用。
 
 即使 MVP 只有两层 tier 用不到 `next.to`，**签名也要一次写全**。理由：这套签名是所有安全保证（deny 重放、定向跳过、故障隔离）的落点，改它等于改所有 hook。
 
@@ -143,7 +154,8 @@ MVP 的行为细则：
 
 - `next(e)` 运行下层；内核在最底，内核之下再调 `next` 会 reject。
 - 不调 `next` 直接 return = **结束链**并应答。
-- `e` 深冻结（`Frozen<Args<N>>`），改写只能 `next({ ...e, field })`。
+- 什么都不返回（`undefined`）= **失败**，与抛错同样处理：跳过该 hook、继续下层、按插件名上报一次。
+- `e` 深冻结（`DeepReadonly<Args<N>>`），改写只能 `next({ ...e, field })`。
 - `next.to` 在 MVP 中**可用但无实义**（目标层为空），保留给 P2。
 - `next.trace` 只收集不消费（P2 的 deny 重放才开始读它）。
 - `next.budget` 以 `HOOK_BUDGET.ms` 为初值实时递减。
@@ -152,8 +164,10 @@ MVP 的行为细则：
 
 | 状态 | 名词 |
 |---|---|
-| **MVP 实现** | `session`、`turn`、`prompt`、`tool`、`command`、`model`、`fs`、`process`、`store`、`clock`、`ui`（仅 `log`/`notice`/`ask`）、`logger` |
+| **MVP 实现** | `session`、`tool`、`command`、`model`、`fs`、`process`、`store`、`clock`、`ui`（仅 `log`/`notice`/`ask`）、`logger` |
 | **声明但抛** | `audio`、`mcp`、`agent`、`config`、`http`、`env`、`settings` |
+
+`turn` 与 `prompt` 在 MVP 里是**事件**（`turn.start` / `prompt.submit`），不是名词——它们没有需要被 hook 改写的内部状态。等到 P1 引入上下文压缩与多轮编排时再决定要不要提升为名词。
 
 > **`settings` 故意不做。** MVP 的配置只来自 CLI flag 与环境变量，不读任何设置文件。
 > 这是刻意的：**没有 `settings.read`，就不存在"个人插件能不能放宽组织策略"这个问题**。
@@ -161,7 +175,9 @@ MVP 的行为细则：
 
 ### 3.6 契约的运行时校验
 
-`EventOf` 的事件名清单有一份**快照测试**（`test/contract.test.ts`）。任何人不小心删掉或改名一个事件，CI 立刻红。这是文档第 12 条共性原则"把安全约定变成会失败的检查"在 MVP 阶段的最小应用。
+**MVP 不做。** 事件目录的 40 个事件全部写在 `contract/events.ts` 一个文件里，删了或改名了肉眼就能看见；为它单独加一份快照测试是 §6.3 明确排除的开销。
+
+契约这一层的真实保障来自**编译器**而不是测试：消费方 import 同一份契约文件（永不复制），`Args`/`Result` 对不上、事件名拼错、hook 签名写偏，`pnpm typecheck` 全部报错。文档第 12 条共性原则"把安全约定变成会失败的检查"在 MVP 阶段的落点是这条编译期检查，外加 §5.2 那条 fail-closed 的运行时分支。
 
 ---
 
@@ -186,8 +202,10 @@ MVP 的行为细则：
 
 ```
 REPL 读一行
- ├─ 以 / 开头 → $.command.run
- └─ 否则     → $.prompt.submit
+ ├─ 以 / 开头 → command.run（dispatch）
+ └─ 否则     → prompt.submit（dispatch；core 实现返回 { handled: false }，
+                            所以 MVP 它是"什么都不做但真实存在"的钩子点，
+                            P1 的斜杠命令展开、prompt.fill、附件都挂在它上面）
                 ├─ 组装 system prompt（工具清单来自 tool.describe 事件，不硬编码）
                 ├─ turn.start
                 ├─ provider.stream(messages, tools)
@@ -196,7 +214,11 @@ REPL 读一行
                 └─ turn.complete
 ```
 
-**`tool.check` 由 core 的 `tool.call` 实现抛出**，`builtins/confirm.ts` 挂在它上面返回 `{ decision: 'ask' }`，core 再经 `$.ui.ask` 问用户。**确认逻辑是插件，不是内核**——P2 把 `confirm.ts` 整个换成权限引擎，内核一行不改。
+**`tool.check` 由 agent loop 在调用工具前抛出**（不是由 `tool.call` 的 core 实现抛出——链的语义决定了 hook 先于 core 实现运行，若由 core 实现抛出，工具已经执行完了）。
+
+顺序是：loop 读到一个 `tool_use` block → 抛 `tool.check` → `builtins/confirm.ts` 挂在它上面（打印预览并返回 `{ decision: 'ask' }`）→ loop 经 `$.ui.ask` 问用户 → 通过后 loop 抛 `tool.call` 执行工具。
+
+**确认逻辑是插件，不是内核**——P2 把 `confirm.ts` 整个换成权限引擎，内核一行不改。
 
 ### 4.3 六个核心工具
 
@@ -207,7 +229,7 @@ REPL 读一行
 | `Edit` | `$.fs` | 精确字符串替换，要求 `old_string` 唯一 |
 | `Bash` | `$.process` | 超时 + 输出截断上限；`AbortSignal` 贯穿以支持 Ctrl-C |
 | `Glob` | `$.fs` | 路径模式匹配 |
-| `Grep` | `$.fs` | 正则内容搜索，带上下文行 |
+| `Grep` | `$.fs` | 正则内容搜索，输出 `路径:行号: 内容` |
 
 **六个工具都必须依赖 `$` 名词而非直接 `fs` / `child_process`**。这既是可测性的前提（测试里 mock `$.fs`），也是 P2 权限过滤与沙箱的前提（内核可以在最内层拦截 `process.run`）。
 
@@ -242,7 +264,7 @@ $ Edit src/utils.ts
 ```
 
 - `Write` / `Edit` 打印 diff 后询问；`Bash` 打印命令后询问；`Read` / `Glob` / `Grep` 只读，不询问。
-- 非 TTY（管道 / CI）环境下默认 **拒绝**（fail-closed），除非显式传 `--yes`。
+- 非 TTY（管道 / CI）环境下 `$.ui.ask` 直接返回 `'n'` —— 也就是说**非交互环境不能写文件、不能跑命令**。MVP 不提供 `--yes` 绕过口子；要有意为之的自动化，留到 P2 的权限规则。
 - Ctrl-C 视为拒绝，不是崩溃。
 
 ---
@@ -255,8 +277,10 @@ $ Edit src/utils.ts
 
 | 级别 | 时机 | 内容 | 成本 |
 |---|---|---|---|
-| **任务级** | 每完成一个任务 | 只要求 `pnpm build` 通过 | 秒级，零额外工作 |
+| **任务级** | 每完成一个任务 | 只要求 `pnpm typecheck` 通过 | 秒级，零额外工作 |
 | **检查点级** | 每个里程碑收尾，**一次跑完** | 见 §6.2 | 一次性集中投入 |
+
+**MVP 不设打包步骤**：开发期直接用 `tsx` 跑 `src/cli/main.ts`，`pnpm typecheck` 即 `tsc --noEmit`。产出 dist 与 npm 发包是 P1 的事，现在做只是拖慢开发。
 
 任务级之所以能只靠编译，是因为**类型即契约**：往 `contract/` 加 import、hook 签名写错、事件名拼错，全都编译不过。编译是第一道也是最便宜的一道网。
 
@@ -280,11 +304,12 @@ $ Edit src/utils.ts
 
 ### 6.4 测试 harness（`test/harness.ts`，C1 时才需要）
 
-只做三件事，不做通用框架：
+只做两件事，不做通用框架：
 
-- `tier('builtin')` —— 声明被测插件的座位。
-- `test(name, async ($, on) => {})` —— `$` 是引擎自己的；测试注册的 hook 位于所有插件之下，其下再无人。
-- `mockProvider(scriptedTurns)` —— 脚本化模型响应，供 C2 的 E2E 用。
+- `createHarness({ coreImpls, engine, signal })` —— 返回 `{ on, dispatch, registry, warnings }`。`on` 的签名是 `on(tier, plugin, pattern[, matcher], hook)`，所以测试要模拟某个插件时，可以精确指定它的座位与身份。`warnings` 收故障隔离的告警，让"抛错的 hook 被跳过并上报一次"这件事可断言。
+- `scriptedProvider(script)` —— 脚本化模型响应（一串 `StreamEvent[]`，每个元素是一个 hop）。供 C2 的 E2E 用，不花 token、可确定性重放。
+
+真实名词（`fs` / `process` / `store`）直接在 harness 里实例化使用，只有 `session` 需要桩（指向 temp 目录）。
 
 ---
 
@@ -292,28 +317,31 @@ $ Edit src/utils.ts
 
 ```
 DeepCode/
+├── package.json  tsconfig.json  vitest.config.ts  README.md
+├── bin/deepcode.mjs                可执行入口（转调 tsx）
+├── scripts/check-boundaries.mjs    依赖边界检查
 ├── src/
-│   ├── contract/     events.ts · engine.ts · next.ts · tier.ts        ← 零 import
+│   ├── contract/     tier.ts · next.ts · model-provider.ts · plugin.ts
+│   │                 engine.ts · events.ts · index.ts        ← 零 import
 │   ├── core/
-│   │   ├── dispatch.ts    链组装与执行
-│   │   ├── seating.ts     tier 座位
-│   │   ├── create.ts      engine.create 折叠
+│   │   ├── dispatch.ts    链组装与执行（next 实现、故障隔离）
+│   │   ├── registry.ts    hook 注册表、pattern/matcher 匹配
+│   │   ├── create.ts      engine.create 折叠 + 插件准入
 │   │   ├── loop.ts        agent loop
 │   │   ├── errors.ts
-│   │   └── $/             session · turn · prompt · tool · command
-│   │                      model · fs · process · store · clock · ui · logger
-│   ├── providers/    provider.ts（接口） · anthropic.ts
-│   ├── builtins/     tools/{read,write,edit,bash,glob,grep}.ts
-│   │                 confirm.ts · transcript.ts
+│   │   └── nouns/         session · tool · command · model · fs · process
+│   │                      store · clock · ui · logger
+│   ├── providers/    anthropic.ts（实现 contract/model-provider）
+│   ├── builtins/     tools/{read,write,edit,bash,glob,grep}.ts + tools/index.ts
+│   │                 confirm.ts · commands.ts
 │   └── cli/          main.ts · repl.ts · render.ts · prompt.ts
-├── test/             harness.ts · contract.test.ts · dispatch.test.ts · tools/
-├── docs/superpowers/specs/
-├── eslint.config.js  tsconfig.json  package.json
+├── test/             harness.ts · dispatch.test.ts · tools.test.ts · e2e.test.ts
+└── docs/superpowers/{specs,plans}/
 ```
 
-**工具链**：包管理器 **pnpm**（Node ≥ 20，ESM）。测试用 `vitest`，lint 用 `eslint` + `import/no-restricted-paths`，构建用 `tsc`。二进制名 `deepcode`。
+**工具链**：包管理器 **pnpm**（Node ≥ 20，ESM）。测试用 `vitest`，开发期运行用 `tsx`，类型检查用 `tsc --noEmit`，边界检查用 `scripts/check-boundaries.mjs`。二进制名 `deepcode`。**MVP 不引入 ESLint，也不设打包步骤**（见 §10 偏差 3、6）。
 
-**目录组织借鉴 diff mod 的"一概念一文件夹"**：`$` 下每个名词一个文件；`builtins/tools/` 每个工具一个文件。文件内通常只有一个函数或一个类型，并附"为什么这么写"的注释。MVP 规模小，不设 barrel 文件——等目录膨胀到 P1 再引入。
+**目录组织借鉴 diff mod 的"一概念一文件夹"**：`$` 下每个名词一个文件；`builtins/tools/` 每个工具一个文件。文件内通常只有一个函数或一个类型，并附"为什么这么写"的注释。只有 `contract/index.ts` 与 `builtins/tools/index.ts` 两个 barrel —— 前者是契约的唯一出口，后者是"哪些工具属于 MVP"这一句话的落点。
 
 ---
 
@@ -388,6 +416,8 @@ DeepCode/
 2. **单包不拆 workspaces**。见 §2.2。
 3. **`settings` 名词不实现**。见 §3.5。
 4. **工具清单硬编码在 `builtins/`，不走插件发现**。MVP 的 `builtins/` 是"用插件接口写的内建代码"，注册路径是硬编码调用，不是目录扫描。P3 才引入 `plugin.json` 与自动发现。
+5. **`$` 的名词是直接实现，不是事件**。架构文档里 `$.<noun>.<method>()` 本身也是一次 dispatch（`OpEventOf`，59 个），内核是它的最内层实现。MVP 把这层省掉：`$.fs.read()` 直接读文件，不抛事件。代价是 P2 之前**无法在最内层拦截 `process.run`**（沙箱的落点）；收益是少写 59 个事件类型与一层间接。P2 做沙箱与 `settings.read` 保护时必须补上——这是 P2 的一项前期工作，不是可选项。
+6. **不用 ESLint**。只保留边界检查脚本与 `tsc --noEmit`，不引入 ESLint 生态。真正的价值来自类型与边界，风格规则留到 P1。
 
 **存疑（架构文档本身无法确认，需在本项目自行拍板）**：
 
