@@ -4,11 +4,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { createHarness, scriptedProvider } from './harness';
+import { createHarness, scriptedProvider, seat } from './harness';
 import { parseArgs, readVersion } from '../src/cli/args';
 import { createPalette } from '../src/cli/ansi';
 import { createSessionChanges } from '../src/cli/changes';
 import { createSessionCommands } from '../src/cli/commands';
+import { createPermissionsCommand } from '../src/cli/permissions-command';
 import { streamPlugin } from '../src/cli/stream';
 import { cliPlugins } from '../src/cli/plugins';
 import { createTurnSignals } from '../src/cli/turns';
@@ -16,7 +17,10 @@ import { createEngine } from '../src/core/create';
 import { runTurn } from '../src/core/loop';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Renderer } from '../src/cli/render';
+import type { ResolvedPolicy } from '../src/cli/settings';
 import type { EventHook, Plugin } from '../src/contract/plugin';
+import type { Rule } from '../src/contract/policy';
+import type { EngineInterface } from '../src/contract/engine';
 import type { Message } from '../src/contract/model-provider';
 
 /** 假 renderer：只把 delta 攒起来，好在断言里看到模型到底说出了什么。 */
@@ -449,5 +453,76 @@ describe('cli 命令：/diff 与 /clear', () => {
     expect(result).toEqual({ handled: true });
     expect(messages.length).toBe(0); // 清的是 REPL 手里那个同一个引用
     expect(logs.join('\n')).toContain('已清空上下文');
+  });
+});
+
+describe('cli 命令：/permissions 把生效的权限摊开', () => {
+  /** 手搓一份快照 —— /permissions 的输出要可确定，所以这里不读文件。 */
+  function fixturePolicy(): ResolvedPolicy {
+    const deny = (text: string, tool: string, content?: string): Rule => ({
+      raw: text,
+      tool,
+      decision: 'deny',
+      ...(content === undefined ? {} : { content }),
+    });
+    return {
+      sources: [
+        { source: 'user', path: 'C:\\Users\\x\\.deepcode\\settings.json', state: 'ok',
+          counts: { allow: 1, ask: 0, deny: 0 },
+          problems: [], rules: [{ raw: 'Read', tool: 'Read', decision: 'allow' }] },
+        { source: 'project', path: 'F:\\p\\.deepcode\\settings.json', state: 'missing',
+          counts: { allow: 0, ask: 0, deny: 0 }, problems: [], rules: [] },
+        { source: 'local', path: 'F:\\p\\.deepcode\\settings.local.json', state: 'ok',
+          counts: { allow: 0, ask: 0, deny: 1 },
+          problems: ['deny: "Bash(git push" —— 括号不配对'],
+          rules: [deny('Bash(git push:*)', 'Bash', 'git push:*')] },
+        { source: 'flag', path: undefined, state: 'missing',
+          counts: { allow: 0, ask: 0, deny: 0 }, problems: [], rules: [] },
+        { source: 'policy', path: 'C:\\Program Files\\DeepCode\\managed-settings.json', state: 'ok',
+          counts: { allow: 0, ask: 0, deny: 2 },
+          problems: [], rules: [deny('Bash(git push:*)', 'Bash', 'git push:*'), deny('WebSearch', 'WebSearch')] },
+      ],
+      policyRules: [deny('Bash(git push:*)', 'Bash', 'git push:*'), deny('WebSearch', 'WebSearch')],
+      personalRules: [
+        { raw: 'Read', tool: 'Read', decision: 'allow' },
+        deny('Bash(git push:*)', 'Bash', 'git push:*'),
+      ],
+    };
+  }
+
+  it('/permissions 打出五层、规则来源、隐藏的工具与坏规则', async () => {
+    const lines: string[] = [];
+    const engine = { ui: { log: (line: string) => lines.push(line) } } as unknown as EngineInterface;
+    const h = createHarness({ engine });
+    seat(h, createPermissionsCommand({ policy: fixturePolicy(), palette: createPalette(false) }), 'builtin');
+
+    expect(await h.dispatch('command.run', { name: 'permissions', args: [] }, CORE_ORIGIN)).toEqual({ handled: true });
+
+    const out = lines.join('\n');
+    expect(out).toContain('权限来源（低 → 高）');
+    expect(out).toContain('C:\\Program Files\\DeepCode\\managed-settings.json'); // 托管文件的真实路径
+    expect(out).toContain('← 托管');
+    expect(out).toContain('--settings 未给');
+    expect(out).toContain('生效规则');
+    expect(out).toContain('[policy]');                       // 每条规则的来源
+    expect(out).toContain('隐藏的工具');
+    expect(out).toContain('WebSearch');
+    expect(out).toContain('有问题、未生效的规则');
+    expect(out).toContain('括号不配对');
+  });
+
+  it('/permissions 在没有任何规则时说清楚"都在走最小确认"', async () => {
+    const lines: string[] = [];
+    const engine = { ui: { log: (line: string) => lines.push(line) } } as unknown as EngineInterface;
+    const h = createHarness({ engine });
+    const empty: ResolvedPolicy = { sources: [], policyRules: [], personalRules: [] };
+    seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');
+
+    await h.dispatch('command.run', { name: 'permissions', args: [] }, CORE_ORIGIN);
+
+    const out = lines.join('\n');
+    expect(out).toContain('一条都没有');
+    expect(out).not.toContain('隐藏的工具');
+    expect(out).not.toContain('有问题');
   });
 });
