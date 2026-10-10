@@ -15,6 +15,7 @@ import { createSessionChanges } from './changes';
 import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
+import { resolvePolicy } from './settings';
 import {
   createPersister,
   createTranscript,
@@ -96,6 +97,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  // 权限设置与连接配置是两套：config.json 管连接（环境变量 > 项目级 > 用户级），
+  // settings.json 管权限（user < project < local < flag < policy，**刻意没有环境变量层**）。
+  // 放在"缺 key"之后：没 key 就该报缺 key，轮不到读权限文件。
+  const policy = await resolvePolicy({
+    home,
+    root,
+    settingsPath: action.settings,
+    managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
+    warn: (line) => process.stderr.write(`${line}\n`),
+  });
+
   const turns = createTurnSignals();
   const palette = createPalette();
   const render = createRenderer();
@@ -155,9 +167,12 @@ async function main(): Promise<void> {
   const persist = createPersister(transcript, alreadySaved, (line) => render.notice(line));
 
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
+  const bundle = cliPlugins({ render, changes, messages, root, palette, policy, home });
   const { $, dispatch } = await createEngine({
     // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
-    plugins: cliPlugins({ render, changes, messages, root, palette }),
+    plugins: bundle.plugins,
+    // 座位由 CLI 钉，引擎不认插件自述的权威。
+    seating: bundle.seating,
     provider: providerAdapter,
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: transcript?.id ?? String(Date.now()), cwd: root, root },

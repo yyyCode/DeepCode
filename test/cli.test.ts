@@ -15,6 +15,7 @@ import { cliPlugins } from '../src/cli/plugins';
 import { createTurnSignals } from '../src/cli/turns';
 import { createEngine } from '../src/core/create';
 import { runTurn } from '../src/core/loop';
+import type { CoreImpls } from '../src/core/dispatch';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Renderer } from '../src/cli/render';
 import type { ResolvedPolicy } from '../src/cli/settings';
@@ -40,6 +41,12 @@ function spyRenderer(): { render: Renderer; written: () => string } {
     written: () => pending,
   };
 }
+
+const NO_POLICY: ResolvedPolicy = { sources: [], policyRules: [], personalRules: [] };
+/** 真实清单里的 confirm 会问 `$.ui.ask`，不给 engine 桩的话整条链会炸。 */
+const NOOP_UI = {
+  ui: { log: () => {}, notice: () => {}, ask: async () => 'n' },
+} as Partial<EngineInterface>;
 
 describe('cli-stream：模型说的话必须到终端上', () => {
   it('turn.step 的每个增量都送进 renderer.delta', async () => {
@@ -96,14 +103,19 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       [{ type: 'text', text: '你好' }, { type: 'done', stopReason: 'end_turn' }],
     ]);
 
+    const bundle = cliPlugins({
+      render,
+      changes: createSessionChanges(),
+      messages: [],
+      root: process.cwd(),
+      palette: createPalette(false),
+      policy: NO_POLICY,
+      home: process.cwd(),
+    });
+
     const built = await createEngine({
-      plugins: cliPlugins({
-        render,
-        changes: createSessionChanges(),
-        messages: [],
-        root: process.cwd(),
-        palette: createPalette(false),
-      }),
+      plugins: bundle.plugins,
+      seating: bundle.seating,
       provider,
       ui: { print: () => {}, notice: () => {}, ask: async () => 'n' },
       sessionInfo: { id: 'cli-test', cwd: process.cwd(), root: process.cwd() },
@@ -126,33 +138,48 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
 
     expect(written()).toBe('你好');
   });
+
+  it('cliPlugins 的座位表：sec-default 在 prepend，permissions 在 user', () => {
+    const bundle = cliPlugins({
+      render: spyRenderer().render,
+      changes: createSessionChanges(),
+      messages: [],
+      root: process.cwd(),
+      palette: createPalette(false),
+      policy: NO_POLICY,
+      home: process.cwd(),
+    });
+
+    expect(bundle.seating).toEqual({ 'sec-default': 'prepend', permissions: 'user' });
+  });
 });
 
 describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问下标）', () => {
   /**
-   * 照 e2e buildWorld 的适配器写法，把 cliPlugins() 的**真实清单**按真实装配顺序
-   * 注册进 harness 的注册面 —— createEngine 就是在 tier 'builtin' 上按列表顺序 register 的。
-   * 于是注册面里的 pluginOrder 与真实运行时一致，断言才有意义。
+   * 把 cliPlugins() 的产物按它自己的座位表装进 harness。
+   *
+   * 早先这里把一切都装在 'builtin' —— P2 之后那不再反映真实座位（sec-default 在
+   * prepend、permissions 在 user），而"座位没生效"正是本轮最该被钉住的东西。
    */
-  function registered() {
+  function registered(
+    policy: ResolvedPolicy = NO_POLICY,
+    engine: Partial<EngineInterface> = NOOP_UI,
+    coreImpls: CoreImpls = {},
+  ) {
     const { render } = spyRenderer();
-    const plugins = cliPlugins({
+    const bundle = cliPlugins({
       render,
       changes: createSessionChanges(),
       messages: [],
       root: process.cwd(),
       palette: createPalette(false),
+      policy,
+      home: process.cwd(),
     });
 
-    const h = createHarness();
-    for (const plugin of plugins) {
-      plugin.register(((pattern: string, second: any, third?: any) => {
-        if (third !== undefined) {
-          h.on('builtin', plugin.name, pattern, second as Record<string, unknown>, third as EventHook);
-        } else {
-          h.on('builtin', plugin.name, pattern, second as EventHook);
-        }
-      }) as any);
+    const h = createHarness({ engine, coreImpls });
+    for (const plugin of bundle.plugins) {
+      seat(h, plugin, bundle.seating[plugin.name] ?? 'builtin');
     }
     return h;
   }
@@ -188,6 +215,47 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
 
     expect(responders('diff')).toContain('session-commands');
     expect(responders('clear')).toContain('session-commands');
+  });
+
+  it('真实装配下 tool.check 的应答顺序：prepend → user → builtin', () => {
+    const h = registered();
+    expect(h.registry.hooksFor('tool.check', {}).map((r) => [r.plugin, r.tier])).toEqual([
+      ['sec-default', 'prepend'],
+      ['permissions', 'user'],
+      ['confirm', 'builtin'],
+    ]);
+  });
+
+  it('托管 deny 压过个人 allow —— 端到端一遍（出口标准 1）', async () => {
+    // 链上走三步：confirm 对 Bash 给 ask → 个人规则 allow: ["Bash"] 把它放宽成 allow
+    // → sec-default 拿托管策略的 deny 压回去。个人规则掀不翻托管 deny。
+    //
+    // 这条直接 dispatch tool.check、**不经过 loop**；而"用户按 y"那一步是 loop 干的
+    // （拿到 ask 裁决后才去问，见 core/loop.ts），confirm 自己从不问人 —— 所以这里
+    // 压根没有"用户一路按 y"这回事，引擎用默认的 NOOP_UI（ask → 'n'）。
+    // （原稿那句"引擎换成什么都答 y"是错的：那个 ask 桩一次都不会被走到。）
+    // "就算按 y 也压不住"由 C3 的真终端手工验收第 2 步覆盖。
+    const h = registered(
+      {
+        sources: [],
+        policyRules: [
+          { raw: 'Bash(git push:*)', tool: 'Bash', content: 'git push:*', decision: 'deny' },
+        ],
+        personalRules: [{ raw: 'Bash', tool: 'Bash', decision: 'allow' }],
+      },
+      NOOP_UI,
+      // 真实内核的 tool.check 兜底是 fail-closed 的 deny，这里照抄一份：
+      // 链尾不论走到哪，答案都只可能来自 confirm 或规则，不会来自一个空实现。
+      { 'tool.check': () => ({ decision: 'deny', rule: 'fail-closed' }) as const },
+    );
+
+    expect(
+      await h.dispatch(
+        'tool.check',
+        { tool: 'Bash', input: { command: 'git push origin main' } },
+        CORE_ORIGIN,
+      ),
+    ).toEqual({ decision: 'deny', rule: 'Bash(git push:*)' });
   });
 });
 
