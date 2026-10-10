@@ -313,7 +313,7 @@ $ Edit src/utils.ts
 | **C3** | M3 cli 可用 | **手动跑一遍**真实场景，不写自动化。把 §8 的验收场景跑通即可 |
 | **C4** | M4 收尾 | `pnpm lint` + 全量测试一次跑完；并把边界脚本**故意弄坏一次**确认它真会失败（只贴一份通过的日志不算数） |
 
-**测试数量的账**（收尾时实际是 62 个，分布在 7 个文件）：契约与链语义 19、配置 13、工具 12、安全回归 7、SSE 解析 5、CLI 文本出口 4、E2E 2。C2 那条"六个工具合并成一份文件"守住了；`provider.test.ts` 与 `safety.test.ts` 是收尾阶段补的 —— 前者的 SSE 解析器原本一个测试都没有，而它恰恰是唯一只有真 API 才走得到的代码；后者钉的是两轮独立评审查出的缺陷，每条都做过反向验证（把修复改回去，测试必须失败）。
+**测试数量的账**（收尾时实际是 73 个，分布在 7 个文件）：契约与链语义 19、配置 18、工具 12、CLI 10（含参数与真跑 bin 的集成）、安全回归 7、SSE 解析 5、E2E 2。C2 那条"六个工具合并成一份文件"守住了；`provider.test.ts` 与 `safety.test.ts` 是收尾阶段补的 —— 前者的 SSE 解析器原本一个测试都没有，而它恰恰是唯一只有真 API 才走得到的代码；后者钉的是两轮独立评审查出的缺陷，每条都做过反向验证（把修复改回去，测试必须失败）。
 
 **配置文件的坏输入必须吵**。`config.test.ts` 里那 8 条钉的是同一件事：配置读取只有"生效"和"大声报错"两种结局，**没有"安静地用默认值"**。JSON 语法错、顶层不是对象、字段类型不对 —— 抛，并带上路径；字段名拼错（`modle`）—— 点名，不静默忽略。静默失效是这类代码最坏的失败模式：用户以为配置生效了，实际一直在跑默认值，而且没有任何地方会告诉他。这和之前修掉的"Grep 静默跳过点文件"是同一类缺陷。
 
@@ -359,7 +359,7 @@ DeepCode/
 │   ├── builtins/     tools/{read,write,edit,bash,glob,grep}.ts + tools/index.ts
 │   │                 confirm.ts · commands.ts
 │   └── cli/          main.ts · repl.ts · render.ts · prompt.ts · stream.ts · plugins.ts · turns.ts
-│                     config.ts（两层配置文件的读取与合并）
+│                     config.ts（两层配置文件的读取与合并）· args.ts（--help / --version）
 ├── test/             harness.ts · dispatch.test.ts · tools.test.ts · e2e.test.ts
 │                     provider.test.ts（SSE 解析）· cli.test.ts（文本出口）· safety.test.ts（回归）
 │                     config.test.ts（配置合并与坏输入）

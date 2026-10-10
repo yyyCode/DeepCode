@@ -28,6 +28,8 @@ EOF
 cd /你的项目
 deepcode "跑一下测试，把失败的那条修掉"    # 一次性，跑完退出
 deepcode                                    # 不带参数 = 交互式 REPL
+deepcode --help                             # 用法
+deepcode --version                          # 版本号
 ```
 
 不用全局命令也行，等价：
@@ -35,6 +37,9 @@ deepcode                                    # 不带参数 = 交互式 REPL
 ```bash
 node /path/to/DeepCode/bin/deepcode.mjs "..."
 ```
+
+除了 `--help` / `-h` 和 `--version` / `-V`，其余 `argv` 一律被拼成**一句提示词** ——
+这个 CLI 的参数没有别的含义，所以不必记开关。
 
 > ⚠️ 别写成 `pnpm --dir /path/to/DeepCode dev "..."`。pnpm 会把脚本的 cwd 设成**包目录**，
 > 于是工作目录变成 DeepCode 仓库自己，模型会在错误的仓库里改文件。`bin/deepcode.mjs`
@@ -107,9 +112,20 @@ Anthropic 兼容端点只要改三样。这套变量名已经内置支持，所�
 
 ### 排查：为什么它没走我的配置
 
-**最常见的坑就是环境变量。** 它的优先级高于配置文件，而且**是静默生效的** ——
+**最常见的坑就是环境变量。** 它的优先级高于配置文件 ——
 机器上残留的 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`（比如以前配过某个中转站）
-会悄悄顶掉你写在配置文件里的那一项，你只会看到一堆 401。
+会顶掉你写在配置文件里的那一项，你只会看到一堆 401。
+
+好消息是从此不必自己猜：**只要环境变量顶掉了配置文件、而且两处值不一样，启动时就会打一行**：
+
+```
+环境变量 ANTHROPIC_BASE_URL 顶掉了配置文件里的 baseUrl（环境给的是 https://relay.example，
+配置文件里是 https://api.deepseek.com/anthropic），配置文件这一项被忽略。
+想让它生效，先清掉这个环境变量。
+```
+
+（两边值相同时不吭声 —— 同一把 key 既在环境里又在配置里是常态，每次都吼只会让人学会无视它。
+apiKey 被顶掉时只说"两处内容不一致"，绝不把 key 打出来。）
 
 先自检：
 
@@ -173,7 +189,6 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 
 ## 已知限制（MVP 有意不做）
 
-- **没有参数解析**：`argv` 全被拼成一句提示词。`deepcode --help` 会把 `--help` 当话发给模型。
 - **无会话落盘**：退出即丢，没有 `--resume`。
 - **中断只杀外壳**：`Bash` 在 Windows 上经 `cmd.exe` 起命令，`Ctrl-C` 掐断的是这层外壳，
   它下面的孙进程可能继续残留（没有进程组）。
@@ -185,7 +200,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，7 个文件 62 个用例
+pnpm test        # 测试，7 个文件 73 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 

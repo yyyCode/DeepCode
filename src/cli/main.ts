@@ -9,6 +9,7 @@ import { runTurn } from '../core/loop';
 import { createAnthropicProvider } from '../providers/anthropic';
 import { cliPlugins } from './plugins';
 import { createPromptSink } from './prompt';
+import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
@@ -36,7 +37,17 @@ const SYSTEM_PROMPT = `你是 DeepCode，一个在用户终端里工作的编码
 回答保持简短，说清楚你改了什么、为什么。`;
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  // 开关先处理，而且要在读配置、要 key 之前 —— `deepcode --help` 在没有 key 的机器上
+  // 也该给出用法，而不是甩一句"缺少 API key"。
+  const action = parseArgs(process.argv.slice(2));
+  if (action.kind === 'help') {
+    process.stdout.write(HELP_TEXT);
+    return;
+  }
+  if (action.kind === 'version') {
+    process.stdout.write(`${readVersion()}\n`);
+    return;
+  }
 
   const root = resolve(process.cwd());
   const home = process.env.USERPROFILE ?? process.env.HOME ?? root;
@@ -46,7 +57,9 @@ async function main(): Promise<void> {
   const userConfigPath = join(home, '.deepcode', 'config.json');
   const projectConfigPath = join(root, '.deepcode', 'config.json');
 
-  const { apiKey, model, baseUrl, debug } = resolveSettings(process.env, config);
+  const { apiKey, model, baseUrl, debug } = resolveSettings(process.env, config, (line) =>
+    process.stderr.write(`${line}\n`),
+  );
   if (!apiKey) {
     process.stderr.write(
       '缺少 API key。几种给法，优先级从高到低：\n' +
@@ -89,7 +102,7 @@ async function main(): Promise<void> {
   const instructions = await loadInstructions(root, home);
   const systemPrompt = instructions ? `${SYSTEM_PROMPT}\n\n${instructions}` : SYSTEM_PROMPT;
 
-  const oneShot = args.join(' ').trim();
+  const oneShot = action.text;
 
   if (oneShot) {
     // 一次性模式：`deepcode "改一下 X"`

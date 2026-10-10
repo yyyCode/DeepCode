@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { createHarness, scriptedProvider } from './harness';
+import { parseArgs, readVersion } from '../src/cli/args';
 import { streamPlugin } from '../src/cli/stream';
 import { cliPlugins } from '../src/cli/plugins';
 import { createTurnSignals } from '../src/cli/turns';
@@ -106,4 +110,63 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
 
     expect(written()).toBe('你好');
   });
+});
+
+describe('cli 参数：开关不能被当成话发给模型', () => {
+  it('--help / -h 是看用法', () => {
+    expect(parseArgs(['--help'])).toEqual({ kind: 'help' });
+    expect(parseArgs(['-h'])).toEqual({ kind: 'help' });
+  });
+
+  it('--version / -V 是看版本（不是 -v，那个字母留给 verbose）', () => {
+    expect(parseArgs(['--version'])).toEqual({ kind: 'version' });
+    expect(parseArgs(['-V'])).toEqual({ kind: 'version' });
+  });
+
+  it('没认出来的 argv 原样拼成提示词 —— 这才是主要用法', () => {
+    expect(parseArgs(['给', 'utils.ts', '加个时区'])).toEqual({
+      kind: 'prompt',
+      text: '给 utils.ts 加个时区',
+    });
+    expect(parseArgs([])).toEqual({ kind: 'prompt', text: '' });
+  });
+
+  it('两个开关同时给时，先给用法', () => {
+    expect(parseArgs(['--version', '--help'])).toEqual({ kind: 'help' });
+  });
+
+  it('readVersion 报的是 package.json 里那个号', () => {
+    expect(readVersion()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it('真跑一遍 bin：没有 key、没有配置时，--help 也该只打用法', async () => {
+    // 反向钉住这个 bug：开关若又漏成提示词，这一步会走进"要 key"的分支，
+    // 以非零码退出（execFile 会 reject），测试就红了。
+    // 把 HOME/USERPROFILE 指到不存在的目录，顺便保证它**不会**真的去调模型 ——
+    // 免得哪天这个开关真的坏了，测试却替你花掉一次 API 调用。
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      USERPROFILE: resolve(process.cwd(), 'no', 'such', 'home'),
+      HOME: resolve(process.cwd(), 'no', 'such', 'home'),
+    };
+    for (const name of [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_MODEL',
+      'ANTHROPIC_BASE_URL',
+      'DEEPCODE_MODEL',
+      'DEEPCODE_DEBUG',
+    ]) {
+      delete env[name];
+    }
+
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [resolve(process.cwd(), 'bin', 'deepcode.mjs'), '--help'],
+      { cwd: process.cwd(), env },
+    );
+
+    expect(stdout).toContain('用法');
+    expect(stdout).toContain('/exit');
+  }, 60_000);
 });

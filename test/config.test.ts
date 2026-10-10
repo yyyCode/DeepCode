@@ -142,3 +142,62 @@ describe('resolveSettings：环境变量盖过配置文件', () => {
     expect(resolveSettings({ DEEPCODE_DEBUG: '' }, { debug: true }).debug).toBe(true);
   });
 });
+
+describe('resolveSettings：顶掉配置文件时必须出声', () => {
+  function withWarn(env: Record<string, string | undefined>, config: Parameters<typeof resolveSettings>[1]) {
+    const warnings: string[] = [];
+    const settings = resolveSettings(env, config, (line) => warnings.push(line));
+    return { settings, warnings: warnings.join('\n') };
+  }
+
+  it('环境变量与配置文件不同值时告警，并点名是哪个变量顶掉了哪个字段', () => {
+    const { settings, warnings } = withWarn(
+      { ANTHROPIC_BASE_URL: 'https://relay.example' },
+      { baseUrl: 'https://api.deepseek.com/anthropic' },
+    );
+
+    // 这正是排查了半天才找出来的那类故障：请求被发去了别处，用户只看到 401，
+    // 完全不知道配置文件压根没生效。
+    expect(settings.baseUrl).toBe('https://relay.example');
+    expect(warnings).toContain('ANTHROPIC_BASE_URL');
+    expect(warnings).toContain('baseUrl');
+    expect(warnings).toContain('https://relay.example');
+    expect(warnings).toContain('被忽略');
+  });
+
+  it('两边值相同时不吭声（不然每次启动都吼，用户就学会无视它了）', () => {
+    const { warnings } = withWarn(
+      { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic', DEEPCODE_MODEL: '同一个' },
+      { baseUrl: 'https://api.deepseek.com/anthropic', model: '同一个' },
+    );
+    expect(warnings).toBe('');
+  });
+
+  it('apiKey 被顶掉时告警里不许出现任何一把 key', () => {
+    const envKey = 'sk-环境的这一把';
+    const configKey = 'sk-配置文件那把';
+    const { warnings } = withWarn({ ANTHROPIC_API_KEY: envKey }, { apiKey: configKey });
+
+    expect(warnings).toContain('apiKey');
+    expect(warnings).not.toContain(envKey);
+    expect(warnings).not.toContain(configKey);
+  });
+
+  it('环境变量指了但配置文件里没有这一项时，不算"顶掉"，不告警', () => {
+    const { settings, warnings } = withWarn({ DEEPCODE_MODEL: '只有环境有' }, {});
+    expect(settings.model).toBe('只有环境有');
+    expect(warnings).toBe('');
+  });
+
+  it('空字符串当作没给：setx VAR "" 不该顶掉配置文件', () => {
+    // setx "VAR" "" 留下的是空值而不是删除。若照收，它会静默顶掉配置文件里的值，
+    // 而且比现在这版还难查 —— 配置看着好好的，请求却发去了空端点。
+    const { settings, warnings } = withWarn(
+      { ANTHROPIC_BASE_URL: '', DEEPCODE_MODEL: '' },
+      { baseUrl: 'https://api.deepseek.com/anthropic', model: '配置文件里的模型' },
+    );
+    expect(settings.baseUrl).toBe('https://api.deepseek.com/anthropic');
+    expect(settings.model).toBe('配置文件里的模型');
+    expect(warnings).toBe('');
+  });
+});

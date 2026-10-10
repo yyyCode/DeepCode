@@ -27,27 +27,68 @@ export type ResolvedSettings = {
   debug: boolean;
 };
 
+/** 每个字段认哪些环境变量名，按优先级排列。表只写一遍，取值和告警都从这里来。 */
+const ENV_NAMES: ReadonlyArray<{
+  field: 'apiKey' | 'model' | 'baseUrl';
+  names: readonly string[];
+  /** 值本身是凭据，告警里只敢说"不一致"，不能把内容打出来。 */
+  secret?: boolean;
+}> = [
+  // 两套名字并存，因为兼容端点（DeepSeek 等）配的是 ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL
+  // 这一组，而 Anthropic 官方 SDK 自己用 ANTHROPIC_API_KEY / DEEPCODE_MODEL。
+  // 认证头不用跟着变：x-api-key 与 Authorization: Bearer 两边都收（实测过）。
+  { field: 'apiKey', names: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'], secret: true },
+  { field: 'model', names: ['DEEPCODE_MODEL', 'ANTHROPIC_MODEL'] },
+  { field: 'baseUrl', names: ['ANTHROPIC_BASE_URL'] },
+];
+
 /**
  * 环境变量与配置文件合到一处，优先级 `环境变量 > 配置文件`。
  *
- * 每个变量都有两个名字，因为市面上的 Anthropic 兼容端点（DeepSeek 等）配的是
- * `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` 这一组，而 Anthropic 官方 SDK 自己
- * 用的是 `ANTHROPIC_API_KEY`。两组都认，用户就不用为了换个后端再 export 一遍。
- * 认证头本身不用改：`x-api-key` 与 `Authorization: Bearer` 两边都收（实测过）。
- *
  * 抽成纯函数而不是留在 main.ts 里，是因为"谁盖谁"这条规则正是最该被钉住的部分，
  * 而 main.ts 是个一跑就建 readline、连网的脚本，测不动。
+ *
+ * 环境变量顶掉配置文件时**要说一声**，但只在两边值确实不同的时候说。
+ * 静默生效是最坏的：机器上残留的一个 `ANTHROPIC_BASE_URL`（比如以前配过某个中转站）
+ * 会悄悄把你的请求发去别处，你只会收到一堆 401，完全看不出配置其实没生效。
+ * 而两边值相同时（这是常态 —— 同一把 key 既在环境里也在配置里）没什么可提醒的，
+ * 每次启动都吼一遍只会训练用户忽略它。
+ *
+ * 空字符串当作没给：`setx VAR ""` 留下的是空值而不是删除，若照收就会凭空顶掉配置文件。
  */
 export function resolveSettings(
   env: Record<string, string | undefined>,
   config: CliConfig,
+  warn: (line: string) => void = () => {},
 ): ResolvedSettings {
-  return {
-    apiKey: env.ANTHROPIC_API_KEY ?? env.ANTHROPIC_AUTH_TOKEN ?? config.apiKey,
-    model: env.DEEPCODE_MODEL ?? env.ANTHROPIC_MODEL ?? config.model ?? DEFAULT_MODEL,
-    baseUrl: env.ANTHROPIC_BASE_URL ?? config.baseUrl,
+  const out: ResolvedSettings = {
+    apiKey: undefined,
+    model: DEFAULT_MODEL,
+    baseUrl: undefined,
     debug: Boolean(env.DEEPCODE_DEBUG) || config.debug === true,
   };
+
+  for (const { field, names, secret } of ENV_NAMES) {
+    const name = names.find((candidate) => (env[candidate] ?? '') !== '');
+    const fromEnv = name === undefined ? undefined : env[name];
+    const fromConfig = config[field];
+
+    if (fromEnv === undefined) {
+      if (fromConfig !== undefined) (out as Record<string, unknown>)[field] = fromConfig;
+      continue;
+    }
+
+    if (fromConfig !== undefined && fromConfig !== fromEnv) {
+      const shown = secret ? '两处内容不一致' : `环境给的是 ${fromEnv}，配置文件里是 ${fromConfig}`;
+      warn(
+        `环境变量 ${name} 顶掉了配置文件里的 ${field}（${shown}），配置文件这一项被忽略。` +
+          `想让它生效，先清掉这个环境变量。`,
+      );
+    }
+    (out as Record<string, unknown>)[field] = fromEnv;
+  }
+
+  return out;
 }
 
 export type LoadConfigDeps = {

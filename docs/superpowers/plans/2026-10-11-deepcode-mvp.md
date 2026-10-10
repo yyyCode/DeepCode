@@ -3802,6 +3802,30 @@ git commit -m "docs: README 与 MVP 收尾"
   调试轨迹显示 `tool.check → confirm@builtin` 之后**没有** `tool.call` —— 非 TTY 下它被拒了，
   而回合照常结束。fail-closed 在真模型面前也成立。
 
+### 追加需求 · 顶掉配置文件时要出声，以及 --help / --version
+
+**来由**：用户在自己终端里跑 `deepcode` 一律 401。查到底发现是 `HKCU\Environment` 里残留着一组
+指向 `www.fucheers.top` 中转站的 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`，
+**静默顶掉**了配置文件，请求压根没发到 DeepSeek 官方（`"type":"new_api_error"` 是中转网关的格式，
+官方 API 给的是 `authentication_error` —— 这条判据也写进 README 了）。
+环境变量本身在用户同意下已清掉，但**"静默顶掉"这件事必须从代码上消掉**。
+
+- **改**：`resolveSettings(env, config, warn?)` 多收一个告警出口。**只在两处值不同时告警** ——
+  同一把 key 既在环境里又在配置里是常态，每次都吼只会训练用户忽略它。apiKey 被顶掉时
+  只说"两处内容不一致"，绝不打印 key。顺带把空字符串当"没给"：`setx VAR ""` 留下的是空值而非删除，
+  照收的话会凭空顶掉配置文件，比原故障还难查。
+- **改**：`argv` 里认 `--help` / `-h` 与 `--version` / `-V`（`-v` 留给 verbose），其余照旧拼成提示词。
+  开关在**读配置、要 key 之前**处理 —— 没有 key 的机器上 `deepcode --help` 也该给用法。
+  新增 `src/cli/args.ts`：`parseArgs` / `readVersion`（版本号从 package.json 现读，不写两份）/ `HELP_TEXT`。
+- **测试**：13 条新增（配置告警 5、参数 6、真跑 bin 的集成 2）。
+- **反向验证**：把告警调用去掉、把两个开关短路成永不命中，跑一遍 —— **6 条按预期变红**
+  （含那个真跑 `bin/deepcode.mjs --help` 的集成测试），还原后 73 全绿。
+  那条集成测试还把 `HOME`/`USERPROFILE` 指到不存在的目录，保证开关万一又坏了，
+  它是以"缺少 API key"非零退出，而**不会替用户真花一次 API 调用**。
+- **真机验过**：`deepcode --version` → `0.0.1`；`deepcode --help` → 用法；
+  `DEEPCODE_MODEL=环境变量里的模型 deepcode "..."` → 启动即打出
+  `环境变量 DEEPCODE_MODEL 顶掉了配置文件里的 model（环境给的是 …，配置文件里是 deepseek-v4-flash）`。
+
 ---
 
 ## 自查记录
