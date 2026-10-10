@@ -2534,6 +2534,14 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<vo
 
     // provider 网络错 / 限流：退避重试一次。见设计文档 §5.1。
     for (let attempt = 0; attempt < 2; attempt++) {
+      // 每次尝试都清空累积器。不清的话，第一次尝试里已经收到的 tool_use
+      // block 会被第二次重放一遍，同一个工具被调用两次。
+      // （能走到重试就说明这次一个字符都没流出去，见下面的 `if (text) break`，
+      //  所以清空是安全的 —— 用户还没看到任何东西。）
+      blocks.length = 0;
+      toolUses.length = 0;
+      text = '';
+
       try {
         for await (const event of ctx.provider.stream({
           system: ctx.systemPrompt,
