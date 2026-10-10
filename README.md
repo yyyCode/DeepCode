@@ -355,3 +355,16 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
 - P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
 - 架构参考：`claude-code-架构分析/`
+
+## 官网（静态页面）
+
+[`site/index.html`](site/index.html) 是这个项目的门面：一屏讲完「是什么、凭什么信它、走到哪一步」，
+再逐段展开。纯静态，一个 HTML / 一个 CSS / 一个 JS，没有框架、没有构建、不请求任何外部资源 ——
+**双击就能看**（`file://` 下也完整可用）：
+
+```bash
+start site/index.html      # Windows；macOS 用 open，Linux 用 xdg-open
+```
+
+页面里的每个数字与断言都能追到本文件或 `docs/` 里的具体位置；`site/` 不在 `tsconfig.json`
+的 `include` 里，也不被 `check-boundaries.mjs` 扫描，对上面三条命令零影响。
