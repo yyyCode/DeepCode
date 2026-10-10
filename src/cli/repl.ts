@@ -5,6 +5,7 @@ import type { DispatchFn } from '../core/dispatch';
 import { CORE_ORIGIN } from '../contract/next';
 import { runTurn } from '../core/loop';
 import type { Renderer } from './render';
+import type { TurnSignals } from './turns';
 
 export type ReplDeps = {
   $: EngineInterface;
@@ -13,7 +14,8 @@ export type ReplDeps = {
   /** 与确认提示共用的那一个 readline 实例。不要在别处再 createInterface。 */
   rl: Interface;
   systemPrompt: string;
-  signal: AbortSignal;
+  /** 每个 turn 现取一个 signal，中断才会只掐断这一次。见 createTurnSignals。 */
+  turns: TurnSignals;
 };
 
 /** 交互式 REPL。退出方式：/exit、Ctrl-D、Ctrl-C。 */
@@ -62,17 +64,23 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
 
     messages.push({ role: 'user', content: trimmed });
 
-    await runTurn(
-      {
-        $: deps.$,
-        provider: { name: 'repl', stream: (req) => deps.$.model.stream(req) },
-        signal: deps.signal,
-        dispatch: deps.dispatch,
-        systemPrompt: deps.systemPrompt,
-        turnIndex: turnIndex++,
-      },
-      messages,
-    );
+    const signal = deps.turns.begin();
+    try {
+      await runTurn(
+        {
+          $: deps.$,
+          provider: { name: 'repl', stream: (req) => deps.$.model.stream(req) },
+          signal,
+          dispatch: deps.dispatch,
+          systemPrompt: deps.systemPrompt,
+          turnIndex: turnIndex++,
+        },
+        messages,
+      );
+    } finally {
+      // 失败也要归零：留着 busy=true 会让下一次 Ctrl-C 变成"掐一个已经结束的 turn"。
+      deps.turns.end();
+    }
 
     deps.render.newline();
   }

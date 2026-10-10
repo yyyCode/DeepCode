@@ -20,7 +20,8 @@ export type DispatcherDeps = {
   engine: () => EngineInterface;
   coreImpls: CoreImpls;
   logger: { warn(line: string): void };
-  signal: AbortSignal;
+  /** 工厂而非 signal 本身 —— 理由见 CoreNounsDeps.signal。每次 dispatch 现取。 */
+  signal: () => AbortSignal;
 };
 
 export type DispatchFn = <N extends EventName>(
@@ -101,7 +102,7 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
         return descend(i, next_e);
       };
 
-      next.signal = deps.signal;
+      next.signal = deps.signal();
       next.event = event;
       next.origin = self;
       next.trace = trace;

@@ -7,12 +7,11 @@ import { CORE_ORIGIN } from '../contract/next';
 import { createEngine } from '../core/create';
 import { runTurn } from '../core/loop';
 import { createAnthropicProvider } from '../providers/anthropic';
-import { coreTools } from '../builtins/tools';
-import { confirmPlugin } from '../builtins/confirm';
-import { commandsPlugin } from '../builtins/commands';
+import { cliPlugins } from './plugins';
 import { createPromptSink } from './prompt';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
+import { createTurnSignals } from './turns';
 
 /** 项目指令文件。MVP 只看两层：项目与用户。嵌套懒加载是 P4 的事。 */
 async function loadInstructions(root: string, home: string): Promise<string> {
@@ -46,12 +45,8 @@ async function main(): Promise<void> {
 
   const root = resolve(process.cwd());
   const home = process.env.USERPROFILE ?? process.env.HOME ?? root;
-  const controller = new AbortController();
-  process.on('SIGINT', () => {
-    if (controller.signal.aborted) process.exit(130);
-    controller.abort();
-  });
 
+  const turns = createTurnSignals();
   const render = createRenderer();
   // readline 全进程只建这一次：REPL 的行输入与工具确认提示共用同一个实例。
   const rl = createInterface({
@@ -59,6 +54,11 @@ async function main(): Promise<void> {
     output: process.stdout,
     terminal: Boolean(process.stdin.isTTY),
   });
+  // 两条路都要挂：一次性模式下没有 readline 在转，而 REPL 里 Ctrl-C 是 readline
+  // 先接住再抛出来的。onSigint 自带去重，重复收到一次不会误判成"连按两次"。
+  process.on('SIGINT', turns.onSigint);
+  rl.on('SIGINT', turns.onSigint);
+
   const prompt = createPromptSink(rl);
   const provider = createAnthropicProvider({
     apiKey,
@@ -67,12 +67,13 @@ async function main(): Promise<void> {
   });
 
   const { $, dispatch } = await createEngine({
-    plugins: [...coreTools, confirmPlugin, commandsPlugin],
+    // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
+    plugins: cliPlugins(render),
     provider,
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: String(Date.now()), cwd: root, root },
     env: process.env,
-    signal: controller.signal,
+    signal: () => turns.current(),
   });
 
   await dispatch('session.start', { sessionId: $.session.id(), cwd: root, root }, CORE_ORIGIN);
@@ -85,13 +86,18 @@ async function main(): Promise<void> {
   if (oneShot) {
     // 一次性模式：`deepcode "改一下 X"`
     const messages: Message[] = [{ role: 'user', content: oneShot }];
-    await runTurn(
-      { $, provider, signal: controller.signal, dispatch, systemPrompt, turnIndex: 0 },
-      messages,
-    );
+    const signal = turns.begin();
+    try {
+      await runTurn(
+        { $, provider, signal, dispatch, systemPrompt, turnIndex: 0 },
+        messages,
+      );
+    } finally {
+      turns.end();
+    }
     render.newline();
   } else {
-    await startRepl({ $, dispatch, render, rl, systemPrompt, signal: controller.signal });
+    await startRepl({ $, dispatch, render, rl, systemPrompt, turns });
   }
 
   await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);

@@ -11,7 +11,7 @@ const args = { tool: 'Read', input: {}, toolUseId: 't1' };
 async function realEngine() {
   return createEngine({
     plugins: [],
-    signal: new AbortController().signal,
+    signal: () => new AbortController().signal,
     provider: scriptedProvider([]),
     ui: { print: () => {}, notice: () => {}, ask: async () => '' },
     sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },

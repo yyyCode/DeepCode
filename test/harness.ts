@@ -13,6 +13,8 @@ export type HarnessOptions = {
 };
 
 const NOOP_ENGINE = {} as EngineInterface;
+/** 每次调用都新建的话 next.signal 每次都是不同的对象，钉不住也说不通。 */
+const DEFAULT_SIGNAL = new AbortController().signal;
 
 export function createHarness(options: HarnessOptions = {}) {
   const registry = new Registry();
@@ -23,7 +25,7 @@ export function createHarness(options: HarnessOptions = {}) {
     engine: () => (options.engine ?? NOOP_ENGINE) as EngineInterface,
     coreImpls: options.coreImpls ?? {},
     logger: { warn: (line) => warnings.push(line) },
-    signal: options.signal ?? new AbortController().signal,
+    signal: () => options.signal ?? DEFAULT_SIGNAL,
   });
 
   function on(tier: Tier, plugin: string, pattern: string, hook: EventHook): void;

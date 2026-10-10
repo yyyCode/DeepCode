@@ -8,14 +8,33 @@ import type { UiSink } from '../core/nouns/ui';
 export type Renderer = UiSink & { delta(text: string): void; newline(): void };
 
 export function createRenderer(): Renderer {
-  const interactive = Boolean(process.stdout.isTTY);
+  // 模型文本是**增量**来的（delta 不带换行），别的东西都是按行写的。
+  // 记着自己在不在行首，工具预览、通知、提示符才不会接到半句话后面去。
+  let atLineStart = true;
+
+  const write = (text: string): void => {
+    process.stdout.write(text);
+    atLineStart = text.endsWith('\n');
+  };
+
+  const endLine = (): void => {
+    if (atLineStart) return;
+    process.stdout.write('\n');
+    atLineStart = true;
+  };
+
   return {
-    print: (line) => process.stdout.write(`${line}\n`),
-    notice: (line) => process.stderr.write(`${line}\n`),
-    ask: async () => 'n',
-    delta: (text) => process.stdout.write(text),
-    newline: () => {
-      if (interactive) process.stdout.write('\n');
+    print: (line) => {
+      endLine();
+      write(`${line}\n`);
     },
+    notice: (line) => {
+      // stderr 与 stdout 在终端里是同一块屏幕：先补上那半行，提示才不会被截断。
+      endLine();
+      process.stderr.write(`${line}\n`);
+    },
+    ask: async () => 'n',
+    delta: (text) => write(text),
+    newline: endLine,
   };
 }

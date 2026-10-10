@@ -12,7 +12,15 @@ export type CoreNounsDeps = {
   ui: UiSink;
   sessionInfo: { id: string; cwd: string; root: string };
   env: NodeJS.ProcessEnv;
-  signal: AbortSignal;
+  /**
+   * 会话 signal 的**工厂**，不是 signal 本身。
+   *
+   * 一个 AbortSignal 一旦 abort 就再也回不去。若在构造时就把一个 signal 定死，
+   * 用户按一次 Ctrl-C 之后，往后每个 turn 都会拿着一个已经 aborted 的 signal 去
+   * fetch —— 于是第一次中断就永久废掉整个会话，而 loop 那边还在说
+   * "会话保留，可以继续输入"。传工厂、每个 turn 现取一个，中断才等于"掐断这一次"。
+   */
+  signal: () => AbortSignal;
 };
 
 /**
@@ -25,7 +33,7 @@ export function createCoreNouns(deps: CoreNounsDeps, registry: Registry): CoreEn
       id: () => deps.sessionInfo.id,
       cwd: () => deps.sessionInfo.cwd,
       root: () => deps.sessionInfo.root,
-      signal: () => deps.signal,
+      signal: deps.signal,
     },
     // 工具清单不是硬编码表：它来自注册面上 `tool.call` 的 matcher 取值。
     tool: { list: () => registry.matcherValues('tool.call', 'tool') },

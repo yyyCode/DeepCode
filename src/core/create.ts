@@ -7,7 +7,8 @@ import { createCoreNouns, type CoreNounsDeps } from './nouns';
 
 export type CreateEngineDeps = CoreNounsDeps & {
   plugins: readonly Plugin[];
-  signal: AbortSignal;
+  /** 覆盖 CoreNounsDeps 里同名的工厂，类型一致。 */
+  signal: () => AbortSignal;
 };
 
 export type BuiltEngine = {
