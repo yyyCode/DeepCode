@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 依赖边界检查。规则见设计文档 §2.1。
 // 不用 ESLint：flat config 下 import/no-restricted-paths 支持不稳定，而这里要的只是"某目录不许 import"。
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const SRC = new URL('../src/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
@@ -34,6 +34,13 @@ function topAreaOf(file) {
 }
 
 const problems = [];
+
+// src/ 在 Task 1 结束时还不存在（git 不跟踪空目录，所以新克隆里没有它）。
+// 不守这一下，脚本会以 ENOENT 崩掉，而不是"检查通过"。
+if (!existsSync(SRC)) {
+  console.log('依赖边界检查通过（src/ 尚未创建）');
+  process.exit(0);
+}
 
 for (const file of walk(SRC)) {
   const area = topAreaOf(file);

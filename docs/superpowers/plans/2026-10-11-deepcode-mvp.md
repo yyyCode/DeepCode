@@ -173,7 +173,7 @@ dist/
 #!/usr/bin/env node
 // 依赖边界检查。规则见设计文档 §2.1。
 // 不用 ESLint：flat config 下 import/no-restricted-paths 支持不稳定，而这里要的只是"某目录不许 import"。
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const SRC = new URL('../src/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
@@ -207,6 +207,13 @@ function topAreaOf(file) {
 
 const problems = [];
 
+// src/ 在 Task 1 结束时还不存在（git 不跟踪空目录，所以新克隆里没有它）。
+// 不守这一下，脚本会以 ENOENT 崩掉，而不是"检查通过"。
+if (!existsSync(SRC)) {
+  console.log('依赖边界检查通过（src/ 尚未创建）');
+  process.exit(0);
+}
+
 for (const file of walk(SRC)) {
   const area = topAreaOf(file);
   const allowed = RULES[area];
@@ -238,18 +245,23 @@ console.log('依赖边界检查通过');
 
 ```bash
 pnpm install
-pnpm typecheck
 pnpm lint
 ```
 
-Expected: `pnpm typecheck` 无输出（无错误）；`pnpm lint` 打印 `依赖边界检查通过`。
+Expected: `pnpm lint` 打印 `依赖边界检查通过（src/ 尚未创建）`。
+
+**这一步刻意不跑 `pnpm typecheck`。** 此时 `src/` 与 `test/` 都还不存在，`tsc` 会以 `TS18003: No inputs were found` 报错 —— 那是"还没有任何 TS 文件"，不是代码有问题。本计划的"任务级 = `pnpm typecheck` 通过"从 **Task 2** 开始生效（`src/contract/tier.ts` 是第一个 `.ts` 输入）。
+
+（边界脚本里那一下 `existsSync(SRC)` 守卫就是为了这个窗口：新克隆的仓库没有 `src/`，没有守卫会 ENOENT 崩溃。）
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add package.json tsconfig.json vitest.config.ts .gitignore scripts/
+git add package.json pnpm-lock.yaml tsconfig.json vitest.config.ts .gitignore scripts/
 git commit -m "chore: 初始化工程脚手架与依赖边界检查"
 ```
+
+`pnpm-lock.yaml` 必须一起提交：没有它，`pnpm install` 在不同时间会解析出不同版本，vitest 与 tsx 的小版本漂移足以让后面的检查点表现不一致。
 
 ---
 
