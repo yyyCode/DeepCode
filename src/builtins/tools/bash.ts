@@ -40,9 +40,16 @@ export const bashTool: Plugin = {
       const parts: string[] = [];
       if (result.stdout) parts.push(result.stdout);
       if (result.stderr) parts.push(`[stderr]\n${result.stderr}`);
-      parts.push(`[退出码 ${result.exitCode}]`);
 
-      let output = parts.join('\n');
+      // 非零退出必须用 ERROR: 开头。loop 只看这个前缀来决定 tool_result 的 is_error，
+      // 而 is_error 是模型判断"这一步失败了"的主要依据（设计文档 §4.2 要求如此，
+      // 系统提示里也写了失败会以 ERROR: 开头）。原先退出码只是末行 `[退出码 N]`，
+      // 前缀判定不成立 —— 模型跑挂了测试，收到的却是一个 is_error:false 的"成功"，
+      // 于是很可能回一句"测试都过了"。
+      let output =
+        result.exitCode === 0
+          ? [...parts, '[退出码 0]'].join('\n')
+          : [`ERROR: 命令以退出码 ${result.exitCode} 结束`, ...parts].join('\n');
       if (output.length > MAX_OUTPUT_CHARS) {
         output = `${output.slice(0, MAX_OUTPUT_CHARS)}\n... 输出已截断`;
       }

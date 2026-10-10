@@ -46,7 +46,7 @@ node /path/to/DeepCode/bin/deepcode.mjs "跑一下测试，把失败的那条修
 
 | 变量 | 作用 |
 |---|---|
-| `DEEPCODE_MODEL` | 覆盖模型 id，默认 `claude-sonnet-4-5` |
+| `DEEPCODE_MODEL` | 覆盖模型 id，默认 `claude-sonnet-5-5` |
 | `ANTHROPIC_BASE_URL` | 覆盖 API 端点 |
 | `DEEPCODE_DEBUG` | 打开 hook 调试输出（走 stderr） |
 
@@ -74,6 +74,10 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 - `tool.check` 走到链尾无人应答 = **deny**，不是 allow。
 
 有意**没有** `--yes` / 自动放行开关：非交互环境里没人能按 `y`，那就写不了文件、跑不了命令。
+
+也**没有路径围栏**：`Read` / `Write` / `Edit` / `Glob` / `Grep` / `Bash` 能碰到你进程权限内的任何路径，
+不限工作目录。确认提示是唯一的一道闸，而且它拦的是"要不要动手"，不是"动哪里" ——
+所以别在装着重要东西的机器上放它乱跑。沙箱化（含 Bash 的）在设计文档里排到 P2。
 
 完整的权限系统（settings 来源优先级、allow/ask/deny 规则、`sec-default` 守门器）是下一个阶段的事。
 

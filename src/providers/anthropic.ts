@@ -77,6 +77,17 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
         } else if (frame.event === 'message_delta') {
           const data = JSON.parse(frame.data);
           if (data.delta?.stop_reason) stopReason = data.delta.stop_reason;
+        } else if (frame.event === 'error') {
+          // 错误帧必须抛出去。默不作声地略过，一次 overloaded_error 就会变成一个
+          // "成功的空 turn"：没有文本、没有工具调用、stopReason 还是 end_turn ——
+          // 用户的问题凭空消失，连一句报错都没有，而且不会退避重试。
+          // 这条路径只有真 API 会走到，脚本化 provider 测不出来。
+          const data = JSON.parse(frame.data);
+          const type = data?.error?.type ?? 'error';
+          const detail = data?.error?.message;
+          throw new Error(
+            `anthropic 流中错误帧: ${type}${detail ? ` — ${detail}` : ''}`,
+          );
         } else if (frame.event === 'message_stop') {
           yield { type: 'done', stopReason } satisfies StreamEvent;
           return;

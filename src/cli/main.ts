@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   const prompt = createPromptSink(rl, { signalOf: () => turns.current() });
   const provider = createAnthropicProvider({
     apiKey,
-    model: process.env.DEEPCODE_MODEL ?? 'claude-sonnet-4-5',
+    model: process.env.DEEPCODE_MODEL ?? 'claude-sonnet-5-5',
     baseUrl: process.env.ANTHROPIC_BASE_URL,
   });
 

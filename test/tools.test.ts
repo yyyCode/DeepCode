@@ -126,6 +126,61 @@ describe('六个核心工具', () => {
     const ctx = makeHarness();
     const result = await call(ctx, 'Bash', { command: 'exit 3' });
     expect((result as any).value).toContain('退出码 3');
+    // 非零退出必须以 ERROR: 开头。loop 只看这个前缀决定 tool_result 的 is_error，
+    // 而 is_error 是模型判断"这一步失败了"的主要依据 —— 原先退出码只是末行
+    // `[退出码 3]`，模型跑挂了测试收到的却是一个 is_error:false 的"成功"。
+    expect((result as any).value.startsWith('ERROR:')).toBe(true);
+  });
+
+  it('Edit 不给 Write 开后门：Edit 过不等于模型读过', async () => {
+    const ctx = makeHarness();
+    const target = join(root, 'g.ts');
+    await writeFile(target, 'const a = 1;\n', 'utf8');
+
+    // Edit 内部会读文件，所以它能改 —— 但模型只拿到一行"已修改"，没见到内容。
+    const edited = await call(ctx, 'Edit', {
+      file_path: target,
+      old_string: 'const a = 1;',
+      new_string: 'const a = 2;',
+    });
+    expect((edited as any).value).toBe(`已修改 ${target}`);
+
+    // 因此这次裸 Write 仍须被拦下。Edit 曾经顺手打上 read: 标记，等于给整体覆盖开了后门。
+    const written = await call(ctx, 'Write', { file_path: target, content: '整体覆盖掉\n' });
+    expect((written as any).value).toContain('先 Read 再 Write');
+    expect(await readFile(target, 'utf8')).toBe('const a = 2;\n');
+  });
+
+  it('Edit 能改 CRLF 文件：模型给 LF 的多行 old_string 也认', async () => {
+    const ctx = makeHarness();
+    const target = join(root, 'crlf.ts');
+    await writeFile(target, 'const a = 1;\r\nconst b = 2;\r\n', 'utf8');
+    await call(ctx, 'Read', { file_path: target });
+
+    // 模型给的是 LF 换行（Read 的输出里也是 LF），文件本身是 CRLF。
+    // 直接 indexOf 会"找不到"，多行编辑在 Windows 仓库上必然失败。
+    const result = await call(ctx, 'Edit', {
+      file_path: target,
+      old_string: 'const a = 1;\nconst b = 2;',
+      new_string: 'const a = 9;\nconst b = 8;',
+    });
+    expect((result as any).value).toBe(`已修改 ${target}`);
+    // 行尾保持 CRLF：替换进去的那几行也得跟着用 CRLF，不能一半 CRLF 一半 LF。
+    expect(await readFile(target, 'utf8')).toBe('const a = 9;\r\nconst b = 8;\r\n');
+  });
+
+  it('Grep 与 Glob 不跳过点开头的文件', async () => {
+    const ctx = makeHarness();
+    await writeFile(join(root, '.env'), 'SECRET=1\n', 'utf8');
+
+    // 这条以前返回"没有匹配"：遍历时把所有 `.` 开头的条目都 continue 掉了，
+    // 只有 `.claude` 被放过 —— 于是 .env / .github/** 一律搜不到，
+    // 而模型拿到的是假阴性，会当成"这仓库里没有"。
+    const grepped = await call(ctx, 'Grep', { pattern: 'SECRET' });
+    expect((grepped as any).value).toMatch(/\.env:1:.*SECRET/);
+
+    const globbed = await call(ctx, 'Glob', { pattern: '.env' });
+    expect((globbed as any).value).toContain('.env');
   });
 
   it('Glob 按模式找到文件', async () => {

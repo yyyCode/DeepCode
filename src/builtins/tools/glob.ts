@@ -54,7 +54,8 @@ export const globTool: Plugin = {
         }
         for (const entry of entries) {
           if (found.length >= MAX_RESULTS) return;
-          if (entry.name.startsWith('.') && entry.name !== '.claude') continue;
+          // 同 grep：曾经把所有 `.` 开头的条目都跳过，于是 `.github/**`、`.gitignore`
+          // 这类文件永远找不到，返回的还是"没有匹配"。重目录在 SKIP_DIRS 里。
           if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
 
           const full = join(dir, entry.name);

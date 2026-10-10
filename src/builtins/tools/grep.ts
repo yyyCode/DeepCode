@@ -53,7 +53,10 @@ export const grepTool: Plugin = {
         }
         for (const entry of entries) {
           if (matches.length >= MAX_MATCHES) return;
-          if (entry.name.startsWith('.') && entry.name !== '.claude') continue;
+          // 这里曾经跳过所有 `.` 开头的条目（只给 `.claude` 开了口子）——
+          // 于是 `.github/workflows/ci.yml`、`.env`、`.eslintrc` 全都搜不到，
+          // 而返回的是"没有匹配"：模型会把假阴性当成"这个仓库里没有"。
+          // 要排除的重目录已经在 SKIP_DIRS 里了（含 .git），不需要按点号一刀切。
           if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
 
           const full = join(dir, entry.name);

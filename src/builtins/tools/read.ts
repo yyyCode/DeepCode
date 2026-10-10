@@ -33,7 +33,7 @@ export const readTool: Plugin = {
         // 少了这一行，那个检查永远为假，任何先前就存在的文件都再也覆盖不了：
         // 你没法在不写的情况下打上标记，也没法在没标记的情况下写。
         await $.store.set(`read:${input.file_path}`, '1');
-        const lines = content.split('\n');
+        const lines = content.split('\n').map((line) => line.replace(/\r$/, ''));
         const limit = input.limit ?? MAX_LINES;
         const shown = lines.slice(0, limit);
         const numbered = shown.map((line, index) => `${index + 1}\t${line}`).join('\n');
