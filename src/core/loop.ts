@@ -179,6 +179,13 @@ async function describeTools(ctx: LoopContext): Promise<ToolSpec[]> {
   for (const name of ctx.$.tool.list()) {
     try {
       const described = await ctx.dispatch('tool.describe', { tool: name }, CORE_ORIGIN);
+      // 被权限规则整工具 deny 掉的：**安静**略去（一条 debug）。这不是"没注册描述"
+      // —— 那是故障，要 warn —— 而是"策略不让它露面"。两件事混在一起，
+      // 会让人以为某个插件坏了。
+      if ('hidden' in described) {
+        ctx.$.logger.debug(`工具 ${name} 被权限规则隐藏，不进模型可见清单。`);
+        continue;
+      }
       specs.push({
         name,
         description: described.description,

@@ -40,7 +40,7 @@ export type EventResult = {
   'turn.complete': Record<string, never>;
   'tool.call': { readonly value: unknown } | { readonly deny: string };
   'tool.check': { readonly decision: 'allow' | 'ask' | 'deny'; readonly rule?: string };
-  'tool.describe': { readonly description: string; readonly inputSchema: unknown };
+  'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
   'command.run': { readonly handled?: boolean };
 };
 

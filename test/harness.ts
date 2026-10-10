@@ -1,9 +1,9 @@
 import { Registry } from '../src/core/registry';
 import { createDispatcher, type CoreImpls, type DispatchFn } from '../src/core/dispatch';
 import type { EngineInterface } from '../src/contract/engine';
-import type { EventHook } from '../src/contract/plugin';
+import type { EventHook, On, Plugin } from '../src/contract/plugin';
 import type { Tier } from '../src/contract/tier';
-import type { StreamEvent } from '../src/contract/model-provider';
+import type { StreamEvent, StreamRequest } from '../src/contract/model-provider';
 import type { ModelProvider } from '../src/contract/engine';
 
 export type HarnessOptions = {
@@ -61,6 +61,42 @@ export function scriptedProvider(script: readonly (readonly StreamEvent[])[]): M
     async *stream() {
       const events = script[turn++] ?? [{ type: 'done', stopReason: 'end_turn' } as const];
       for (const event of events) yield event;
+    },
+  };
+}
+
+/**
+ * 把一个插件按指定 tier 装进 harness。
+ *
+ * harness 的 `on` 要求 tier 显式给（这是它能测任意座位的前提），而插件拿到的是
+ *「绑好身份」的 on —— 这里做一次适配。座位仍由调用方钉，与生产里 `cliPlugins`
+ * 返回的那张 seating 表同一个道理：插件自己说了不算。
+ */
+export function seat(h: ReturnType<typeof createHarness>, plugin: Plugin, tier: Tier): void {
+  const on = ((pattern: string, second: unknown, third?: unknown) => {
+    const hook = (third ?? second) as EventHook;
+    const matcher = third !== undefined ? (second as Record<string, unknown>) : undefined;
+    if (matcher !== undefined) h.on(tier, plugin.name, pattern, matcher, hook);
+    else h.on(tier, plugin.name, pattern, hook);
+  }) as On;
+  plugin.register(on);
+}
+
+/**
+ * 会记下每次请求里模型看到的工具清单的 provider。
+ *
+ *「按权限过滤工具可见性」只能从这里验 —— 那是模型眼里的东西，别处看不见。
+ */
+export function recordingProvider(): { provider: ModelProvider; lastTools(): string[] } {
+  let tools: string[] = [];
+  return {
+    lastTools: () => tools,
+    provider: {
+      name: 'recording',
+      async *stream(req: StreamRequest) {
+        tools = req.tools.map((t) => t.name);
+        yield { type: 'done', stopReason: 'end_turn' } as const;
+      },
     },
   };
 }

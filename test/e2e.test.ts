@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, scriptedProvider } from './harness';
+import { createHarness, recordingProvider, scriptedProvider, seat } from './harness';
 import { coreTools } from '../src/builtins/tools';
 import { confirmPlugin } from '../src/builtins/confirm';
 import { runTurn } from '../src/core/loop';
@@ -10,6 +10,8 @@ import { CORE_ORIGIN } from '../src/contract/next';
 import type { EngineInterface } from '../src/contract/engine';
 import type { Message } from '../src/contract/model-provider';
 import type { EventHook } from '../src/contract/plugin';
+import type { Tier } from '../src/contract/tier';
+import type { Plugin } from '../src/contract/plugin';
 import { createFsNoun } from '../src/core/nouns/fs';
 import { createProcessNoun } from '../src/core/nouns/process';
 import { createStoreNoun } from '../src/core/nouns/store';
@@ -24,7 +26,10 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function buildWorld(answers: string[]) {
+function buildWorld(
+  answers: string[],
+  extra: readonly { plugin: Plugin; tier: Tier }[] = [],
+) {
   const asked: string[] = [];
   const engine = {
     session: { id: () => 'e2e', cwd: () => root, root: () => root, signal: () => new AbortController().signal },
@@ -44,7 +49,7 @@ function buildWorld(answers: string[]) {
     // 桩这里不能写成 coreTools.map(p => p.name) —— 那是插件名（'tool-read'），
     // 不是工具名（'Read'）。写错的话 describeTools 会拿插件名去查 tool.describe，
     // 六个工具全部落到 catch 分支被静默略去，E2E 表面上照样绿。
-    tool: { list: () => ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'] },
+    tool: { list: () => ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch'] },
     command: { list: () => [] },
     model: { stream: async function* () {} },
   } as unknown as EngineInterface;
@@ -62,15 +67,12 @@ function buildWorld(answers: string[]) {
     },
   });
 
-  for (const plugin of [...coreTools, confirmPlugin]) {
-    plugin.register((pattern: string, second: any, third?: any) => {
-      if (third !== undefined) {
-        h.on('builtin', plugin.name, pattern, second as Record<string, unknown>, third as EventHook);
-      } else {
-        h.on('builtin', plugin.name, pattern, second as EventHook);
-      }
-    });
-  }
+  const seated: readonly { plugin: Plugin; tier: Tier }[] = [
+    ...coreTools.map((plugin) => ({ plugin, tier: 'builtin' as const })),
+    { plugin: confirmPlugin, tier: 'builtin' as const },
+    ...extra,
+  ];
+  for (const { plugin, tier } of seated) seat(h, plugin, tier);
 
   return { h, engine, asked };
 }
