@@ -1505,20 +1505,30 @@ describe('链语义', () => {
     expect(h.warnings[0]).toContain('undefined');
   });
 
-  it('next.to(tier) 只向下跳，跳过比目标更外的层', async () => {
+  it('next.to(tier) 只向下跳，跳过中间层，直达内核', async () => {
     const h = createHarness({
       coreImpls: { 'tool.call': () => ({ value: 'core' }) },
     });
     const visited: string[] = [];
-    h.on('prepend', 'pre', CALL, async (_$, _e, _next) => ({ value: 'pre' }));
-    h.on('user', 'usr', CALL, async (_$, _e, _next) => ({ value: 'usr' }));
-    h.on('append', 'app', CALL, async (_$, _e, next) => {
-      visited.push('append');
+
+    // 座位从外到内：user → append → builtin → core(内核实现)
+    // user 层直接跳到内核，append 与 builtin 都不该被运行。
+    h.on('user', 'usr', CALL, async (_$, _e, next) => {
+      visited.push('usr');
       return next.to(_e, 'core');
     });
+    h.on('append', 'app', CALL, async (_$, _e, next) => {
+      visited.push('app');
+      return next(_e);
+    });
+    h.on('builtin', 'bi', CALL, async (_$, _e, next) => {
+      visited.push('bi');
+      return next(_e);
+    });
 
-    await h.dispatch(CALL, args, CORE_ORIGIN);
-    expect(visited).toEqual(['append']); // append 与 core 之间的层（builtin 无）被跳过
+    const result = await h.dispatch(CALL, args, CORE_ORIGIN);
+    expect(result).toEqual({ value: 'core' }); // 确实落到了内核
+    expect(visited).toEqual(['usr']);          // append 与 builtin 被跳过
   });
 
   it('next.signal / origin / budget / is 都挂上了', async () => {
@@ -2723,6 +2733,7 @@ import { createHarness } from './harness';
 import { coreTools } from '../src/builtins/tools';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { EngineInterface } from '../src/contract/engine';
+import type { EventHook } from '../src/contract/plugin';
 import { createFsNoun } from '../src/core/nouns/fs';
 import { createProcessNoun } from '../src/core/nouns/process';
 import { createStoreNoun } from '../src/core/nouns/store';
@@ -2738,16 +2749,12 @@ afterAll(async () => {
 });
 
 function makeHarness() {
-  const h = createHarness({
-    coreImpls: {
-      'tool.call': (e) => ({ deny: `unknown tool: ${String(e.tool)}` }),
-      'tool.describe': () => {
-        throw new Error('no description');
-      },
-    },
-  });
-
-  // 把六个工具接上：直接用真实的名词实现，只有 session 是桩。
+  // engine 必须先建好再交给 createHarness —— 它是 hook 里 $ 的来源。
+  // 漏传的话 createHarness 会退回 NOOP_ENGINE（空对象），此时
+  // `$.fs.read(...)` 会抛 TypeError，被 dispatch 的故障隔离吞掉，
+  // 最后落到内核的 { deny: 'unknown tool' } —— 于是每个工具测试都"失败"，
+  // 但看起来像工具坏了，其实是 harness 没接上。直接用真实的名词实现，
+  // 只有 session 是桩。
   const engine = {
     session: { id: () => 'test', cwd: () => root, root: () => root, signal: () => new AbortController().signal },
     fs: createFsNoun(),
@@ -2760,25 +2767,33 @@ function makeHarness() {
     model: { stream: async function* () {} },
   } as unknown as EngineInterface;
 
+  const h = createHarness({
+    engine,
+    coreImpls: {
+      'tool.call': (e) => ({ deny: `unknown tool: ${String(e.tool)}` }),
+      'tool.describe': () => {
+        throw new Error('no description');
+      },
+    },
+  });
+
   for (const plugin of coreTools) {
     plugin.register((pattern: string, second: any, third?: any) => {
-      const hook = (third ?? second) as any;
-      const matcher = third ? second : undefined;
-      h.on('builtin', plugin.name, pattern, ...(matcher ? [matcher, hook] : [hook]));
+      // 显式分支而不是展开数组：h.on 是重载函数，
+      // 用 `...args` 展开会让 TS 无法选定重载。
+      if (third !== undefined) {
+        h.on('builtin', plugin.name, pattern, second as Record<string, unknown>, third as EventHook);
+      } else {
+        h.on('builtin', plugin.name, pattern, second as EventHook);
+      }
     });
   }
 
   return { h, engine };
 }
 
-async function call(read: ReturnType<typeof makeHarness>, tool: string, input: unknown) {
-  const { h, engine } = read;
-  return h.dispatch(
-    'tool.call',
-    { tool, input, toolUseId: 'x' },
-    CORE_ORIGIN,
-    undefined,
-  );
+async function call(world: ReturnType<typeof makeHarness>, tool: string, input: unknown) {
+  return world.h.dispatch('tool.call', { tool, input, toolUseId: 'x' }, CORE_ORIGIN);
 }
 
 describe('六个核心工具', () => {
@@ -2874,6 +2889,7 @@ import { runTurn } from '../src/core/loop';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { EngineInterface } from '../src/contract/engine';
 import type { Message } from '../src/contract/model-provider';
+import type { EventHook } from '../src/contract/plugin';
 import { createFsNoun } from '../src/core/nouns/fs';
 import { createProcessNoun } from '../src/core/nouns/process';
 import { createStoreNoun } from '../src/core/nouns/store';
@@ -2889,16 +2905,6 @@ afterAll(async () => {
 });
 
 function buildWorld(answers: string[]) {
-  const h = createHarness({
-    coreImpls: {
-      'tool.call': (e) => ({ deny: `unknown tool: ${String(e.tool)}` }),
-      'tool.check': () => ({ decision: 'deny', rule: 'fail-closed' }),
-      'tool.describe': () => {
-        throw new Error('no description');
-      },
-    },
-  });
-
   const asked: string[] = [];
   const engine = {
     session: { id: () => 'e2e', cwd: () => root, root: () => root, signal: () => new AbortController().signal },
@@ -2919,11 +2925,26 @@ function buildWorld(answers: string[]) {
     model: { stream: async function* () {} },
   } as unknown as EngineInterface;
 
+  // engine 必须传进去：createHarness 漏了它会退回空对象，
+  // 工具 hook 里的 `$.fs` 就是 undefined，整个 E2E 会以假乱真地失败。
+  const h = createHarness({
+    engine,
+    coreImpls: {
+      'tool.call': (e) => ({ deny: `unknown tool: ${String(e.tool)}` }),
+      'tool.check': () => ({ decision: 'deny', rule: 'fail-closed' }),
+      'tool.describe': () => {
+        throw new Error('no description');
+      },
+    },
+  });
+
   for (const plugin of [...coreTools, confirmPlugin]) {
     plugin.register((pattern: string, second: any, third?: any) => {
-      const hook = (third ?? second) as any;
-      const matcher = third ? second : undefined;
-      h.on('builtin', plugin.name, pattern, ...(matcher ? [matcher, hook] : [hook]));
+      if (third !== undefined) {
+        h.on('builtin', plugin.name, pattern, second as Record<string, unknown>, third as EventHook);
+      } else {
+        h.on('builtin', plugin.name, pattern, second as EventHook);
+      }
     });
   }
 
