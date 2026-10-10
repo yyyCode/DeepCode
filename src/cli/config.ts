@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { PROVIDER_KINDS, isProviderKind } from '../providers';
+import type { ProviderKind } from '../contract/model-provider';
 
 /** 配置文件里认识的字段。写错的字段名会被点名，不会静默失效。 */
 export type CliConfig = {
@@ -8,6 +10,7 @@ export type CliConfig = {
   model?: string;
   baseUrl?: string;
   debug?: boolean;
+  provider?: ProviderKind;
 };
 
 const FIELD_TYPES: Record<keyof CliConfig, 'string' | 'boolean'> = {
@@ -15,6 +18,7 @@ const FIELD_TYPES: Record<keyof CliConfig, 'string' | 'boolean'> = {
   model: 'string',
   baseUrl: 'string',
   debug: 'boolean',
+  provider: 'string',
 };
 
 /** 没有任何配置时用的模型。写在这里是为了让"默认值是什么"只有一处。 */
@@ -25,11 +29,12 @@ export type ResolvedSettings = {
   model: string;
   baseUrl: string | undefined;
   debug: boolean;
+  provider: ProviderKind;
 };
 
 /** 每个字段认哪些环境变量名，按优先级排列。表只写一遍，取值和告警都从这里来。 */
 const ENV_NAMES: ReadonlyArray<{
-  field: 'apiKey' | 'model' | 'baseUrl';
+  field: keyof CliConfig;
   names: readonly string[];
   /** 值本身是凭据，告警里只敢说"不一致"，不能把内容打出来。 */
   secret?: boolean;
@@ -40,6 +45,7 @@ const ENV_NAMES: ReadonlyArray<{
   { field: 'apiKey', names: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'], secret: true },
   { field: 'model', names: ['DEEPCODE_MODEL', 'ANTHROPIC_MODEL'] },
   { field: 'baseUrl', names: ['ANTHROPIC_BASE_URL'] },
+  { field: 'provider', names: ['DEEPCODE_PROVIDER'] },
 ];
 
 /**
@@ -66,6 +72,7 @@ export function resolveSettings(
     model: DEFAULT_MODEL,
     baseUrl: undefined,
     debug: Boolean(env.DEEPCODE_DEBUG) || config.debug === true,
+    provider: 'anthropic',
   };
 
   for (const { field, names, secret } of ENV_NAMES) {
@@ -88,7 +95,30 @@ export function resolveSettings(
     (out as Record<string, unknown>)[field] = fromEnv;
   }
 
+  // 校验放在最后：它是"环境变量 > 项目级 > 用户级"三口合流之后的唯一出口，
+  // 放三处不如放一处。写错了直接抛 —— 静默退回 anthropic 会让用户拿着 openai 的端点
+  // 发 anthropic 的请求，然后收到一个完全看不懂的 404。
+  if (!isProviderKind(out.provider)) {
+    throw new Error(
+      `provider 只能是 ${PROVIDER_KINDS.join(' / ')}，现在给的是 "${String(out.provider)}"。` +
+        '（来自环境变量 DEEPCODE_PROVIDER 或配置文件里的 provider）',
+    );
+  }
+  assertModelShape(out.model);
   return out;
+}
+
+/**
+ * 启动期只能查**形状**，查不了存在性 —— 那只有端点知道，而兼容端点的模型清单各不相同，
+ * 硬编一张表只会拦住合法模型。存在性那一半交给 providers/http.ts 把 404 翻成人话（设计 §6）。
+ */
+function assertModelShape(model: string): void {
+  if (model === '') {
+    throw new Error('模型 id 是空的：检查配置文件里的 model，或环境变量 DEEPCODE_MODEL / ANTHROPIC_MODEL。');
+  }
+  if (/\s/.test(model)) {
+    throw new Error(`模型 id ${JSON.stringify(model)} 里有空白字符，这不是一个合法的模型 id。`);
+  }
 }
 
 export type LoadConfigDeps = {
@@ -173,6 +203,12 @@ function parseLayer(
     const expected = FIELD_TYPES[key];
     if (typeof value !== expected) {
       throw new Error(`${label}配置文件 ${path} 的 "${key}" 应该是 ${expected}，实际给的是 ${typeof value}`);
+    }
+    if (key === 'provider' && !isProviderKind(String(value))) {
+      throw new Error(
+        `${label}配置文件 ${path} 的 "provider" 只能是 ${PROVIDER_KINDS.join(' / ')}，` +
+          `实际给的是 ${JSON.stringify(value)}`,
+      );
     }
     (out as Record<string, unknown>)[key] = value;
   }

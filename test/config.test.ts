@@ -87,6 +87,7 @@ describe('resolveSettings：环境变量盖过配置文件', () => {
       model: 'claude-sonnet-5-5',
       baseUrl: undefined,
       debug: false,
+      provider: 'anthropic',
     });
   });
 
@@ -103,6 +104,7 @@ describe('resolveSettings：环境变量盖过配置文件', () => {
       model: '环境模型',
       baseUrl: 'https://file.example',
       debug: true,
+      provider: 'anthropic',
     });
   });
 
@@ -123,6 +125,7 @@ describe('resolveSettings：环境变量盖过配置文件', () => {
       model: 'deepseek-v4-flash',
       baseUrl: 'https://api.deepseek.com/anthropic',
       debug: false,
+      provider: 'anthropic',
     });
   });
 
@@ -140,6 +143,61 @@ describe('resolveSettings：环境变量盖过配置文件', () => {
     // 文档里说的是"环境变量 > 配置文件"，但 debug 只有"给没给"没有"给成 false"，
     // 空字符串同样是 falsy —— 所以这里只能是或。写清楚，免得被当成 bug 改掉。
     expect(resolveSettings({ DEEPCODE_DEBUG: '' }, { debug: true }).debug).toBe(true);
+  });
+});
+
+describe('provider：取值校验（配置文件与合流出口）', () => {
+  it('配置文件里的 provider: "openai" 被采纳', async () => {
+    const { run } = load({ [USER_PATH]: JSON.stringify({ provider: 'openai' }) });
+
+    // 解析那一刻就该认，不要拖到合流出口才认。
+    expect((await run()).provider).toBe('openai');
+    expect(resolveSettings({}, { provider: 'openai' }).provider).toBe('openai');
+  });
+
+  it('配置文件里的 provider 拼错时抛，错误里带上两个合法值', async () => {
+    const { run } = load({ [USER_PATH]: JSON.stringify({ provider: 'oepnai' }) });
+
+    // 写错的那一刻就报，带上文件路径，别等到合流出口才发现。
+    await expect(run()).rejects.toThrow(/oepnai/);
+    await expect(run()).rejects.toThrow(/anthropic/);
+    await expect(run()).rejects.toThrow(/openai/);
+  });
+
+  it('DEEPCODE_PROVIDER 覆盖配置文件里的 provider，并走既有的覆盖告警那条路', () => {
+    const warnings: string[] = [];
+    const settings = resolveSettings(
+      { DEEPCODE_PROVIDER: 'openai' },
+      { provider: 'anthropic' },
+      (line) => warnings.push(line),
+    );
+
+    expect(settings.provider).toBe('openai');
+    expect(warnings.join('\n')).toContain('DEEPCODE_PROVIDER');
+    expect(warnings.join('\n')).toContain('provider');
+    expect(warnings.join('\n')).toContain('被忽略');
+  });
+
+  it('DEEPCODE_PROVIDER 取值非法时抛，错误里带上两个合法值', () => {
+    // 静默退回 anthropic 最坏：用户拿着 openai 的端点发 anthropic 的请求，
+    // 然后收到一个完全看不懂的 404。
+    expect(() => resolveSettings({ DEEPCODE_PROVIDER: 'foo' }, {})).toThrow(/anthropic/);
+    expect(() => resolveSettings({ DEEPCODE_PROVIDER: 'foo' }, {})).toThrow(/openai/);
+  });
+
+  it('哪里都没给 provider 时默认是 anthropic', () => {
+    expect(resolveSettings({}, {}).provider).toBe('anthropic');
+  });
+});
+
+describe('model id：启动期只查形状', () => {
+  it('model 里有空白字符时抛，错误里点出空白字符', () => {
+    // 存在性查不了（那只有端点知道），但"看着就不像 model id"的能拦下。
+    expect(() => resolveSettings({}, { model: 'claude sonnet' })).toThrow(/空白字符/);
+  });
+
+  it('model 是空串时抛，提示去查配置文件或环境变量', () => {
+    expect(() => resolveSettings({}, { model: '' })).toThrow(/模型 id 是空的/);
   });
 });
 
