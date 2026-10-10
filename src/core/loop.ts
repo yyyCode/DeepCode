@@ -15,8 +15,14 @@ export type LoopContext = {
   turnIndex: number;
 };
 
-/** 跑一个完整 turn：把 messages 推进到模型不再要工具为止。messages 会被就地追加。 */
-export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<void> {
+/**
+ * 跑一个完整 turn：把 messages 推进到模型不再要工具为止。messages 会被就地追加。
+ *
+ * 返回结束时那个 stopReason（'end_turn' / 模型给的 / 'error' / 'interrupted'），
+ * 调用方拿它决定退出码 —— 一次性模式下"这一趟失败了"必须是个非零退出码，
+ * 否则 `deepcode "..." && 下一步` 会带着错误悄悄往下走。
+ */
+export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<string> {
   await ctx.dispatch('turn.start', { index: ctx.turnIndex }, CORE_ORIGIN);
 
   const tools = await describeTools(ctx);
@@ -47,7 +53,10 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<vo
         })) {
           if (event.type === 'text') {
             text += event.text;
-            await ctx.dispatch('turn.step', { delta: event.text }, CORE_ORIGIN);
+            // 空增量不必往外抛：它写不出任何字节，却会让渲染器多处理一次。
+            if (event.text !== '') {
+              await ctx.dispatch('turn.step', { delta: event.text }, CORE_ORIGIN);
+            }
           } else if (event.type === 'tool_use') {
             const block = {
               type: 'tool_use' as const,
@@ -65,6 +74,9 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<vo
         break;
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
+        // 用户中断不是 provider 故障：别退避重试、也别打"provider 出错"的日志 ——
+        // 重试只会拿着同一个已 abort 的 signal 立刻再失败一次，白等一秒还误导人。
+        if (ctx.signal.aborted) break;
         // 已经把部分文本推给用户了，重试会造成重复输出 —— 不再重试。
         if (text) break;
         if (attempt === 0) {
@@ -74,11 +86,20 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<vo
       }
     }
 
-    // 重试后仍然失败：结束本 turn，但保留会话、不退出进程。
+    // 重试后仍然失败（或被中断）：结束本 turn，但保留会话、不退出进程。
     if (failure !== undefined) {
-      ctx.$.ui.notice(`本 turn 失败：${failure}（会话保留，可以继续输入）`);
-      await ctx.dispatch('turn.complete', { stopReason: 'error', inputTokens: 0, outputTokens: 0 }, CORE_ORIGIN);
-      return;
+      const interrupted = ctx.signal.aborted;
+      ctx.$.ui.notice(
+        interrupted
+          ? '这一回合已被中断（会话保留，可以继续输入）'
+          : `本 turn 失败：${failure}（会话保留，可以继续输入）`,
+      );
+      await ctx.dispatch(
+        'turn.complete',
+        { stopReason: interrupted ? 'interrupted' : 'error', inputTokens: 0, outputTokens: 0 },
+        CORE_ORIGIN,
+      );
+      return interrupted ? 'interrupted' : 'error';
     }
 
     const assistantBlocks: ContentBlock[] = [];
@@ -104,6 +125,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<vo
     { stopReason, inputTokens: 0, outputTokens: 0 },
     CORE_ORIGIN,
   );
+  return stopReason;
 }
 
 /** 抛 tool.check 判定 → 需要就问用户 → 抛 tool.call 执行。 */

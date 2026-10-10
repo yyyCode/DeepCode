@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   process.on('SIGINT', turns.onSigint);
   rl.on('SIGINT', turns.onSigint);
 
-  const prompt = createPromptSink(rl);
+  const prompt = createPromptSink(rl, { signalOf: () => turns.current() });
   const provider = createAnthropicProvider({
     apiKey,
     model: process.env.DEEPCODE_MODEL ?? 'claude-sonnet-4-5',
@@ -87,8 +87,9 @@ async function main(): Promise<void> {
     // 一次性模式：`deepcode "改一下 X"`
     const messages: Message[] = [{ role: 'user', content: oneShot }];
     const signal = turns.begin();
+    let reason = 'end_turn';
     try {
-      await runTurn(
+      reason = await runTurn(
         { $, provider, signal, dispatch, systemPrompt, turnIndex: 0 },
         messages,
       );
@@ -96,6 +97,10 @@ async function main(): Promise<void> {
       turns.end();
     }
     render.newline();
+    // 一次性模式要能进脚本：这一趟失败或被中断就是非零退出码，
+    // 否则 `deepcode "..." && 下一步` 会带着错误悄悄往下走。
+    if (reason === 'error') process.exitCode = 1;
+    else if (reason === 'interrupted') process.exitCode = 130;
   } else {
     await startRepl({ $, dispatch, render, rl, systemPrompt, turns });
   }

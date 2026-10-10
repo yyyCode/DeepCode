@@ -45,12 +45,11 @@ export const editTool: Plugin = {
         };
       }
 
-      const updated =
-        content.slice(0, first) + input.new_string + content.slice(first + input.old_string.length);
-
       // 校验通过，交给下层真正写盘。
-      // confirm 的 diff 预览由它自己从原始 input 算 —— tool.check 跑在这之前，
-      // 这里挂上去的字段它看不到。
+      // 这里算出的新内容不往上传：hook 之间只能靠 next({...e, field}) 传值，
+      // 而 e 是冻结的 Args，塞不进第三个字段 —— 所以下层会自己再读再算一遍，
+      // 也因此**下层必须自带防御**（见下面那个 hook）。
+      // confirm 的 diff 预览也由它自己从原始 input 算：tool.check 跑在这之前。
       return next(e);
     });
 
@@ -59,6 +58,14 @@ export const editTool: Plugin = {
       try {
         const content = await $.fs.read(input.file_path);
         const at = content.indexOf(input.old_string);
+        // 上面那个 hook 已经校验过一次，但两次读之间还有窗口：文件若被外部改过，
+        // indexOf 会返回 -1，而 slice(0, -1) + ... + slice(-1 + len) 不会报任何错，
+        // 只会把文件内容搅乱写回去。宁可报错，也不要静默写坏。
+        if (at === -1) {
+          return {
+            value: `ERROR: 在 ${input.file_path} 里已经找不到 old_string（文件在校验与写入之间被改过？）。请重新 Read 后再试。`,
+          };
+        }
         const updated =
           content.slice(0, at) + input.new_string + content.slice(at + input.old_string.length);
         await $.fs.write(input.file_path, updated);

@@ -12,13 +12,29 @@ export function createRenderer(): Renderer {
   // 记着自己在不在行首，工具预览、通知、提示符才不会接到半句话后面去。
   let atLineStart = true;
 
+  // 下游把管道关了（`deepcode "..." | head -1`）时，往 stdout 写会**异步**抛 EPIPE。
+  // 异步错误绕过 hook 的 try/catch（dispatch 那里只接得住同步抛出的错），
+  // 会直接把整个进程带走。这不是崩溃，是"对面不要了"：闭嘴继续跑完，
+  // 别把已经做出来的事也丢掉。
+  let stdoutGone = false;
+  process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE') {
+      stdoutGone = true;
+      return;
+    }
+    throw error;
+  });
+
   const write = (text: string): void => {
+    // 空增量必须原样放过：它写不出任何字节，却会把 atLineStart 翻成 false，
+    // 于是下一次 print 平白多吐一个换行。
+    if (text === '' || stdoutGone) return;
     process.stdout.write(text);
     atLineStart = text.endsWith('\n');
   };
 
   const endLine = (): void => {
-    if (atLineStart) return;
+    if (atLineStart || stdoutGone) return;
     process.stdout.write('\n');
     atLineStart = true;
   };

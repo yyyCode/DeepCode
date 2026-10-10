@@ -32,10 +32,18 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
       // 十几轮之后就开始刷 MaxListenersExceededWarning。
       const onClose = () => resolve(null);
       rl.once('close', onClose);
-      rl.question('\n> ', (answer) => {
+      try {
+        rl.question('\n> ', (answer) => {
+          rl.off('close', onClose);
+          resolve(answer);
+        });
+      } catch {
+        // rl 已经关了（比如在确认提示上按了 Ctrl-D，或流被外部关掉）：当作 EOF 收场。
+        // 不接住的话异常会一路冒到 main 的 catch，报一句"启动失败"退出 ——
+        // 而 'close' 也不会再补发，这个 promise 就会永远挂着。
         rl.off('close', onClose);
-        resolve(answer);
-      });
+        resolve(null);
+      }
     });
 
   for (;;) {

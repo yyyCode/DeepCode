@@ -9,4 +9,5 @@ const entry = join(here, '..', 'src', 'cli', 'main.ts');
 const child = spawn(process.execPath, [join(here, '..', 'node_modules', 'tsx', 'dist', 'cli.mjs'), entry, ...process.argv.slice(2)], {
   stdio: 'inherit',
 });
-child.on('exit', (code) => process.exit(code ?? 0));
+// code 为 null = 子进程被信号打死，那不是"成功"。
+child.on('exit', (code) => process.exit(code ?? 1));
