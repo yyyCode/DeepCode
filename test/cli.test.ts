@@ -31,6 +31,7 @@ function spyRenderer(): { render: Renderer; written: () => string } {
         pending += text;
       },
       newline: () => {},
+      thinking: () => {},
     },
     written: () => pending,
   };
@@ -92,7 +93,13 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
     ]);
 
     const built = await createEngine({
-      plugins: cliPlugins(render),
+      plugins: cliPlugins({
+        render,
+        changes: createSessionChanges(),
+        messages: [],
+        root: process.cwd(),
+        palette: createPalette(false),
+      }),
       provider,
       ui: { print: () => {}, notice: () => {}, ask: async () => 'n' },
       sessionInfo: { id: 'cli-test', cwd: process.cwd(), root: process.cwd() },
@@ -214,6 +221,48 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
 
     expect(stdout).toContain('用法');
     expect(stdout).toContain('/exit');
+  }, 60_000);
+
+  it('真跑一遍 bin：没有可接的会话时 --resume 非零退出并说清楚', async () => {
+    // 端到端钉住 --resume 的**顺序**：它必须发生在"缺 key"之后、建引擎之前。
+    // 所以这里给一个假的 API key —— 否则会先报缺 key，就走不到"找会话"这一步，
+    // 这条测试也就测不到它想测的东西。
+    const home = mkdtempSync(join(tmpdir(), 'deepcode-resume-'));
+    try {
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        USERPROFILE: home,
+        HOME: home,
+        ANTHROPIC_API_KEY: 'sk-ant-fake-for-resume-test',
+      };
+      // 清掉会改变配置解析的变量（假 key 留着，见上）。
+      for (const name of [
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_MODEL',
+        'ANTHROPIC_BASE_URL',
+        'DEEPCODE_MODEL',
+        'DEEPCODE_DEBUG',
+        'DEEPCODE_PROVIDER',
+      ]) {
+        delete env[name];
+      }
+
+      let code = 0;
+      const { stderr } = await promisify(execFile)(
+        process.execPath,
+        [resolve(process.cwd(), 'bin', 'deepcode.mjs'), '--resume'],
+        { cwd: process.cwd(), env },
+      ).catch((error: any) => {
+        code = error.code ?? 1;
+        return { stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
+      });
+
+      // 空 home 里没有会话 → 非零退出，并列出"能接的"（含找不到时找的是哪个目录）。
+      expect(code).not.toBe(0);
+      expect(stderr).toContain('可以接上的会话');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   }, 60_000);
 });
 

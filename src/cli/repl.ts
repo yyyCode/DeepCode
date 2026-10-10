@@ -16,12 +16,19 @@ export type ReplDeps = {
   systemPrompt: string;
   /** 每个 turn 现取一个 signal，中断才会只掐断这一次。见 createTurnSignals。 */
   turns: TurnSignals;
+  /**
+   * 会话消息。由 main.ts 建、REPL 与 `/clear`（经 cli/commands.ts）共用**同一个数组引用** ——
+   * `--resume` 接上时这里已经装着历史。REPL 不再自己建一份。
+   */
+  messages: Message[];
+  /** 每个 turn 结束后把整个消息数组交给落盘器（它自己算增量）。 */
+  persist: (messages: readonly Message[]) => Promise<void>;
 };
 
 /** 交互式 REPL。退出方式：/exit、Ctrl-D、Ctrl-C。 */
 export async function startRepl(deps: ReplDeps): Promise<void> {
   const rl = deps.rl;
-  const messages: Message[] = [];
+  const messages = deps.messages;
   let turnIndex = 0;
 
   /** 问一行；stdin 关闭（Ctrl-D）时返回 null。 */
@@ -74,6 +81,8 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
 
     const signal = deps.turns.begin();
     try {
+      // 开始转 spinner：模型第一个增量（或本 turn 结束）到来时会被停掉。
+      deps.render.thinking();
       await runTurn(
         {
           $: deps.$,
@@ -88,9 +97,11 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
     } finally {
       // 失败也要归零：留着 busy=true 会让下一次 Ctrl-C 变成"掐一个已经结束的 turn"。
       deps.turns.end();
+      // 每个 turn 收尾都补一个换行、并把新增消息落盘 —— 放在 finally 里，
+      // 出错/被中断的那一轮也照样收尾。newline 只在这里调一次，别在外面再来一遍。
+      deps.render.newline();
+      await deps.persist(messages);
     }
-
-    deps.render.newline();
   }
 
   rl.close();

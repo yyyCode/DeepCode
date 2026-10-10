@@ -1,5 +1,6 @@
 import type { Interface } from 'node:readline';
 import type { UiSink } from '../core/nouns/ui';
+import { createPalette, type Palette } from './ansi';
 
 export type PromptSinkOptions = {
   /**
@@ -9,6 +10,13 @@ export type PromptSinkOptions = {
   signalOf: () => AbortSignal;
   /** 只给测试用：默认按 `process.stdin.isTTY` 判断。 */
   interactive?: boolean;
+  /** 提示语着色用。默认关（不传就是纯文本，测试里的断言才逐字节稳）。 */
+  palette?: Palette;
+  /**
+   * 提示落笔**之前**调一次。main.ts 用它停掉 spinner ——
+   * 否则"思考中"那半行小圆圈会粘在 `> ` 提示符前面。
+   */
+  beforeAsk?: () => void;
 };
 
 /**
@@ -26,6 +34,7 @@ export function createPromptSink(
   options: PromptSinkOptions,
 ): UiSink & { close(): void } {
   const interactive = options.interactive ?? Boolean(process.stdin.isTTY);
+  const palette = options.palette ?? createPalette(false);
 
   return {
     print: (line) => process.stdout.write(`${line}\n`),
@@ -34,6 +43,10 @@ export function createPromptSink(
     ask: (question) => {
       // 非交互环境没人能确认 —— 默认拒绝，不放行。
       if (!interactive) return Promise.resolve('n');
+
+      // 确认提示落笔前先让调用方停 spinner（见 beforeAsk 的注释）。放在交互判定**之后**：
+      // 非交互下这里根本不会画提示符，反倒往里插一个换行会污染管道输出。
+      options.beforeAsk?.();
 
       return new Promise<string>((resolve) => {
         const signal = options.signalOf();
@@ -64,7 +77,7 @@ export function createPromptSink(
           return;
         }
 
-        rl.question(question, (answer) => settle(answer));
+        rl.question(palette.bold(question), (answer) => settle(answer));
       });
     },
 
