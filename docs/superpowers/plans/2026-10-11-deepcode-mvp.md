@@ -1403,7 +1403,8 @@ export function scriptedProvider(script: readonly (readonly StreamEvent[])[]): M
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { createHarness } from './harness';
+import { createHarness, scriptedProvider } from './harness';
+import { createEngine } from '../src/core/create';
 import { CORE_ORIGIN } from '../src/contract/next';
 import { NotImplementedError } from '../src/core/errors';
 
@@ -1601,12 +1602,20 @@ describe('链语义', () => {
 
 describe('fail-closed', () => {
   it('tool.check 无人应答时，链尾返回 deny 而不是 allow', async () => {
-    const h = createHarness({
-      coreImpls: {
-        'tool.check': () => ({ decision: 'deny', rule: 'fail-closed: 没有 hook 应答 tool.check' }),
-      },
+    // 故意走真实的 createEngine，不借 harness 塞桩。
+    // fail-closed 是 src/core/create.ts 里那条内核实现的属性，用测试自己提供的桩去测
+    // 等于自问自答：把内核那条改成 allow，桩版本照样绿。这条是 MVP 唯一一条 fail-closed，
+    // 也是 P2 全部安全性质的种子，必须真的钉在内核实现上。
+    const built = await createEngine({
+      plugins: [],
+      signal: new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
     });
-    const result = await h.dispatch('tool.check', { tool: 'Bash', input: {} }, CORE_ORIGIN);
+
+    const result = await built.dispatch('tool.check', { tool: 'Bash', input: {} }, CORE_ORIGIN);
     expect(result.decision).toBe('deny');
   });
 });
@@ -1826,7 +1835,7 @@ const MAX_LINES = 2000;
 
 export const readTool: Plugin = {
   name: 'tool-read',
-  uses: ['tool.call', 'tool.describe', 'fs'],
+  uses: ['tool.call', 'tool.describe', 'fs', 'store'],
 
   register(on) {
     on(
@@ -1851,6 +1860,10 @@ export const readTool: Plugin = {
 
       try {
         const content = await $.fs.read(input.file_path);
+        // 记下"这次会话读过它"。Write 覆盖已存在的文件前会查这个 key ——
+        // 少了这一行，那个检查永远为假，任何先前就存在的文件都再也覆盖不了：
+        // 你没法在不写的情况下打上标记，也没法在没标记的情况下写。
+        await $.store.set(`read:${input.file_path}`, '1');
         const lines = content.split('\n');
         const limit = input.limit ?? MAX_LINES;
         const shown = lines.slice(0, limit);
@@ -2002,11 +2015,10 @@ export const editTool: Plugin = {
       const updated =
         content.slice(0, first) + input.new_string + content.slice(first + input.old_string.length);
 
-      // 把旧的与新的都挂到 e 上，供 confirm 打印 diff。
-      return next({
-        ...e,
-        input: { ...input, __preview: { before: input.old_string, after: input.new_string } },
-      });
+      // 校验通过，交给下层真正写盘。
+      // confirm 的 diff 预览由它自己从原始 input 算 —— tool.check 跑在这之前，
+      // 这里挂上去的字段它看不到。
+      return next(e);
     });
 
     on('tool.call', { tool: 'Edit' }, async ($, e) => {
@@ -2078,15 +2090,9 @@ export const bashTool: Plugin = {
       }),
     );
 
-    on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-      const input = e.input as { command: string; cwd?: string };
-      if (!input?.command) return { value: 'ERROR: 缺少 command 参数' };
-      // 把最终要执行的命令挂上去，供 confirm 打印。
-      return next({ ...e, input: { ...input, __preview: { command: input.command } } });
-    });
-
     on('tool.call', { tool: 'Bash' }, async ($, e) => {
       const input = e.input as { command: string; cwd?: string; timeout_ms?: number };
+      if (!input?.command) return { value: 'ERROR: 缺少 command 参数' };
       const cwd = input.cwd ?? $.session.root();
 
       const result = await $.process.run(input.command, {
@@ -2219,7 +2225,7 @@ export const globTool: Plugin = {
 - [ ] **Step 2: 写 `src/builtins/tools/grep.ts`**
 
 ```ts
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { Plugin } from '../../contract/plugin';
 
@@ -2286,14 +2292,13 @@ export const grepTool: Plugin = {
           }
           if (fileFilter && !fileFilter.test(rel)) continue;
 
-          let stat;
+          let fileStat;
           try {
-            const { stat: statOf } = await import('node:fs/promises');
-            stat = await statOf(full);
+            fileStat = await stat(full);
           } catch {
             continue;
           }
-          if (stat.size > MAX_FILE_BYTES) continue;
+          if (fileStat.size > MAX_FILE_BYTES) continue;
 
           let text: string;
           try {
@@ -2409,29 +2414,46 @@ export const confirmPlugin: Plugin = {
   },
 };
 
+/**
+ * 预览从模型给的原始 input 直接算。
+ *
+ * 不能指望工具把预览挂在 e 上再流到这里：loop 里 tool.check 跑在 tool.call **之前**，
+ * 工具的 hook 那时还没执行，挂上去的东西 confirm 根本看不见 —— 预览会永远显示
+ * "(未知命令)"、Edit 永远没有 diff。所以预览必须自给自足。
+ */
 function renderPreview(tool: string, input: unknown): string {
-  const data = input as {
-    file_path?: string;
-    __preview?: { before?: string; after?: string; command?: string };
-  };
+  const data = (input ?? {}) as Record<string, unknown>;
 
   if (tool === 'Bash') {
-    const command = data.__preview?.command ?? '(未知命令)';
+    const command = typeof data.command === 'string' ? data.command : '(未知命令)';
     return `\n  Bash  $ ${command}\n`;
   }
 
-  const target = data.file_path ?? '(未知文件)';
-  const preview = data.__preview;
-  if (preview?.before !== undefined && preview.after !== undefined) {
-    const removed = preview.before
+  const target = typeof data.file_path === 'string' ? data.file_path : '(未知文件)';
+
+  if (tool === 'Edit') {
+    const before = typeof data.old_string === 'string' ? data.old_string : '';
+    const after = typeof data.new_string === 'string' ? data.new_string : '';
+    const removed = before
       .split('\n')
       .map((line) => `  - ${line}`)
       .join('\n');
-    const added = preview.after
+    const added = after
       .split('\n')
       .map((line) => `  + ${line}`)
       .join('\n');
     return `\n  Edit  ${target}\n${removed}\n${added}\n`;
+  }
+
+  if (tool === 'Write') {
+    const content = typeof data.content === 'string' ? data.content : '';
+    const lineCount = content === '' ? 0 : content.split('\n').length;
+    const head = content
+      .split('\n')
+      .slice(0, 3)
+      .map((line) => `  | ${line}`)
+      .join('\n');
+    return `\n  Write  ${target}（${lineCount} 行）\n${head}\n`;
   }
 
   return `\n  ${tool}  ${target}\n`;
