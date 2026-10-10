@@ -465,8 +465,17 @@ export type EventHookFor<N extends EventName> = (
 ) => Result<N> | Promise<Result<N>>;
 
 export type On = {
+  /** 精确事件名：`pattern: N` 让 N 从字面量推断出来，hook 的 `e` 才有精确类型。 */
   <N extends EventName>(pattern: N, hook: EventHookFor<N>): void;
-  <N extends EventName>(pattern: string, matcher: Record<string, unknown>, hook: EventHookFor<N>): void;
+  /**
+   * 精确事件名 + matcher。
+   *
+   * `pattern` 必须写 `N` 而不是 `string`：写成 `string` 时 N 在参数表里没有推断位置，
+   * 会退化成整个 `EventName` 联合，`e` 随之变成 12 个事件的并集 —— 于是 `e.input`
+   * 在并集上并不存在，六个内建工具全部编译不过。
+   */
+  <N extends EventName>(pattern: N, matcher: Record<string, unknown>, hook: EventHookFor<N>): void;
+  /** 通配 / 否定模式（`tool.*`、`!x`）走这条：模式静态定不了事件，hook 退回宽类型。 */
   (pattern: string, hook: EventHook): void;
 };
 
@@ -1253,6 +1262,19 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     // core 说"我没处理"，于是 REPL 照常把这一行送进 loop。
     // P1 的斜杠命令展开 / prompt.fill / 附件都会挂到这里，届时改的是插件不是内核。
     'prompt.submit': () => ({ handled: false }) as const,
+
+    // 生命周期通知事件：内核"无话可说"才是正常状态 —— 它们存在是为了让插件
+    // 能观察（P1 的状态栏、遥测、自动保存都会挂上来）。
+    //
+    // 这几条 no-op 不是可有可无的装饰。dispatch 在没有 hook、也没有内核实现时
+    // 会抛 NotImplementedError，而 loop 的第一行就是 turn.start、CLI 的第一行
+    // 就是 session.start：少了它们，产品和启动即崩之间只隔一次 dispatch。
+    // 它们同时也是 NotImplementedError 只用来指那 27 个真未实现事件的保证。
+    'session.start': () => ({}) as const,
+    'session.end': () => ({}) as const,
+    'turn.start': () => ({}) as const,
+    'turn.step': () => ({}) as const,
+    'turn.complete': () => ({}) as const,
 
     'tool.describe': (e) => {
       throw new Error(`no description registered for tool: ${String(e.tool)}`);
@@ -3094,17 +3116,21 @@ git commit -m "test: C2 检查点 —— 六个工具与 mock provider E2E"
 非 TTY 时 `ask` 返回 `'n'` —— 这是 fail-closed 在交互层的体现（管道、CI 里没人能按 y）。
 
 ```ts
-import { createInterface } from 'node:readline';
+import type { Interface } from 'node:readline';
 import type { UiSink } from '../core/nouns/ui';
 
-export function createPromptSink(): UiSink & { close(): void } {
+/**
+ * 复用调用方那**一个** readline 实例，绝不自己再建第二个。
+ *
+ * 同一个 process.stdin 上挂两个 Interface，两边都会收到用户敲的每一行
+ * （已实测：两次 question 同时挂起时，一行输入被两个回调各收一份）。
+ * 而 TTY 下两个 Interface 还会各自进入 raw 模式、各自挂 keypress 监听，
+ * 于是每个按键被处理两遍、终端里回声重叠。
+ *
+ * 所以 rl 由 main.ts 建一次，REPL 与确认提示共用。
+ */
+export function createPromptSink(rl: Interface): UiSink & { close(): void } {
   const interactive = Boolean(process.stdin.isTTY);
-
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: interactive,
-  });
 
   return {
     print: (line) => process.stdout.write(`${line}\n`),
@@ -3170,7 +3196,7 @@ git commit -m "feat(cli): 输入 sink 与流式渲染"
 - [ ] **Step 1: 写 `src/cli/repl.ts`**
 
 ```ts
-import { createInterface } from 'node:readline';
+import type { Interface } from 'node:readline';
 import type { Message } from '../contract/model-provider';
 import type { EngineInterface } from '../contract/engine';
 import type { DispatchFn } from '../core/dispatch';
@@ -3182,20 +3208,30 @@ export type ReplDeps = {
   $: EngineInterface;
   dispatch: DispatchFn;
   render: Renderer;
+  /** 与确认提示共用的那一个 readline 实例。不要在别处再 createInterface。 */
+  rl: Interface;
   systemPrompt: string;
   signal: AbortSignal;
 };
 
 /** 交互式 REPL。退出方式：/exit、Ctrl-D、Ctrl-C。 */
 export async function startRepl(deps: ReplDeps): Promise<void> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const rl = deps.rl;
   const messages: Message[] = [];
   let turnIndex = 0;
 
-  const askLine = () =>
-    new Promise<string | null>((resolve) => {
-      rl.question('\n> ', (answer) => resolve(answer));
-      rl.once('close', () => resolve(null));
+  /** 问一行；stdin 关闭（Ctrl-D）时返回 null。 */
+  const askLine = (): Promise<string | null> =>
+    new Promise((resolve) => {
+      // close 监听必须在拿到答案后摘掉。rl.once 每调用一次就挂一个新监听，
+      // 而 rl 是整个会话共用的 —— 不摘的话监听器一路累积，
+      // 十几轮之后就开始刷 MaxListenersExceededWarning。
+      const onClose = () => resolve(null);
+      rl.once('close', onClose);
+      rl.question('\n> ', (answer) => {
+        rl.off('close', onClose);
+        resolve(answer);
+      });
     });
 
   for (;;) {
@@ -3249,6 +3285,7 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import { createEngine } from '../core/create';
 import { createAnthropicProvider } from '../providers/anthropic';
 import { coreTools } from '../builtins/tools';
@@ -3298,7 +3335,13 @@ async function main(): Promise<void> {
   });
 
   const render = createRenderer();
-  const prompt = createPromptSink();
+  // readline 全进程只建这一次：REPL 的行输入与工具确认提示共用同一个实例。
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: Boolean(process.stdin.isTTY),
+  });
+  const prompt = createPromptSink(rl);
   const provider = createAnthropicProvider({
     apiKey,
     model: process.env.DEEPCODE_MODEL ?? 'claude-sonnet-4-5',
@@ -3330,7 +3373,7 @@ async function main(): Promise<void> {
     );
     render.newline();
   } else {
-    await startRepl({ $, dispatch, render, systemPrompt, signal: controller.signal });
+    await startRepl({ $, dispatch, render, rl, systemPrompt, signal: controller.signal });
   }
 
   await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);
@@ -3349,6 +3392,7 @@ main().catch((error) => {
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
 import type { Message } from '../contract/model-provider';
 import { CORE_ORIGIN } from '../contract/next';
 import { createEngine } from '../core/create';
@@ -3539,15 +3583,21 @@ Expected: 三者全绿，无输出错误。
 
 - [ ] **Step 3: 确认边界规则真的会失败**
 
-临时往 `src/contract/tier.ts` 顶部加一行 `import { readFile } from 'node:fs/promises';`，然后：
+临时往 `src/contract/tier.ts` 顶部加一行：
+
+```ts
+import { Registry } from '../core/registry';
+```
+
+然后：
 
 ```bash
 pnpm lint
 ```
 
-Expected: **失败**，输出里提到 `contract` 不允许 import。删掉那一行，再跑一次确认恢复通过。
+Expected: **失败**，输出里提到 `contract` 不允许 import `core/`。删掉那一行，再跑一次确认恢复通过。
 
-（注意：`contract` 的允许清单是空的，所以它连 `core/` 都不能 import —— 但 `node:` 内置模块不算越界，所以上面这行**不会**触发失败。要真正试出效果，请用 `import { Registry } from '../core/registry';`。）
+（必须用相对路径 —— 脚本只查相对导入。`node:` 内置模块不算越界，拿它试是试不出来的。）
 
 - [ ] **Step 4: Commit**
 

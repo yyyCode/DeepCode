@@ -106,12 +106,12 @@ MVP 实际只有 `builtin`（内建插件）与 `core`（内核）两层落座�
 | `session.end` | `{ reason }` | `{}` |
 | `prompt.submit` | `{ text }` | `{ handled?: boolean }` |
 | `turn.start` | `{ index }` | `{}` |
-| `turn.step` | 流式事件（`StreamHook`，async generator） | 流 |
-| `turn.complete` | `{ usage, stopReason }` | `{}` |
-| `tool.call` | `{ tool, input, toolUseId }` | `{ value }` \| `{ deny, reason }` |
+| `turn.step` | `{ delta }` | `{}`（MVP 里就是普通 dispatch；`STREAMING_EVENTS` 已声明但还没有消费者，P1 才真正流式化） |
+| `turn.complete` | `{ stopReason, inputTokens, outputTokens }` | `{}` |
+| `tool.call` | `{ tool, input, toolUseId }` | `{ value }` \| `{ deny }` |
 | `tool.check` | `{ tool, input }` | `{ decision: 'allow' \| 'ask' \| 'deny', rule? }` |
 | `tool.describe` | `{ tool }` | `{ description, inputSchema }` |
-| `command.run` | `{ name, args }` | `{}` |
+| `command.run` | `{ name, args }` | `{ handled?: boolean }` |
 
 ### 3.3 只声明、未实现的 27 个事件
 
@@ -123,6 +123,8 @@ MVP 实际只有 `builtin`（内建插件）与 `core`（内核）两层落座�
 全部 `classic.*`。
 
 core 落到这些事件时抛 `NotImplementedError`，由 dispatch 捕获降级，**同一事件名只警告一次**。
+
+要注意 §3.2 里的五个生命周期事件（`session.start` / `session.end` / `turn.start` / `turn.step` / `turn.complete`）**由内核给出 no-op 实现**（返回 `{}`），而不是靠"没人应答"混过去。这不是装饰：`dispatch` 在既无 hook、又无内核实现时会抛 `NotImplementedError`，而 loop 的第一行就是 `turn.start`、CLI 的第一行就是 `session.start` —— 少了这几条 no-op，产品和"一开口就崩"之间只隔一次 dispatch。它们同时也是上面这条保证成立的前提：`NotImplementedError` 只用来指这 27 个真未实现的事件。
 
 ### 3.4 `next` 协议（全签名实现）
 
