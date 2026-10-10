@@ -127,8 +127,49 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
     expect(parseArgs(['给', 'utils.ts', '加个时区'])).toEqual({
       kind: 'prompt',
       text: '给 utils.ts 加个时区',
+      resume: { kind: 'none' },
     });
-    expect(parseArgs([])).toEqual({ kind: 'prompt', text: '' });
+    expect(parseArgs([])).toEqual({ kind: 'prompt', text: '', resume: { kind: 'none' } });
+  });
+
+  it('--resume（无值）接上当前目录最近一次会话', () => {
+    expect(parseArgs(['--resume'])).toEqual({
+      kind: 'prompt',
+      text: '',
+      resume: { kind: 'latest' },
+    });
+  });
+
+  it('--resume=<id> 接上指定会话', () => {
+    const action = parseArgs(['--resume=abc']);
+    expect(action).toEqual({ kind: 'prompt', text: '', resume: { kind: 'id', id: 'abc' } });
+  });
+
+  it('--resume= 空值退化成 latest', () => {
+    expect(parseArgs(['--resume='])).toEqual({
+      kind: 'prompt',
+      text: '',
+      resume: { kind: 'latest' },
+    });
+  });
+
+  it('--resume 后面的裸 token 是提示词，不是 id（只认等号形态）', () => {
+    // 反向钉住：写成"--resume 后面跟一个裸 token"的话，
+    // `deepcode --resume 继续修` 里那句话到底是 id 还是提示词就分不开了。
+    const action = parseArgs(['--resume', '继续修测试']);
+    if (action.kind !== 'prompt') throw new Error('expected prompt');
+    expect(action.text).toBe('继续修测试');
+    expect(action.resume.kind).toBe('latest');
+  });
+
+  it('--resume 开关本身不进提示词', () => {
+    const action = parseArgs(['把', '--resume', '这个', '改了']);
+    if (action.kind !== 'prompt') throw new Error('expected prompt');
+    expect(action.text).toBe('把 这个 改了');
+  });
+
+  it('--help 优先于 --resume', () => {
+    expect(parseArgs(['--help', '--resume'])).toEqual({ kind: 'help' });
   });
 
   it('两个开关同时给时，先给用法', () => {
