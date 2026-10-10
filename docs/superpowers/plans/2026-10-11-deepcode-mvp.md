@@ -2404,7 +2404,7 @@ git commit -m "feat(tools): Glob 与 Grep，六个核心工具齐备"
 这是 MVP 的安全底线，也是 P2 会被整个替换掉的那个文件。
 
 ```ts
-import type { Plugin } from '../../contract/plugin';
+import type { Plugin } from '../contract/plugin';
 
 /** 只读工具，不需要确认。 */
 const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep']);
@@ -2485,7 +2485,7 @@ function renderPreview(tool: string, input: unknown): string {
 - [ ] **Step 2: 写 `src/builtins/commands.ts`**
 
 ```ts
-import type { Plugin } from '../../contract/plugin';
+import type { Plugin } from '../contract/plugin';
 
 /** MVP 只有两个斜杠命令。`/help` 的命令列表来自 $.command.list()，不是硬编码数组。 */
 export const commandsPlugin: Plugin = {
@@ -2814,7 +2814,11 @@ function makeHarness() {
     store: createStoreNoun(),
     ui: { log: () => {}, notice: () => {}, ask: async () => 'n' },
     logger: { debug: () => {}, warn: () => {} },
-    tool: { list: () => coreTools.map((p) => p.name) },
+    // 真实内核的 $.tool.list() 是注册面上 `tool.call` 的 matcher 取值（见 nouns/index.ts）。
+    // 桩这里不能写成 coreTools.map(p => p.name) —— 那是插件名（'tool-read'），
+    // 不是工具名（'Read'）。写错的话 describeTools 会拿插件名去查 tool.describe，
+    // 六个工具全部落到 catch 分支被静默略去，E2E 表面上照样绿。
+    tool: { list: () => ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'] },
     command: { list: () => [] },
     model: { stream: async function* () {} },
   } as unknown as EngineInterface;
@@ -2972,7 +2976,11 @@ function buildWorld(answers: string[]) {
       },
     },
     logger: { debug: () => {}, warn: () => {} },
-    tool: { list: () => coreTools.map((p) => p.name) },
+    // 真实内核的 $.tool.list() 是注册面上 `tool.call` 的 matcher 取值（见 nouns/index.ts）。
+    // 桩这里不能写成 coreTools.map(p => p.name) —— 那是插件名（'tool-read'），
+    // 不是工具名（'Read'）。写错的话 describeTools 会拿插件名去查 tool.describe，
+    // 六个工具全部落到 catch 分支被静默略去，E2E 表面上照样绿。
+    tool: { list: () => ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'] },
     command: { list: () => [] },
     model: { stream: async function* () {} },
   } as unknown as EngineInterface;

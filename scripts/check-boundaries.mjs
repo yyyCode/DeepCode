@@ -53,7 +53,16 @@ for (const file of walk(SRC)) {
     if (!spec.startsWith('.')) continue; // 只查相对导入
     const target = join(file, '..', spec);
     const rel = relative(SRC, target).replace(/\\/g, '/');
-    if (rel.startsWith('..')) continue; // 指向 src 之外，不管
+    if (rel.startsWith('..')) {
+      // 相对导入逃出 src/ 几乎总是相对路径层级写错了 —— 比如
+      // src/builtins/confirm.ts（比 tools/ 高一层）用了 tools/ 才该用的
+      // '../../contract/plugin'，实际解析成 <repo>/contract/plugin。
+      // 原先这里直接放行，于是只有 tsc 能发现，lint 装作没看见。
+      problems.push(
+        `${relative(ROOT, file)}: import ${spec} 逃出了 src/（多半是相对路径层级写错）`,
+      );
+      continue;
+    }
     const targetArea = rel.split('/')[0];
     if (targetArea === area) continue; // 同目录内部不算越界
     if (!allowed.includes(targetArea)) {
