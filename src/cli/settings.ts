@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isSupported, parseRule, type Behavior, type Rule } from '../contract/policy';
+import { isPluginName } from '../contract/plugin-manifest';
 
 /**
  * 权限设置的五个来源，低 → 高。数组顺序就是 `/permissions` 的输出顺序。
@@ -11,6 +12,29 @@ import { isSupported, parseRule, type Behavior, type Rule } from '../contract/po
  */
 export const SETTINGS_SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const;
 export type SettingsSource = (typeof SETTINGS_SOURCES)[number];
+
+/** 一条插件规则：名字 + 它来自哪一层。`/permissions` 要把来源标出来。 */
+export type PluginRule = {
+  readonly name: string;
+  readonly source: SettingsSource;
+};
+
+/** 一层设置里收下的插件名字。 */
+export type PluginsLayer = {
+  readonly enable: readonly string[];
+  readonly deny: readonly string[];
+};
+
+const EMPTY_PLUGINS: PluginsLayer = { enable: [], deny: [] };
+
+/**
+ * `plugins.enable` 认哪几层。
+ *
+ * 少了 `user`：用户级目录本来就自动装载，写 enable 是没用的。
+ * 少了 `policy`：托管策略写 enable 会变成"组织替你打开一个插件" ——
+ * 托管策略只该能收紧，不该能替你打开东西（设计 §3）。
+ */
+export const PLUGIN_ENABLE_SOURCES = ['project', 'local', 'flag'] as const;
 
 export type SourceInfo = {
   readonly source: SettingsSource;
@@ -24,6 +48,8 @@ export type SourceInfo = {
   readonly problems: readonly string[];
   /** 这一层真正收下的规则。/permissions 要用它标出每条规则来自哪一层。 */
   readonly rules: readonly Rule[];
+  /** 这一层收下的插件名字。`/permissions` 按层标出来。 */
+  readonly plugins: PluginsLayer;
 };
 
 export type ResolvedPolicy = {
@@ -32,6 +58,13 @@ export type ResolvedPolicy = {
   readonly policyRules: readonly Rule[];
   /** 其余四源的并集。给 permissions。 */
   readonly personalRules: readonly Rule[];
+  /**
+   * 五层合并后的插件名单，带来源。
+   *
+   * `enable` 只来自 project / local / flag；`deny` 来自五层并集 ——
+   * 它只能关掉东西，永远不可能放宽，于是"谁写的"对结果毫无影响。
+   */
+  readonly plugins: { readonly enable: readonly PluginRule[]; readonly deny: readonly PluginRule[] };
 };
 
 /**
@@ -104,22 +137,55 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
 
   const sources: SourceInfo[] = [];
   const bySource = new Map<SettingsSource, readonly Rule[]>();
+  const pluginsBySource = new Map<SettingsSource, PluginsLayer>();
 
   for (const layer of layers) {
     const read = await readLayer(layer, deps.home, warn, readText);
     sources.push(read.info);
     bySource.set(layer.source, read.rules);
+    pluginsBySource.set(layer.source, read.plugins);
   }
+
+  const withSource = (source: SettingsSource, names: readonly string[]): readonly PluginRule[] =>
+    names.map((name) => ({ name, source }));
 
   return {
     sources,
     // policy 源 vs. 其余全部 —— 在固定优先级下这是唯一承重的划分（设计 §4.3）。
     policyRules: bySource.get('policy') ?? [],
     personalRules: SETTINGS_SOURCES.filter((s) => s !== 'policy').flatMap((s) => bySource.get(s) ?? []),
+    plugins: {
+      enable: dedupe(
+        PLUGIN_ENABLE_SOURCES.flatMap((source) =>
+          withSource(source, pluginsBySource.get(source)?.enable ?? []),
+        ),
+      ),
+      deny: dedupe(
+        SETTINGS_SOURCES.flatMap((source) =>
+          withSource(source, pluginsBySource.get(source)?.deny ?? []),
+        ),
+      ),
+    },
   };
 }
 
-type LayerRead = { readonly info: SourceInfo; readonly rules: readonly Rule[] };
+/** 按名字去重，保留先出现的那个来源。合并语义是并集，留谁都不改行为，只影响 /permissions 的显示。 */
+function dedupe(rules: readonly PluginRule[]): readonly PluginRule[] {
+  const seen = new Set<string>();
+  const out: PluginRule[] = [];
+  for (const rule of rules) {
+    if (seen.has(rule.name)) continue;
+    seen.add(rule.name);
+    out.push(rule);
+  }
+  return out;
+}
+
+type LayerRead = {
+  readonly info: SourceInfo;
+  readonly rules: readonly Rule[];
+  readonly plugins: PluginsLayer;
+};
 
 async function readLayer(
   layer: Layer,
@@ -130,12 +196,12 @@ async function readLayer(
   const where = layer.path;
 
   if (where === undefined) {
-    return { info: base(layer, 'missing', undefined, [], []), rules: [] };
+    return { info: base(layer, 'missing', undefined, [], []), rules: [], plugins: EMPTY_PLUGINS };
   }
 
   const broken = (error: string): LayerRead => {
     warn(`${label(layer.source)} ${where} ${error} —— 这一层按空处理。`);
-    return { info: base(layer, 'broken', error, [], []), rules: [] };
+    return { info: base(layer, 'broken', error, [], []), rules: [], plugins: EMPTY_PLUGINS };
   };
 
   let text: string | undefined;
@@ -145,7 +211,9 @@ async function readLayer(
     return broken(`读不了（${error instanceof Error ? error.message : String(error)}）`);
   }
   // 不存在 = 静默为空。绝大多数机器没有托管文件，为此吼一声只会训练人无视警告。
-  if (text === undefined) return { info: base(layer, 'missing', undefined, [], []), rules: [] };
+  if (text === undefined) {
+    return { info: base(layer, 'missing', undefined, [], []), rules: [], plugins: EMPTY_PLUGINS };
+  }
 
   let data: unknown;
   try {
@@ -159,14 +227,27 @@ async function readLayer(
 
   const record = data as Record<string, unknown>;
 
-  const unknown = Object.keys(record).filter((key) => key !== 'permissions');
+  const unknown = Object.keys(record).filter((key) => key !== 'permissions' && key !== 'plugins');
   if (unknown.length > 0) {
     // 未知键只警告、不致命：将来加顶层键（hooks、env）时，旧版本读新文件不该整份失效。
     warn(`${label(layer.source)} ${where} 里有不认识的顶层键：${unknown.join('、')}（已忽略）。`);
   }
 
   const raw = record.permissions;
-  if (raw === undefined) return { info: base(layer, 'ok', undefined, [], []), rules: [] };
+
+  // ⚠️ plugins 必须在 permissions 的早期 return **之前**解析。写成"先 permissions、
+  // 没有就 return"的话，一份只有 plugins 段（没有 permissions）的设置会把名单丢掉 ——
+  // 而那正是最典型的一份"我只想启个插件"的设置文件。
+  const plugins = readPlugins(record.plugins, layer, where, warn);
+  if ('broken' in plugins) return broken(plugins.broken);
+
+  if (raw === undefined) {
+    return {
+      info: base(layer, 'ok', undefined, [], [], plugins.value),
+      rules: [],
+      plugins: plugins.value,
+    };
+  }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return broken('permissions 不是一个对象');
   }
@@ -209,7 +290,67 @@ async function readLayer(
     warn(`${label(layer.source)} ${where} 这条不生效 —— ${problem}`);
   }
 
-  return { info: base(layer, 'ok', undefined, problems, rules), rules };
+  return {
+    info: base(layer, 'ok', undefined, problems, rules, plugins.value),
+    rules,
+    plugins: plugins.value,
+  };
+}
+
+/**
+ * 解析一层的 `plugins` 段。
+ *
+ * 形状错的处置与 `permissions` 完全一致：**整份废掉这一层**，不是丢掉坏的那一项 ——
+ * 类型不对说明写的人以为它生效了，只丢一半的话他会看到"文件被读进去了"。
+ * 名字格式不对则是单条不生效（方向是不收紧），但必须吼。
+ */
+function readPlugins(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  warn: (line: string) => void,
+): { readonly value: PluginsLayer } | { readonly broken: string } {
+  if (value === undefined) return { value: EMPTY_PLUGINS };
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return { broken: 'plugins 不是一个对象' };
+  }
+
+  const record = value as Record<string, unknown>;
+  const out: { enable: string[]; deny: string[] } = { enable: [], deny: [] };
+
+  for (const key of ['enable', 'deny'] as const) {
+    const list = record[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) return { broken: `plugins.${key} 不是数组` };
+
+    const bad = list.findIndex((item) => typeof item !== 'string');
+    if (bad !== -1) return { broken: `plugins.${key}[${bad}] 不是字符串` };
+
+    for (const name of list as string[]) {
+      if (!isPluginName(name)) {
+        warn(
+          `${label(layer.source)} ${where} 这条不生效 —— plugins.${key}: ${JSON.stringify(name)} 不是 kebab-case 的插件名。`,
+        );
+        continue;
+      }
+      if (key === 'enable' && !PLUGIN_ENABLE_SOURCES.includes(layer.source as never)) {
+        warn(
+          layer.source === 'user'
+            ? `${label(layer.source)} ${where} 这条不生效 —— plugins.enable 不认 user 层（用户级插件本来就自动装载）。`
+            : `${label(layer.source)} ${where} 这条不生效 —— plugins.enable 不认托管层（托管策略只该能收紧，不该替你打开一个插件）。`,
+        );
+        continue;
+      }
+      out[key].push(name);
+    }
+  }
+
+  const unknown = Object.keys(record).filter((key) => key !== 'enable' && key !== 'deny');
+  if (unknown.length > 0) {
+    warn(`${label(layer.source)} ${where} 的 plugins 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+  }
+
+  return { value: out };
 }
 
 function base(
@@ -218,8 +359,9 @@ function base(
   error: string | undefined,
   problems: readonly string[],
   rules: readonly Rule[],
+  plugins: PluginsLayer = EMPTY_PLUGINS,
 ): SourceInfo {
   const counts: Record<Behavior, number> = { ...EMPTY_COUNTS };
   for (const rule of rules) counts[rule.decision] += 1;
-  return { source: layer.source, path: layer.path, state, ...(error === undefined ? {} : { error }), counts, problems, rules };
+  return { source: layer.source, path: layer.path, state, ...(error === undefined ? {} : { error }), counts, problems, rules, plugins };
 }
