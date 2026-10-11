@@ -39,6 +39,16 @@ export type EventArgs = {
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   'tool.describe': { readonly tool: string };
   'command.run': { readonly name: string; readonly args: readonly string[] };
+  /**
+   * 一条命令描述自己。**与 `tool.describe` 同形**，补上 `command.run` 缺的那一半
+   * （`tool.call` 有 `tool.describe` 作伴，`command.run` 一直没有）。
+   *
+   * 消费方是 `/help`（调用点见 `src/cli/commands.ts`）。⚠️ 它住在 `cli/` 而不是
+   * `builtins/` 里 —— 插件拿不到 `dispatch`（`$` 是名词的集合，见 contract/engine.ts:59-64），
+   * 所以够不着这个事件的插件得由 CLI 把 dispatcher 注入进去。这是本片对设计 §0.9 的
+   * 一处偏差，理由与代价记在那份设计的 §9。
+   */
+  'command.describe': { readonly name: string };
 
   // ── P4a 转正的三个（原先在 UnimplementedEvent 那族里）──
 
@@ -89,6 +99,15 @@ export type EventResult = {
   'tool.check': { readonly decision: 'allow' | 'ask' | 'deny'; readonly rule?: string };
   'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
   'command.run': { readonly handled?: boolean };
+  /**
+   * 一条命令的自我描述。
+   *
+   * `hidden: true` 与 `tool.describe` 那条含义一样：**主动不出现在清单里**，
+   * 而不是"没注册描述"—— 后者是故障，消费方要 warn 并退回裸名字。
+   */
+  'command.describe':
+    | { readonly description: string; readonly usage?: string }
+    | { readonly hidden: true };
   'agent.offer': {
     // `tools` 是**我们多加的**（参考实现的 offer 只有 name + description）：
     // 白名单是承重的东西，让用户与模型都看得见比藏起来好。
@@ -157,7 +176,6 @@ export type UnimplementedEvent =
   | 'prompt.context'
   | 'prompt.compose'
   | 'prompt.attachment'
-  | 'command.describe'
   | 'config.set'
   | 'config.describe'
   | 'attribution.text'

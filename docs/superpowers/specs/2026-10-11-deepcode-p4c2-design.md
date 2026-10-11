@@ -409,8 +409,22 @@ type ConfigEntry = {
    「Write 的内容里有任何一个元素匹配」，收益是 `field` 这个词不失去意义。
 5. **`config.set` 只认 `model`**（§5.2）。这是本片最保守的一处，也可能最容易被要求放宽。
    放宽它之前请先读 §0 决策 6：`baseUrl` 可写等于一条安静改写流量去向的命令。
-6. **`command.describe` 改了 `/help` 的输出形状**。既有测试会红，这是**预期**的红（C2 里点名验）。
-7. **存疑：hookify 要不要支持 `PostToolUse` / `Stop` / `UserPromptSubmit`。**
+6. **`command.describe` 改了 `/help` 的输出形状。**
+   ⚠️ 施工时的两处更正，都比设计里写的更麻烦一点：
+   - **§0 决策 9 说消费方"是 `/help`"，但把落点写成了 `builtins/commands.ts` —— 那是错的**：
+     插件拿不到 `dispatch`（`contract/engine.ts:59-64` 明说「插件拿不到 dispatch」是**有意**的约束，
+     为此内核宁可多开 `agent` / `skill` 两个名词），而 `/help` 要打每条命令的一句话就必须派发
+     这个事件。所以 `/help` **搬到了 `cli/commands.ts`**，dispatcher 由 CLI 注入
+     （延迟取，与 `/compact` 在 `main.ts:235-238` 的写法一字不差）。`builtins/commands.ts`
+     于是只剩 `/exit`，分工反而更干净了：那边管"只碰 `$` 名词"的，这边管"要注入点东西"的。
+   - **"既有测试会红"这条预测不成立 —— 因为 `/help` 这一族此前一个测试都没有**。
+     `test/cli.test.ts` 里的 `help` 全是 `--help` 那个**参数**。所以不但没有预期红，
+     还暴露出斜杠 `/help` 的输出一直在裸奔。新的 `test/command-describe.test.ts` 把它盖住了。
+7. **推翻了原计划里"`/help` 缺 describe 就 warn"的一半**：`hidden: true` 与"忘了注册"
+   必须分得开（前者主动隐身、一个字不说；后者是故障、要提醒），所以 `CommandDescription`
+   是三态而不是二态。把 `missing` 混进 `hidden`，`/help` 会安静地少列一条命令 ——
+   那是这一族里最坏的失败方式（命令在，清单里找不到它）。
+8. **存疑：hookify 要不要支持 `PostToolUse` / `Stop` / `UserPromptSubmit`。**
    参考实现挂这四个事件（`07-hooks-system.md:82`），我们只桥了三个引擎钩子点，
    且 `tool.check` 之外的两个（`session.start` / `session.end`）是纯通知、拦不住东西
    （`src/contract/classic.ts:68-72`）。本轮 hookify **只挂 `PreToolUse`**：一个拦不住的

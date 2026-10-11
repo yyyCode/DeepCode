@@ -90,6 +90,13 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     'tool.describe': (e) => {
       throw new Error(`no description registered for tool: ${String(e.tool)}`);
     },
+
+    // 与上面那条同形，同一条分寸：**没注册描述是故障，不是"没描述"** ——
+    // 消费方（/help）逐条兜底，缺了就退回裸名字并 warn。
+    // 有意不返回 `{description: ''}`：那会让"忘了写 describe"这件事彻底静默。
+    'command.describe': (e) => {
+      throw new Error(`no description registered for command: ${String(e.name)}`);
+    },
   };
 
   const { dispatch } = createDispatcher({

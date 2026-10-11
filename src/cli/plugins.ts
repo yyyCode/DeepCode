@@ -10,7 +10,7 @@ import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin
 import { createSecDefaultPlugin } from '../builtins/sec-default';
 import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
-import { createSessionCommands } from './commands';
+import { createSessionCommands, type CommandDescription } from './commands';
 import { createAgentsMdPlugin } from './agents-md';
 import { createPermissionsCommand } from './permissions-command';
 import { createSubagentsPlugin } from './subagents';
@@ -54,6 +54,12 @@ export type CliPluginDeps = {
    * `refs` 同一种写法。不给 = 没有 `/compact` 这条命令。
    */
   readonly compact?: () => Promise<void>;
+  /**
+   * 问一条命令它自己是什么（`/help` 用）。**同样是延迟取的回调** —— 它要派发
+   * `command.describe`，而 `dispatch` 要到 `createEngine` 之后才拿得到。
+   * 不给 = `/help` 照列名字，只是每行没有那句话。
+   */
+  readonly describeCommand?: (name: string) => Promise<CommandDescription>;
 };
 
 export type CliPluginBundle = {
@@ -104,13 +110,15 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     confirmPlugin,
     commandsPlugin,
     streamPlugin(deps.render),
-    // /diff、/clear 要碰渲染会话语状态，所以住在 cli/ 而不是 builtins/（见 cli/commands.ts）。
+    // /diff、/clear、/help 要碰渲染、会话状态或 dispatch，所以住在 cli/ 而不是 builtins/
+    // （见 cli/commands.ts 顶部那段）。
     createSessionCommands({
       changes: deps.changes,
       messages: deps.messages,
       root: deps.root,
       palette: deps.palette,
       ...(deps.compact === undefined ? {} : { compact: deps.compact }),
+      ...(deps.describeCommand === undefined ? {} : { describeCommand: deps.describeCommand }),
     }),
     // /permissions 同理。
     createPermissionsCommand({ policy: deps.policy, palette: deps.palette }),

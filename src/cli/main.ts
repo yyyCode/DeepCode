@@ -12,6 +12,8 @@ import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
 import { createSessionChanges } from './changes';
+// 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
+import type { CommandDescription } from './commands';
 import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
@@ -237,6 +239,11 @@ async function main(): Promise<void> {
   // 与 core/nouns 里那两个 `refs` 同一种写法。
   let compactor: Compactor | undefined;
 
+  // 同一个道理：`/help` 要派发 `command.describe` 才打得出每条命令的一句话，
+  // 而插件拿不到 dispatch（`contract/engine.ts:59-64`）。CLI 有 `dispatch`，
+  // 但那是 `createEngine` 的返回值 —— 所以又是一个延迟取的位置。
+  let commandDescriber: ((name: string) => Promise<CommandDescription>) | undefined;
+
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
   const bundle = cliPlugins({
     render,
@@ -255,6 +262,7 @@ async function main(): Promise<void> {
     compact: async () => {
       await compactor?.run('manual');
     },
+    describeCommand: async (name) => await commandDescriber?.(name) ?? { kind: 'missing' },
   });
   const { $, dispatch } = await createEngine({
     // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
@@ -284,6 +292,24 @@ async function main(): Promise<void> {
     warn: (line) => render.notice(line),
     signal: () => turns.current(),
   });
+
+  // 有了 `dispatch`，`/help` 那个延迟取的位置也就填得上了。
+  commandDescriber = async (name) => {
+    try {
+      const described = await dispatch('command.describe', { name }, CORE_ORIGIN);
+      return 'hidden' in described
+        ? { kind: 'hidden' }
+        : {
+            kind: 'described',
+            description: described.description,
+            ...(described.usage === undefined ? {} : { usage: described.usage }),
+          };
+    } catch {
+      // core 那条 impl **抛** —— "没注册描述"是故障不是"没描述"（与 tool.describe 同形）。
+      // 在这里译成一个正常返回值，好让 `/help` 能一边列名字一边提醒一声。
+      return { kind: 'missing' };
+    }
+  };
 
   const instructions = await loadInstructions(root, home);
   // 能派什么、能加载什么，报给模型（设计 §7）。模型看到的是一行 description，不是文件。
