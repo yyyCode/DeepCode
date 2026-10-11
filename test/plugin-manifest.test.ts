@@ -44,12 +44,13 @@ describe('路径的四条硬规则', () => {
   });
 
   it.each([
-    'hooks/hooks.json', // 少了 ./
+    'hooks/hooks.json', // 少了 ./ —— 只被"必须以 ./ 开头"这一条拦下
     '/etc/passwd', // 绝对路径
     '../shared/hooks.json', // 逃出插件目录
-    './a/../../b', // 同样逃出去，只是绕了一下
+    './a/../../b', // 同样逃出去，只是绕了一下 —— 只被"不含 .."这一条拦下
     '.\\hooks', // 反斜杠在 Windows 上会被归一成路径分隔符
     './a\\..\\..\\b',
+    './hooks\\hooks.json', // 只被"不含反斜杠"这一条拦下：有 ./、没有 ..
   ])('拦下 %j', (value) => {
     expect(isSafeRelativePath(value)).toBe(false);
   });
