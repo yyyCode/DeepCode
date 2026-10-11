@@ -876,3 +876,165 @@ describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）',
     }
   }, 120_000);
 });
+
+describe('cli 参数：config 子命令', () => {
+  it('认识的动词进子命令，光秃秃的与参数不够的都落回说明', () => {
+    expect(parseArgs(['config', 'list'])).toEqual({ kind: 'config', sub: 'list' });
+    expect(parseArgs(['config', 'set', 'model', 'm1'])).toEqual({
+      kind: 'config',
+      sub: 'set',
+      key: 'model',
+      value: 'm1',
+    });
+    // 参数不够 = 打说明（说明里写着该怎么写），不是死胡同。
+    expect(parseArgs(['config'])).toEqual({ kind: 'config', sub: 'help' });
+    expect(parseArgs(['config', 'set'])).toEqual({ kind: 'config', sub: 'help' });
+    expect(parseArgs(['config', 'set', 'model'])).toEqual({ kind: 'config', sub: 'help' });
+  });
+
+  it('动词不认识 → 整句回落到提示词，与 plugin 同一条', () => {
+    // ⚠️ 这一条是**有意与计划相反**的：计划写的是"动词不认识也打说明"。
+    // 照那样写，`deepcode config 这个模型怎么配` 会变成一条报错 —— 而
+    // `parsePluginCommand` 当初正是为了这句话才回落到提示词（见 args.ts 顶部那段）。
+    // 同一族子命令不该有两套规则。
+    expect(parseArgs(['config', '这个模型怎么配'])).toMatchObject({
+      kind: 'prompt',
+      text: 'config 这个模型怎么配',
+    });
+  });
+
+  it('走错的开关不会被当成值写进配置文件', () => {
+    // `set` 的值只取第一个非开关 token；`--flag` 算不上值。
+    expect(parseArgs(['config', 'set', 'model', '--oops'])).toEqual({ kind: 'config', sub: 'help' });
+  });
+});
+
+describe('真跑一遍 bin：config list / set（派发事件，不直接调函数）', () => {
+  const BIN = resolve(process.cwd(), 'bin', 'deepcode.mjs');
+  const KEY = 'sk-ant-api03-abcdefghijklmn';
+
+  function cleanEnv(home: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home };
+    for (const name of [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_MODEL',
+      'DEEPCODE_MODEL',
+      'DEEPCODE_PROVIDER',
+      'DEEPCODE_MANAGED_SETTINGS',
+      'DEEPCODE_DEBUG',
+    ]) {
+      delete env[name];
+    }
+    return env;
+  }
+
+  async function run(
+    args: readonly string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    let code = 0;
+    const result = await promisify(execFile)(process.execPath, [BIN, ...args], { cwd, env }).catch(
+      (error: any) => {
+        code = error.code ?? 1;
+        return { stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
+      },
+    );
+    return { code, stdout: result.stdout as string, stderr: result.stderr as string };
+  }
+
+  function scene(): { base: string; home: string; root: string } {
+    const base = mkdtempSync(join(tmpdir(), 'deepcode-config-'));
+    const home = join(base, 'home');
+    const root = join(base, 'root');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(root, { recursive: true });
+    return { base, home, root };
+  }
+
+  const configPath = (home: string): string => join(home, '.deepcode', 'config.json');
+
+  it('list：退出 0，列出 model 与来源，且一个字节的 apiKey 都不吐', async () => {
+    const { base, home, root } = scene();
+    try {
+      // 这一屏是直接打在终端上的，所以打码这件事在**端到端**上再钉一遍。
+      // 顺带证明这条命令**不需要 key** 就能跑：env 里一把都没有。
+      mkdirSync(join(home, '.deepcode'), { recursive: true });
+      writeFileSync(configPath(home), JSON.stringify({ model: 'demo-model', apiKey: KEY }));
+
+      const listed = await run(['config', 'list'], root, cleanEnv(home));
+      expect(listed.code).toBe(0);
+      expect(listed.stdout).toContain('model');
+      expect(listed.stdout).toContain('demo-model');
+      expect(listed.stdout).toContain('[user]');
+      expect(listed.stdout).toContain('可改');
+      expect(listed.stdout).not.toContain(KEY);
+      expect(listed.stdout).not.toContain('abcdefghijklmn');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('set model 真的写进去了，再 list 就能看见；而 settings.json 一个字节都没被碰', async () => {
+    const { base, home, root } = scene();
+    try {
+      const env = cleanEnv(home);
+      const set = await run(['config', 'set', 'model', 'foo-model'], root, env);
+      expect(set.code).toBe(0);
+
+      expect(readFileSync(configPath(home), 'utf8')).toContain('foo-model');
+      const listed = await run(['config', 'list'], root, env);
+      expect(listed.stdout).toContain('foo-model');
+      // 连接配置与权限设置是两套文件。`config set` 一个字都不该碰后者 ——
+      // 一个能顺手改权限的入口就是第二个自动放行开关。
+      expect(existsSync(join(home, '.deepcode', 'settings.json'))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('set baseUrl：非零退出，错误里点得到 baseUrl，配置文件没被创建也没被改', async () => {
+    const { base, home, root } = scene();
+    try {
+      const env = cleanEnv(home);
+      const refused = await run(['config', 'set', 'baseUrl', 'https://evil.example'], root, env);
+      expect(refused.code).not.toBe(0);
+      expect(refused.stderr).toContain('baseUrl');
+      expect(existsSync(configPath(home))).toBe(false);
+
+      // 已经有一份的时候，也不能被动过一个字节。
+      mkdirSync(join(home, '.deepcode'), { recursive: true });
+      writeFileSync(configPath(home), '{"model":"demo-model"}');
+      await run(['config', 'set', 'apiKey', 'sk-ant-x'], root, env);
+      expect(readFileSync(configPath(home), 'utf8')).toBe('{"model":"demo-model"}');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('set permissions.allow：非零退出，错误里点得到 permissions', async () => {
+    const { base, home, root } = scene();
+    try {
+      const refused = await run(['config', 'set', 'permissions.allow', 'Bash'], root, cleanEnv(home));
+      expect(refused.code).not.toBe(0);
+      expect(refused.stderr).toContain('permissions.allow');
+      expect(existsSync(configPath(home))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('光秃秃一个 config：打说明，退出 0', async () => {
+    const { base, home, root } = scene();
+    try {
+      const helped = await run(['config'], root, cleanEnv(home));
+      expect(helped.code).toBe(0);
+      expect(helped.stdout).toContain('deepcode config list');
+      expect(helped.stdout).toContain('能改的只有 model');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+});

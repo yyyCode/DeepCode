@@ -24,6 +24,7 @@ import { discoverAgents } from './agents';
 import { discoverSkills } from './skills';
 import { renderOffer } from './offer';
 import { runPluginCommand } from './plugin-command';
+import { runConfigCommand } from './config-cli';
 import {
   createPersister,
   createTranscript,
@@ -106,6 +107,21 @@ async function main(): Promise<void> {
       // 落点只认**用户层**的设置（设计 §0 决策 3）—— 与下面 discoverPlugins 的
       // `enabledInstalled` 是同一份名单，两个入口必须一致。
       enabledByUser: pluginPolicy.plugins.enableByUser,
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
+    return;
+  }
+
+  // `deepcode config list / set`：同样在"读配置、要 key"**之前**。
+  // 它读配置是为了看/改配置本身，没有理由先要一把 key —— 而"我现在配的是什么"
+  // 恰恰是配错了 key 的人最想敲的一句话。
+  if (action.kind === 'config') {
+    process.exitCode = await runConfigCommand({
+      action,
+      home,
+      root,
+      env: process.env,
       out: (line) => process.stdout.write(`${line}\n`),
       err: (line) => process.stderr.write(`${line}\n`),
     });

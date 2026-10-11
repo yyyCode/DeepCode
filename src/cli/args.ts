@@ -18,6 +18,9 @@ export type StartupAction =
   | { kind: 'plugin'; sub: 'validate'; dir: string }
   | { kind: 'plugin'; sub: 'add'; name: string; from: string }
   | { kind: 'plugin'; sub: 'remove'; name: string }
+  | { kind: 'config'; sub: 'help' }
+  | { kind: 'config'; sub: 'list' }
+  | { kind: 'config'; sub: 'set'; key: string; value: string }
   | { kind: 'prompt'; text: string; resume: ResumeTarget; settings: string | undefined };
 
 /** `-V` 而不是 `-v`：后者在太多工具里是 verbose，别去抢那个字母。 */
@@ -38,11 +41,13 @@ export function parseArgs(argv: readonly string[]): StartupAction {
   if (argv.some((arg) => HELP_FLAGS.includes(arg))) return { kind: 'help' };
   if (argv.some((arg) => VERSION_FLAGS.includes(arg))) return { kind: 'version' };
 
-  // 子命令：**第一个非开关 token 恰好是 `plugin`，且第二个是 validate/list** 才进子命令模式。
-  // 其余一律照旧当提示词 —— `deepcode plugin 系统怎么写` 是句正经提问，
+  // 子命令：**第一个非开关 token 恰好是 `plugin` / `config`，且第二个是个认识的动词**
+  // 才进子命令模式。其余一律照旧当提示词 —— `deepcode plugin 系统怎么写` 是句正经提问，
   // 把"plugin"抢成保留字会让它变成一条报错。
   const plugin = parsePluginCommand(argv);
   if (plugin !== undefined) return plugin;
+  const config = parseConfigCommand(argv);
+  if (config !== undefined) return config;
 
   let resume: ResumeTarget = { kind: 'none' };
   let settings: string | undefined;
@@ -122,6 +127,32 @@ function parsePluginCommand(argv: readonly string[]): StartupAction | undefined 
   return undefined;
 }
 
+/**
+ * 认出 `config` / `config list` / `config set <键> <值>`。
+ *
+ * 与 `parsePluginCommand` **同一条**回落规则：动词不认识 → `undefined`（回落到提示词，
+ * 不是死胡同），参数不够 → `{ sub: 'help' }`（打说明，说明里写着该怎么写）。
+ * 光一个 `config` 与 `plugin` 一样算"参数不够"。
+ *
+ * 值只取子命令之后**第一个非开关 token** —— 免得一个走错的 `--flag` 被当成值写进配置文件。
+ */
+function parseConfigCommand(argv: readonly string[]): StartupAction | undefined {
+  const first = argv.findIndex((arg) => !arg.startsWith('-'));
+  if (first === -1 || argv[first] !== 'config') return undefined;
+
+  const sub = argv[first + 1];
+  if (sub === undefined) return { kind: 'config', sub: 'help' };
+  if (sub === 'list') return { kind: 'config', sub: 'list' };
+  if (sub === 'set') {
+    const rest = argv.slice(first + 2).filter((arg) => !arg.startsWith('-'));
+    const key = rest[0];
+    const value = rest[1];
+    if (key === undefined || value === undefined) return { kind: 'config', sub: 'help' };
+    return { kind: 'config', sub: 'set', key, value };
+  }
+  return undefined;
+}
+
 export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 
 用法
@@ -146,6 +177,10 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
   ANTHROPIC_BASE_URL                         API 端点（换兼容端点时用）
   DEEPCODE_PROVIDER                          provider：anthropic / openai（默认 anthropic）
   DEEPCODE_DEBUG=1                           打印调试轨迹
+
+  deepcode config list              看每个配置项生效的值与它来自哪一层
+  deepcode config set model <名字>   改用户级配置里的 model（**只能改这一项**）
+                                     apiKey / baseUrl 要自己开文件改；权限设置不在这里
 
 会话落盘
   ~/.deepcode/projects/<工作目录>/sessions/<id>.jsonl
