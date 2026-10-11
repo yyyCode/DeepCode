@@ -68,7 +68,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>257</b><span>用例全绿 · 15 个文件</span></li>
+    <li><b>436</b><span>用例全绿 · 26 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
     <li><b>12/39</b><span>事件已实现（如实标注）</span></li>
   </ul>
@@ -342,8 +342,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>257</b>
-      <p>用例，15 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>436</b>
+      <p>用例，26 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -385,10 +385,13 @@
         而这个引擎的设置是启动期解析好的不可变数组，重放只会得到与第一遍相同的答案。守门器改成「持有裁决」，
         比它更强，偏差如实记在文档里。</p>
     </li>
-    <li>
-      <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P3 扩展面</h3></div>
-      <p>目标：一个<strong>不改引擎</strong>的插件能扩展出新的用户能力；<code>deepcode plugin validate &lt;dir&gt;</code>
-        能拦住坏清单。</p>
+    <li class="road--done">
+      <div class="road__head"><span class="pill">已完成</span><h3>P3 扩展面</h3></div>
+      <p>出口标准：一个<strong>不改引擎</strong>的插件能扩展出新的用户能力（仓库里的
+        <code>plugins/todo</code> 加出了一个 <code>TodoWrite</code> 工具，而 <code>src/</code> 里 grep 不到这个名字）；
+        <code>deepcode plugin validate &lt;dir&gt;</code> 能拦住坏清单；classic hook 的 <code>exit 2</code>
+        能真正阻断工具调用（<code>plugins/secret-guard</code> 拦下了往仓库里写密钥）。
+        <strong>第三方插件只能拧紧不能拧松</strong>：放行判定一律被丢弃，座位强制在最内层。</p>
     </li>
     <li>
       <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P4 组合面</h3></div>

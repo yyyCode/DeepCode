@@ -394,21 +394,34 @@ DeepCode/
 
 ### 9.2 模块 × 阶段矩阵
 
-| 模块 | **MVP** | **P1 会话与体验**（已完成） | **P2 安全与策略** | **P3 扩展面** | **P4 组合面** | **P5 内建与分发** |
+| 模块 | **MVP** | **P1 会话与体验**（已完成） | **P2 安全与策略** | **P3 扩展面**（已完成） | **P4 组合面** | **P5 内建与分发** |
 |---|---|---|---|---|---|---|
-| `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 | `AgentSpec` 全字段 | — |
-| **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 | — | — |
+| `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 **已完成**（只桥 3 个，见 P3 设计 §11 偏差 4） | `AgentSpec` 全字段 | — |
+| **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 **已完成** | — | — |
 | **provider** | Anthropic 适配器 | OpenAI 兼容适配器 | gateway / `base_url` 收口 | — | — | — |
 | **工具** | 6 个核心工具 | +TodoWrite/WebFetch/WebSearch | 按权限过滤工具可见性 **已完成**（只对整工具 deny 生效，见 P2 设计 §5.2） | MCP 桥接 | Task 工具（派子代理） | — |
 | **权限安全** | 最小确认 y/N | — | 5 层来源 + allow/ask/deny（含 `Bash(git push:*)` 带参匹配）+ `sec-default` 守门器 + deny 带规则名（**不做重放**，见 P2 设计 §11 偏差 1）**已完成** | — | 沙箱（**仅 Bash**） | MDM 托管推送 |
 | **指令文件** | — | CLAUDE.md 两层 | — | — | AGENTS.md 惰性嵌套 + 双层去重 | 五层优先级 + 托管下发 |
-| **扩展面** | — | — | — | 拆 workspaces + `plugin.json` + 五类约定目录 + `${CLAUDE_PLUGIN_ROOT}` + `validate` 子命令 | marketplace | 第三方插件生态 |
-| **hooks** | — | — | — | classic hooks（stdin/stdout JSON · exit 0/1/2 · matcher · 按事件输出白名单） | hookify DSL | — |
+| **扩展面** | — | — | — | 拆 workspaces + `plugin.json` + 五类约定目录 + `${CLAUDE_PLUGIN_ROOT}` + `validate` 子命令 **部分完成**（`plugin.json` / 约定目录的发现与校验 / `${CLAUDE_PLUGIN_ROOT}` / `plugin list`·`validate` 都做了；**workspaces 没拆**，见 P3 设计 §11 偏差 3） | marketplace | 第三方插件生态 |
+| **hooks** | — | — | — | classic hooks（stdin/stdout JSON · exit 0/1/2 · matcher · 按事件输出白名单） **部分完成**（前三项做了；`type:"prompt"` 与正则 matcher 不支持，输出只收阻断类字段 —— 没有 `additionalContext`/`updatedInput` 的着陆点，见 §11 偏差 2、4） | hookify DSL | — |
 | **组合面** | — | 斜杠命令完备 | — | — | 子代理 + 技能 + `description` 路由 + 渐进式披露 + 模型分层 + 上下文隔离 | Agent SDK |
 | **会话** | 内存 transcript | 落盘 + `--resume` | — | — | 上下文压缩 | — |
 | **UI** | 纯文本流 | cli 层自用 Ink 组件（spinner / diff / 确认框，**不走事件**） | — | `ui.render` 数据树 + `$.ui.resolve` 逐 surface 元素表（**渲染首次暴露为事件给插件**） | 多 surface | 桌面 / IDE 扩展 |
 | **内建 mod** | — | `/diff` 雏形 | — | — | telemetry 零自由文本行协议 | diff 分屏 + agents-md 范式 |
 | **CI 分发** | lint + test | — | — | 校验器进 CI | 硬化三件套 | 安装面 + gateway + CHANGELOG 产品面 |
+
+> **P3 已完成（2026-10-11）**。实际交付这 5 项，逐条与偏差见 `2026-10-11-deepcode-p3-design.md` §11：
+>
+> 1. `plugin.json` 的校验器（E1–E14 / W1–W10）与 `deepcode plugin validate` / `plugin list` 两条子命令
+> 2. 插件目录的发现与装载（用户级自动 / 项目级要 `plugins.enable`），两段式：发现不执行代码，装载才 `import`
+> 3. `plugin.register` 从空壳变成准入闸门（`plugins.deny` 五层并集，第一方豁免）
+> 4. classic hooks 的桥：`PreToolUse` / `SessionStart` / `SessionEnd` 三个事件，`hooks.json` → 链上注册
+> 5. 第三方插件的能力上限在**结构上**钉死：座位强制 `append`、`allow` 一律剥掉、`uses` 越界整个插件不装
+>
+> P3 列里**没做**的三项，都在 §11 有理由：MCP 桥接（偏差 1）、`ui.render` 数据树
+> （偏差 2，连带 `additionalContext`/`updatedInput` 没有着陆点）、`packages/*` workspaces
+> （偏差 3 —— 插件的运行时代码一个 import 都不需要，物理分离要到"要发布"的 P5 才值钱）。
+> 另外"校验器进 CI"这一格也没做：仍然没有 CI（见 §9.4 与 README「已知限制」）。
 
 > **P1 已完成（2026-10-11）**。实际交付是这 8 项，详见 `2026-10-11-deepcode-p1-design.md` §1：
 >
@@ -433,7 +446,7 @@ DeepCode/
 | **MVP** | 见 §8 |
 | **P1** | 重启后 `deepcode --resume` 能接着上次会话；TUI 下 `/diff` 能看到本会话的改动；OpenAI 兼容 provider 用配置切换可用 |
 | **P2** | 个人插件无法放宽组织策略（`next.to` 只能向下跳，有测试证明）；每个判定路径都有明确的失败行为；deny 结果携带规则名且决策可重放 |
-| **P3** | 一个**不改引擎**的插件能扩展出新的用户能力；`deepcode plugin validate <dir>` 能拦住坏清单；classic hook 的 exit 2 能真正阻断工具调用 |
+| **P3**（**已完成** 2026-10-11） | 一个**不改引擎**的插件能扩展出新的用户能力（`plugins/todo` 加出 `TodoWrite`，`src/` 里 grep 不到这个名字）；`deepcode plugin validate <dir>` 能拦住坏清单（E1–E14）；classic hook 的 exit 2 能真正阻断工具调用（`plugins/secret-guard`） |
 | **P4** | 一个 `agents/*.md` 子代理能被 `description` 正确路由，且工具白名单生效（未列出的工具调用被拒） |
 | **P5** | 三个内建 mod 全部通过各自测试套件，可选依赖缺失时主流程无损；CI 里 workflow 硬化校验器能在漏配 firewall runner 时让流水线失败 |
 
@@ -460,6 +473,10 @@ DeepCode/
 5. **`$` 的名词是直接实现，不是事件**。架构文档里 `$.<noun>.<method>()` 本身也是一次 dispatch（`OpEventOf`，59 个），内核是它的最内层实现。MVP 把这层省掉：`$.fs.read()` 直接读文件，不抛事件。代价是 P2 之前**无法在最内层拦截 `process.run`**（沙箱的落点）；收益是少写 59 个事件类型与一层间接。P2 做沙箱与 `settings.read` 保护时必须补上——这是 P2 的一项前期工作，不是可选项。
 6. **不用 ESLint**。只保留边界检查脚本与 `tsc --noEmit`，不引入 ESLint 生态。真正的价值来自类型与边界，风格规则留到 P1。
 7. **`engine.create` 折叠在 MVP 中是空转的**。`createEngine` 先折叠出 `$`，之后才逐个跑 `plugin.register` 准入。顺序不能反——`plugin.register` 的判定本身要经过链，而链要用 `$`；先注册后建 `$` 就成环了。代价是**没有任何插件能通过 `engine.create` 往 `$` 上加名词**。MVP 的八个插件都不加名词（工具只挂 `tool.call`，确认器只挂 `tool.check`），所以无害。但 P3 引入"插件扩展 `$`"时必须先解决这个先后顺序（可行方向：两趟注册，第一趟只收集 `engine.create` 的 hook，第二趟做准入）。在那之前，往 `engine.create` 上挂 hook 是**静默无效**的。
+   **（P3 已部分收口）** 顺序问题**没解决**（两趟注册没做，本轮的两个实物插件都不需要新名词），
+   但"静默无效"换成了**有声拒绝**：第三方插件往 `engine.create` 挂 hook 会被当场丢弃并告知，
+   而不是挂上去、永远不跑、而插件以为自己扩展了 `$`。详见 `2026-10-11-deepcode-p3-design.md` §4.5
+   与 §11 偏差 8 —— 这条是"把已知地雷换成有声拒绝"，不是"拆掉地雷"。
 
 **已知缺陷（两轮收尾评审发现，判为 LOW，留到 P1）**：**（两条均已在 P1 修掉，修法见各条下的"P1 已修"）**
 
