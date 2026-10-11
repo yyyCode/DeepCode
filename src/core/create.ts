@@ -87,6 +87,16 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     // 别把它"统一"成上面那条的形状，两者问的不是同一个问题（设计 §10.3）。
     'skill.prompt': (e) => ({ text: String(e.text) }),
 
+    // P4d 的三条，与上面那条**同一条分寸**：缝，不是闸。链尾是"没人要说话"，
+    // 所以默认什么都不加。在这儿 fail-closed 的后果各不相同，但都很难看：
+    // tool.result 会让每一次工具调用都变成一次"没人应答"的拒绝；
+    // turn.stop 会让每一次收手都被拦下（一个自造的、永远转不完的 turn）；
+    // prompt.section 会让系统提示凭空多出一段假文本。
+    'tool.result': () => ({}) as const,
+    'turn.stop': () => ({}) as const,
+    // 这条是能力方向的 fail-closed：没有贡献者就是没有 —— 与 agent.offer 同一条。
+    'prompt.section': () => ({ sections: [] }) as const,
+
     'tool.describe': (e) => {
       throw new Error(`no description registered for tool: ${String(e.tool)}`);
     },

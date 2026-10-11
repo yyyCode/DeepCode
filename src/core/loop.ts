@@ -9,9 +9,19 @@ import type {
 import type { Args, EventName, Result } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
 import { CORE_ORIGIN, type Origin } from '../contract/next';
+import { withContext } from '../contract/prompt-channel';
 
 /** 一个 turn 内最多允许的"模型→工具→模型"往返次数，防止模型陷入死循环。 */
 const MAX_HOPS = 25;
+
+/**
+ * 一个 turn 内允许被 `turn.stop` 拦下来的次数上限。
+ *
+ * 参考实现把这件事交给钩子自己看 `stop_hook_active`，那是把死循环的责任推给写钩子的人。
+ * 内核自己兜一道：超了就**忽略 block 并出声** —— 不是静默忽略，
+ * "我拦了 4 次你都不理"与"我拦了 4 次"对写钩子的人是两条不同的信息。
+ */
+export const MAX_STOP_BLOCKS = 3;
 
 export type LoopContext = {
   $: EngineInterface;
@@ -63,6 +73,8 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
   // 跑满 hop 就是撞墙了。不区分的话调用方分不清"模型说完了"与"到上限了" ——
   // 子代理那一侧会把两种情况都当正常结束，然后拿一段被截断的话当结论。
   let exhausted = true;
+  // 已经因为 `turn.stop` 被拦住过几次。上限见 MAX_STOP_BLOCKS。
+  let blocked = 0;
 
   // 两处收场（失败与正常）共用这一份 —— 原先它们各自写死 `inputTokens: 0`，
   // 于是 `turn.complete` 长期在报假账，而压缩器唯一的信号就是它。
@@ -167,6 +179,23 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
     if (text) ctx.onText?.(text);
 
     if (toolUses.length === 0) {
+      // 模型说完了 —— 但钩子可能不许它收手（Ralph 式循环的落点）。
+      const stopped = await ctx.dispatch(
+        'turn.stop',
+        { stopHookActive: blocked > 0, lastMessage: text },
+        CORE_ORIGIN,
+      );
+      const keepGoing = stopped.block?.trim() ?? '';
+      if (keepGoing !== '') {
+        if (blocked < MAX_STOP_BLOCKS) {
+          blocked += 1;
+          // 作为**一条新的 user 消息**推进去：它是"还没干完，接着干"的指令，
+          // 本来就该是新一轮的输入。`continue` 走下一跳。
+          messages.push({ role: 'user', content: keepGoing });
+          continue;
+        }
+        ctx.$.ui.notice(`钩子第 ${MAX_STOP_BLOCKS} 次不让收手，已忽略（再往下就该是死循环了）`);
+      }
       exhausted = false;
       break;
     }
@@ -276,7 +305,17 @@ async function runOneTool(
   }
 
   const content = typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
-  return { toolUseId: use.id, content, isError: content.startsWith('ERROR:') };
+  // 沿用既有那条判据（原先直接写在这一行的 `isError` 里）：工具自己报错时返回一段
+  // 以 `ERROR:` 开头的正文。另立一套会让同一件事有两个判据。
+  const ok = !content.startsWith('ERROR:');
+
+  const observed = await ctx.dispatch(
+    'tool.result',
+    { tool: use.name, input: use.input, toolUseId: use.id, ok, output: content },
+    CORE_ORIGIN,
+  );
+
+  return { toolUseId: use.id, content: withContext(content, observed.context), isError: !ok };
 }
 
 function sleep(ms: number): Promise<void> {
