@@ -279,7 +279,7 @@ describe('链语义', () => {
 
   it('落到未实现的事件抛 NotImplementedError', async () => {
     const h = createHarness();
-    await expect(h.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
+    await expect(h.dispatch('attribution.text', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });
@@ -391,11 +391,15 @@ describe('生命周期事件的内核 no-op', () => {
 
   it('真正未实现的事件仍然抛 NotImplementedError', async () => {
     // 上面那条的另一半：no-op 只针对通知事件，
-    // NotImplementedError 必须继续为那 23 个真未实现的事件保留意义
+    // NotImplementedError 必须继续为那 20 个真未实现的事件保留意义
     // （P4a 把 agent.offer / agent.spawn / skill.prompt 转正了，27 → 24；
-    //   P4b 把 session.compact 转正，24 → 23）。
+    //   P4b 把 session.compact 转正，24 → 23；
+    //   P4c-2 把 command.describe / config.describe / config.set 转正，23 → 20）。
+    //
+    // 挑来当例子的这个事件得**一直是**未实现的 —— `config.set` 在这里躺了两轮，
+    // 转正那天三条用例一起红，而那正是它该有的表现（红在类型上，不是悄悄变成绿的）。
     const built = await realEngine();
-    await expect(built.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
+    await expect(built.dispatch('attribution.text', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });
@@ -438,11 +442,11 @@ describe('调试轨迹（DEEPCODE_DEBUG 打开后能看到的那条线）', () =
   it('链尾没人应答时那行带着错误，现场不丢', async () => {
     const h = createHarness();
 
-    await expect(h.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
+    await expect(h.dispatch('attribution.text', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
 
-    expect(h.debugLines.join('\n')).toContain('config.set');
+    expect(h.debugLines.join('\n')).toContain('attribution.text');
     expect(h.debugLines.join('\n')).toContain('✗');
   });
 });

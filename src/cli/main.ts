@@ -245,12 +245,16 @@ async function main(): Promise<void> {
   let commandDescriber: ((name: string) => Promise<CommandDescription>) | undefined;
 
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
+  // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
+  // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
+  const engineEnv = debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env;
   const bundle = cliPlugins({
     render,
     changes,
     messages,
     root,
     palette,
+    env: engineEnv,
     policy,
     home,
     agents,
@@ -274,7 +278,7 @@ async function main(): Promise<void> {
     provider: providerAdapter,
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: sessionId, cwd: root, root },
-    env: debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env,
+    env: engineEnv,
     // 沙箱：五层设置里读出来的规则 + `~` 展开用的 home。省略 = 没有闸。
     sandbox: { config: policy.sandbox, home },
     signal: () => turns.current(),

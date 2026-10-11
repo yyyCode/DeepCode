@@ -13,6 +13,7 @@ import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands, type CommandDescription } from './commands';
 import { createAgentsMdPlugin } from './agents-md';
 import { createPermissionsCommand } from './permissions-command';
+import { createConfigCommand } from './config-command';
 import { createSubagentsPlugin } from './subagents';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
@@ -27,6 +28,14 @@ export type CliPluginDeps = {
   readonly messages: Message[];
   readonly root: string;
   readonly palette: Palette;
+  /**
+   * 生效环境变量的快照（`main.ts` 算好的那一份，与 `createEngine` 收到的是同一个）。
+   * `config-command` 靠它报每个配置项的**来源**。
+   *
+   * 不在这里自己读 `process.env`：那样测试就没法钉"环境变量盖过文件"这条规则，
+   * 而且 CI 上残留的一个 `DEEPCODE_MODEL` 会让断言时红时绿。
+   */
+  readonly env: Record<string, string | undefined>;
   /** 已解析好的权限设置快照。/permissions 从它读，两个插件从它分规则。 */
   readonly policy: ResolvedPolicy;
   /** 规则里 `~` 展开用的主目录（在 settings.ts 解析时就用掉了）。 */
@@ -122,6 +131,9 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     }),
     // /permissions 同理。
     createPermissionsCommand({ policy: deps.policy, palette: deps.palette }),
+    // /config，连带 config.describe / config.set 两个事件的应答者。
+    // 座位不用特殊给（默认 builtin 就够）：它不裁决任何动作，只是读/写配置文件。
+    createConfigCommand({ home: deps.home, root: deps.root, env: deps.env }),
   ];
 
   // 第一方名字**从这份清单推**，不另抄一份名单：抄一份的话，往上面加一个插件

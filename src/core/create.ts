@@ -97,6 +97,16 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     'command.describe': (e) => {
       throw new Error(`no description registered for command: ${String(e.name)}`);
     },
+
+    // 没人应答 = 空清单。**能力方向的 fail-closed：没有就是没有，不给个假清单**
+    // —— 与上面 agent.offer 那条同一条。
+    'config.describe': () => ({ entries: [] }) as const,
+
+    // 这一条反过来：**拒绝方向的** fail-closed。一条命令不能因为没人应答就静默成功 ——
+    // 与 `tool.check` 链尾那条同形。（config.describe 空清单是"没什么可看"，
+    // config.set 静默成功是"改了但你不知道改没改"，两者不该长成一个样子。）
+    'config.set': () =>
+      ({ ok: false, error: 'fail-closed: 没有 hook 应答 config.set' }) as const,
   };
 
   const { dispatch } = createDispatcher({

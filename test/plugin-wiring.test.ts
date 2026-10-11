@@ -28,6 +28,7 @@ function bundle(overrides: Partial<Parameters<typeof cliPlugins>[0]> = {}) {
     messages: [],
     root: process.cwd(),
     palette: createPalette(),
+    env: {},
     policy: POLICY,
     home: '/home/u',
     agents: [],
