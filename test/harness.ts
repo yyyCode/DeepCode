@@ -83,18 +83,26 @@ export function seat(h: ReturnType<typeof createHarness>, plugin: Plugin, tier: 
 }
 
 /**
- * 会记下每次请求里模型看到的工具清单的 provider。
+ * 会记下每次请求里模型看到的工具清单、以及这一趟用的 model 的 provider。
  *
- *「按权限过滤工具可见性」只能从这里验 —— 那是模型眼里的东西，别处看不见。
+ *「按权限过滤工具可见性」与"模型分层"都只能从这里验 —— 两者都是**模型眼里的东西**，
+ * 别处看不见。同一个 provider 的两本账，不额外再造一个。
  */
-export function recordingProvider(): { provider: ModelProvider; lastTools(): string[] } {
+export function recordingProvider(): {
+  provider: ModelProvider;
+  lastTools(): string[];
+  lastModel(): string | undefined;
+} {
   let tools: string[] = [];
+  let model: string | undefined;
   return {
     lastTools: () => tools,
+    lastModel: () => model,
     provider: {
       name: 'recording',
       async *stream(req: StreamRequest) {
         tools = req.tools.map((t) => t.name);
+        model = req.model;
         yield { type: 'done', stopReason: 'end_turn' } as const;
       },
     },
