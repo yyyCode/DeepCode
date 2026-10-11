@@ -2612,7 +2612,15 @@ describe('hook 时间预算', () => {
   it('next.budget.ms：tool.call 是不上预算的名义值，普通事件拿到 10 秒', async () => {
     // 这个不对称是这一任务的全部意义 —— 只测"慢工具没被判死"是行为层，
     // 这一条把它钉在 `next.budget` 这个可观测面上（否则将来有人"顺手统一"回去没人拦得住）。
-    const h = createHarness();
+    // ⚠️ **必须给链尾一个兜底**：两个探针都 `return next(e)` 透传到底，而裸 harness 的
+    // 链尾对 `tool.call` 是 `NotImplementedError`（它不是通知事件）—— 会抛在断言之前。
+    // 这两个 coreImpl 与预算无关，只是给链一个底（执行时实测出来的，见执行记录 T9）。
+    const h = createHarness({
+      coreImpls: {
+        'tool.call': () => ({ value: 'core' }),
+        'tool.describe': () => ({ description: 'core', inputSchema: {} }),
+      },
+    });
     let onToolCall: number | undefined;
     let onDescribe: number | undefined;
     h.on('builtin', 'probe-call', 'tool.call', async (_$, e, next) => {
@@ -2673,9 +2681,12 @@ Expected: 全绿。**但会先红一条，那是计划漏掉的牵连，改它�
 - [ ] **Step 8: 提交**
 
 ```bash
-git add src/contract/next.ts src/core/dispatch.ts test/harness.ts test/hook-budget.test.ts
+git add src/contract/next.ts src/core/dispatch.ts test/harness.ts test/hook-budget.test.ts test/dispatch.test.ts
 git commit -m "fix(core): tool.call 不上 hook 时间预算 —— 慢工具不再被判成 unknown tool" -m "Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ```
+
+（`test/dispatch.test.ts` 也在里面 —— 就是 Step 7 那条要换载体的断言。别漏了它，
+漏了的话那次改动会以未暂存的形式留在工作区里，下一个任务的人会莫名其妙。）
 
 ---
 
@@ -2801,7 +2812,11 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
     name: 'subagents',
     // `uses` 的腔调照抄其余插件：事件写全名，**名词写名字本身**（`fs` / `ui` 那样），
     // 不写点号路径。所以是 `agent` / `skill`，不是 `agent.spawn` / `skill.load`。
-    uses: ['agent.offer', 'tool.call', 'tool.describe', 'ui', 'agent.spawn', 'agent', 'skill'],
+    // 这里**不列 `tool`**：`resolveTools` 里那次 `$.tool.list()` 是自省，不是能力 ——
+    // `builtins/commands.ts` 同样调它，`uses` 也只有 `['command.run', 'ui']`。
+    // ⚠️ `uses` 的越界检查**只对第三方插件生效**（`core/create.ts` 只把列进清单的插件
+    // 包成 `makeThirdPartyOn`），所以这里写错不会报错、也不会拦你 —— 正因如此才要写对。
+    uses: ['agent.offer', 'tool.call', 'tool.describe', 'ui', 'agent', 'skill'],
     register(on) {
       on('agent.offer', () => ({
         agents: deps.agents.map((spec) => ({
@@ -4156,3 +4171,24 @@ git commit --allow-empty -m "checkpoint: P4a C3 通过（技能与收口）" -m 
   这次在派活之前先 grep 了 `budget\|10_000\|HOOK_BUDGET`，确认全套里钉 `budget.ms` 的
   只有那一处（其余 `10_000` 都是 `timeoutMs`，不相干）——
   **改共享常量的语义之前，先 grep 谁在断言它的值。** 这条已经写进 T9 的 Step 7。
+
+**T9 —— 真窟窿修掉了，但计划自己写错了一条测试（执行时实测）。**
+
+- **修的东西**：`tool.call` 不再上 hook 时间预算（`UNBUDGETED_EVENTS` + 可注入的 `hookBudgetMs`）。
+  全套 **504 passed / 33 files**，`typecheck` 与 `lint` 全绿。
+- **反向验证（三条都按计划做了）**：把 `UNBUDGETED_EVENTS` 改回 `[]` 之后 ——
+  用例 1 红（慢 hook 被 20ms 预算摘掉，链落到链尾；harness 里没给 `coreImpls`，
+  于是抛的是 `NotImplementedError` 而不是生产那条 `{ deny: 'unknown tool: Bash' }` ——
+  **同一个病，只是 harness 的链底是另一张嘴**），用例 3 红（`expected 10000 to be Infinity`），
+  用例 2 照计划保持绿。改回来再跑，3 passed。
+- **计划错了的地方（Step 4 的用例 3）**：原文写的是 `const h = createHarness();` —— 没给链底。
+  两个探针都 `return next(e)` 一路透传，而裸 harness 的链尾对 `tool.call` 是
+  `NotImplementedError`（**它不是通知事件**），于是在两条断言之前就抛了。
+  实现者是照着实现跑的（用例 1、2 逐字通过），红的是计划这条测试自己。
+- **改成了什么**：给那一个 `createHarness` 补上 `coreImpls: { 'tool.call': …, 'tool.describe': … }`，
+  其余（探针体、另两条用例、三条断言）一字未动。计划里已同步。
+- **教训（第三种"计划错"的形态）**：T2 那次是**改共享常量捅了别人**，T3/T5 那次是**同一个错踩两遍**，
+  这次是**新写的测试本身没自洽** —— 写的时候脑子里想着"探针只读 `next.budget`"，
+  忘了探针**同时也在把链往下递**，而链得有底。**观察者钩子写着 `return next(e)` 的地方，
+  就得问一句"链尾谁应答"。** （`test/dispatch.test.ts` 那条从 Task 2 起就带 `coreImpls`，
+  正是同一个理由 —— 现成的先例就在隔壁文件里，写计划时没去对照。）
