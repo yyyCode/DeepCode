@@ -70,7 +70,11 @@ section[id] { scroll-margin-top: 5.5rem; }
 
 .muted { color: var(--ink-3); font-size: 0.94rem; }
 .prose p { max-width: 68ch; color: var(--ink-2); }
-.section__lede { max-width: 68ch; color: var(--ink-2); margin-top: 0.9rem; }
+
+/* 版式以**置中**为主：标题、导语、卡片都是居中一栏，长段落与代码块仍然左对齐
+   （把整段中文居中会让每一行的起点都不一样，读起来是受刑）。 */
+.band > h2 { text-align: center; }
+.section__lede { max-width: 62ch; color: var(--ink-2); margin: 0.9rem auto 0; text-align: center; }
 
 /* ── 顶栏 ───────────────────────────────────────────── */
 .topbar {
@@ -104,13 +108,13 @@ section[id] { scroll-margin-top: 5.5rem; }
 .navbtn__bars::after { position: absolute; top: 4.5px; }
 
 /* ── 首屏 ───────────────────────────────────────────── */
-.hero { padding-top: clamp(3rem, 8vw, 6rem); }
+.hero { padding-top: clamp(3rem, 8vw, 6rem); text-align: center; }
 .eyebrow { font: 500 0.82rem/1.5 var(--mono); color: var(--ink-3); letter-spacing: 0.01em; margin-bottom: 1.1rem; }
 .hero h1 { font-size: clamp(2.6rem, 1.4rem + 5.4vw, 4.1rem); font-weight: 700; letter-spacing: -0.035em; }
-.lede { font-size: clamp(1.12rem, 1rem + 0.6vw, 1.35rem); color: var(--ink); max-width: 34ch; margin: 1.1rem 0 1.2rem; }
+.lede { font-size: clamp(1.12rem, 1rem + 0.6vw, 1.35rem); color: var(--ink); max-width: 34ch; margin: 1.1rem auto 1.2rem; }
 .sub { max-width: 62ch; color: var(--ink-2); }
 
-.install { margin: 2rem 0 0; max-width: 760px; }
+.install { margin: 2rem auto 0; max-width: 760px; }
 .install__row {
   display: flex; align-items: stretch; gap: 0;
   border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden;
@@ -128,9 +132,9 @@ section[id] { scroll-margin-top: 5.5rem; }
 }
 .copy:hover { background: var(--accent-soft); color: var(--accent); }
 .copy.is-done { color: var(--accent); background: var(--accent-soft); }
-.install__note { font-size: 0.9rem; color: var(--ink-3); margin: 0.7rem 0 0; }
+.install__note { font-size: 0.9rem; color: var(--ink-3); margin: 0.7rem 0 0; text-align: center; }
 
-.hero__cta { display: flex; flex-wrap: wrap; gap: 0.7rem; margin: 1.8rem 0 0; }
+.hero__cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.7rem; margin: 1.8rem 0 0; }
 .btn {
   display: inline-block; padding: 0.62rem 1.1rem; border: 1px solid var(--line-strong);
   border-radius: 9px; background: #fff; color: var(--ink); font-size: 0.92rem; text-decoration: none;
@@ -140,10 +144,10 @@ section[id] { scroll-margin-top: 5.5rem; }
 .btn--primary:hover { background: #000; color: #fff; }
 
 .stats {
-  list-style: none; display: flex; flex-wrap: wrap; gap: 1.4rem 2.6rem;
+  list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 1.4rem 2.6rem;
   margin: 2.6rem 0 0; padding: 1.3rem 0 0; border-top: 1px solid var(--line);
 }
-.stats li { display: flex; flex-direction: column; }
+.stats li { display: flex; flex-direction: column; text-align: center; }
 .stats b { font: 600 1.4rem/1.2 var(--mono); letter-spacing: -0.02em; }
 .stats span { font-size: 0.85rem; color: var(--ink-3); }
 
@@ -179,7 +183,7 @@ section[id] { scroll-margin-top: 5.5rem; }
 @keyframes blink { 50% { opacity: 0; } }
 
 .beats { list-style: none; padding: 0; margin: 1.6rem 0 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.beats li { background: #fff; padding: 1.1rem 1.25rem; color: var(--ink-2); font-size: 0.95rem; }
+.beats li { background: #fff; padding: 1.1rem 1.25rem; color: var(--ink-2); font-size: 0.95rem; text-align: center; }
 .beats b { display: block; color: var(--ink); margin-bottom: 0.28rem; }
 
 /* ── 卡片网格（1px 缝隙做分隔线） ───────────────────── */
@@ -188,7 +192,7 @@ section[id] { scroll-margin-top: 5.5rem; }
   gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius);
   overflow: hidden; margin-top: 1.8rem;
 }
-.card { background: #fff; padding: 1.3rem 1.35rem; margin: 0; }
+.card { background: #fff; padding: 1.3rem 1.35rem; margin: 0; text-align: center; }
 .card h3 { margin-bottom: 0.5rem; }
 .card p { color: var(--ink-2); font-size: 0.95rem; margin-bottom: 0.6rem; }
 .card p:last-child { margin-bottom: 0; }
@@ -204,7 +208,7 @@ th { font: 500 0.79rem/1.5 var(--mono); color: var(--ink-3); letter-spacing: 0.0
 td { font-size: 0.94rem; color: var(--ink-2); }
 tr:last-child td { border-bottom: 0; }
 
-.h3-sample { margin-top: 2.6rem; }
+.h3-sample { margin-top: 2.6rem; text-align: center; }
 
 /* ── 提示块 ─────────────────────────────────────────── */
 .callout {
@@ -216,18 +220,34 @@ tr:last-child td { border-bottom: 0; }
 .callout--warn { border-left-color: var(--warn); background: var(--warn-soft); }
 .callout--warn strong { color: var(--warn); }
 
-/* ── 架构：tier 链 ──────────────────────────────────── */
-.tiers { list-style: none; counter-reset: tier; padding: 0; margin: 1.8rem 0 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.tiers li { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; align-items: baseline; padding: 0.7rem 1.1rem; background: #fff; border-top: 1px solid var(--line); }
-.tiers li:first-child { border-top: 0; }
-.tiers code { background: none; border: 0; padding: 0; color: var(--accent); font-size: 0.9rem; }
-.tiers span { color: var(--ink-3); font-size: 0.92rem; }
-
 /* ── 路线图 ─────────────────────────────────────────── */
 /* 七个阶段全部完成 —— 用一张表，不用时间轴：一条时间轴上七个点全是同一个颜色，
    除了占地方之外没多说什么。 */
 #roadmap table { margin-top: 1.6rem; }
 #roadmap td:first-child { white-space: nowrap; }
+
+/* ── 架构拓扑 ───────────────────────────────────────── */
+/* 三条横带 = 三件事（怎么执行 / 谁把关 / 记在哪）。用 HTML 画而不是 SVG：
+   文字是真文字（能选中、能搜、读屏认得），窄屏自己换行，还不用往页面里塞几何代码。 */
+.topo { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 1.9rem; text-align: left; }
+.topo__lane { background: #fff; padding: 1.05rem 1.2rem 1.15rem; }
+.topo__lane--safety { background: var(--warn-soft); }
+.topo__lane--memory { background: var(--accent-soft); }
+.topo__label { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.06em; color: var(--ink-3); margin: 0 0 0.75rem; }
+.topo__flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.45rem; }
+.topo__node {
+  display: flex; flex-direction: column; justify-content: center;
+  border: 1px solid var(--line-strong); background: #fff; border-radius: 8px;
+  padding: 0.42rem 0.72rem; font: 0.83rem/1.35 var(--mono); color: var(--ink);
+}
+.topo__node em { font: 400 0.72rem/1.4 var(--sans); font-style: normal; color: var(--ink-3); margin-top: 0.12rem; }
+.topo__node--key { border-color: var(--accent); }
+.topo__node--key em { color: var(--accent); }
+.topo__node--warn { border-color: var(--warn); }
+.topo__node--warn em { color: var(--warn); }
+.topo__arrow { align-self: center; color: var(--line-strong); font-size: 0.95rem; }
+.topo__note { margin: 0.85rem 0 0; font-size: 0.88rem; color: var(--ink-2); max-width: 72ch; }
+.topo__note code { background: none; border: 0; padding: 0; }
 
 /* ── 收尾 ───────────────────────────────────────────── */
 .band--cta { padding-bottom: clamp(2.6rem, 6vw, 4.6rem); }
@@ -261,7 +281,6 @@ tr:last-child td { border-bottom: 0; }
   body { font-size: 16px; }
   .stats { gap: 1.1rem 1.6rem; }
   .stats b { font-size: 1.2rem; }
-  .tiers li { grid-template-columns: 1fr; gap: 0.15rem; }
   .install__cmd { font-size: 0.78rem; }
   .term__body { font-size: 0.78rem; }
 }

@@ -152,13 +152,51 @@
   <p class="section__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，按 tier 权威序串成一条链。
     一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。</p>
 
-  <ol class="tiers">
-    <li><code>prepend</code><span>托管策略的守门器坐在这里</span></li>
-    <li><code>user</code><span>个人设置里的规则</span></li>
-    <li><code>append</code><span>后挂的扩展 —— 第三方插件永远在这一层</span></li>
-    <li><code>builtin</code><span>六个内建工具、最小确认</span></li>
-    <li><code>core</code><span>没人在意时的兜底</span></li>
-  </ol>
+  <div class="topo">
+    <div class="topo__lane">
+      <p class="topo__label">执行链路</p>
+      <div class="topo__flow">
+        <span class="topo__node">终端</span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node">提示词</span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node topo__node--key">engine.dispatch<em>每个调用点抛出一个事件</em></span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node topo__node--key">tier 链<em>prepend → user → append → builtin → core</em></span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node">工具 / 模型</span>
+      </div>
+      <p class="topo__note">一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。
+        <code>next(e)</code> 是 Koa 式续体，不是事件发射器 —— 链尾只有一处，没有第二个地方可以漏。</p>
+    </div>
+
+    <div class="topo__lane topo__lane--safety">
+      <p class="topo__label">安全闸门（工具调用必经）</p>
+      <div class="topo__flow">
+        <span class="topo__node">工具调用</span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node topo__node--warn">tool.check<em>预览后停下等一行 y/N</em></span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node topo__node--warn">sandbox<em>Bash 的路径闸，可选</em></span>
+        <span class="topo__arrow">→</span>
+        <span class="topo__node">spawn / 写盘</span>
+      </div>
+      <p class="topo__note">非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 = <code>deny</code>。
+        闸门坐在<strong>链的下游</strong>，所以任何 <code>allow</code> 规则都绕不过它。</p>
+    </div>
+
+    <div class="topo__lane topo__lane--memory">
+      <p class="topo__label">记忆与上下文</p>
+      <div class="topo__flow">
+        <span class="topo__node">系统提示<em>AGENTS.md × 5 层</em></span>
+        <span class="topo__node">转录 JSONL<em>用户级 · 0600 → --resume 接上</em></span>
+        <span class="topo__node">输入历史<em>~/.deepcode/history</em></span>
+        <span class="topo__node">上下文压缩<em>/compact，自动压缩默认关</em></span>
+      </div>
+      <p class="topo__note">指令五层里<strong>只有托管层能写</strong>；转录与历史都落在用户级目录，
+        不进项目目录 —— 免得跟着仓库一起被提交出去。</p>
+    </div>
+  </div>
 
   <h3 class="h3-sample">目录分层（构建时）</h3>
 <pre class="term__body term__body--sample">src/
