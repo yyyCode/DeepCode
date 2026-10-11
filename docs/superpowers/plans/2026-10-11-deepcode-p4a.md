@@ -85,7 +85,7 @@ pnpm test test/loop-options.test.ts    # 单个文件
 | `test/loop-options.test.ts` | **新增** | `LoopContext` 三个新字段与两个落点 |
 | `test/provider-model.test.ts` | **新增** | `StreamRequest.model` 省略/给定时两个适配器的行为（4 条） |
 | `test/agent-noun.test.ts` | **新增** | `$.agent.spawn` / `$.skill.load`，两条默认 coreImpl |
-| `test/agents.test.ts` | **新增** | agent 名册的发现与解析（13 条） |
+| `test/agents.test.ts` | **新增** | agent 名册的发现与解析（14 条） |
 | `test/skills.test.ts` | **新增** | 技能名册的发现与解析（10 条） |
 | `test/hook-budget.test.ts` | **新增** | `tool.call` 不上预算；别的事件照旧（2 条） |
 | `test/subagent.test.ts` | **新增** | 端到端：派子代理、隔离、静音、白名单、深度、模型分层 |
@@ -338,7 +338,7 @@ export function readList(fm: Frontmatter, key: string): readonly string[] | unde
 - [ ] **Step 4: 跑测试，确认它通过**
 
 Run: `pnpm test test/frontmatter.test.ts`
-Expected: PASS —— 12 passed
+Expected: PASS —— 13 passed
 
 - [ ] **Step 5: 跑类型检查**
 
@@ -1579,9 +1579,24 @@ describe('内核的默认答复（不接插件的裸引擎）', () => {
 - [ ] **Step 6: 跑测试，确认它通过**
 
 Run: `pnpm test test/agent-noun.test.ts`
-Expected: PASS —— 10 passed
+Expected: PASS —— 12 passed
 
-- [ ] **Step 7: 跑全套 + 类型**
+- [ ] **Step 7: 反向验证 —— 到这一步消费者终于存在了**
+
+Task 2 的 Step 7 是走过场的（那时没人读 `AgentSpawnRequest`）。**现在是真的了**，两条都要红：
+
+1. 把 `src/contract/agent.ts` 的 `AgentSpawnRequest` 里 `readonly tools: readonly string[];`
+   改成 `readonly toolz: ...`，跑 `pnpm typecheck`。
+   Expected: **红**，且错在 `src/core/nouns/agent.ts`（"Property 'tools' does not exist"）。改回来。
+2. 把 `src/core/create.ts` 里那条 `'skill.prompt': (e) => ({ text: String(e.text) })` 注释掉，
+   跑 `pnpm test test/agent-noun.test.ts`。
+   Expected: **红** —— `$.skill.load` 落到链尾没人应答，抛 `NotImplementedError`。
+   **这条证明的是"缝"的语义是承重的**：缝尾那条默认实现一没，技能就彻底不可用。
+   看到红之后把那一行**原样改回来**（连注释一起）。
+
+两条都红了才算数。任一条不红，说明那一处是摆设，修的是断言本身。
+
+- [ ] **Step 8: 跑全套 + 类型**
 
 ```bash
 pnpm typecheck && pnpm test
@@ -1589,7 +1604,7 @@ pnpm typecheck && pnpm test
 
 Expected: 全绿
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 9: 提交**
 
 ```bash
 git add src/core/nouns/agent.ts src/core/nouns/skill.ts src/core/nouns/index.ts src/core/create.ts test/agent-noun.test.ts
@@ -2092,7 +2107,7 @@ describe('agent 名册：三个来源', () => {
 - [ ] **Step 3: 跑测试**
 
 Run: `pnpm test test/agents.test.ts`
-Expected: PASS —— 13 passed
+Expected: PASS —— 14 passed
 
 - [ ] **Step 4: 类型检查**
 
@@ -3282,7 +3297,7 @@ describe('C2-13：子代理失败不炸父级', () => {
 - [ ] **Step 4: 跑测试，确认它通过**
 
 Run: `pnpm test test/subagent.test.ts`
-Expected: PASS —— 11 passed（约 1 秒，那第二条 `C2-13` 的退避重试）
+Expected: PASS —— 10 passed（约 1 秒，那第二条 `C2-13` 的退避重试）
 
 - [ ] **Step 5: 反向验证 —— 两条断言各自承重**
 
