@@ -234,3 +234,92 @@ describe('check-workflow-hardening', () => {
     expect(stderr).toContain('persist-credentials');
   });
 });
+
+/**
+ * `mods/` 那一支（P5a 加）。
+ *
+ * 这条规则是 README 那句"内建与第三方走同一条接口"从口号变成强制的那一步 ——
+ * 所以它必须**真的拦得住**：每条"不红"的用例都配一条"必须红"的，且后者钉具体判词。
+ */
+const CLEAN_MOD = {
+  'mods/t/index.ts':
+    "import { join } from 'node:path';\n" +
+    "import type { Plugin } from '../../src/contract/plugin';\n" +
+    "export const x = join('a', 'b');\n" +
+    'export type P = Plugin;\n',
+};
+
+describe('check-boundaries：mods/', () => {
+  it('干净：node: + 契约 + 自身目录 → 通过', async () => {
+    const dir = await tree(CLEAN_MOD);
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+
+  it('mod import 引擎实现（src/core）→ 红，判词点名"只许 import src/contract"', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/index.ts': "import { dispatch } from '../../src/core/dispatch';\n",
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('mod 只许 import src/contract/');
+  });
+
+  it('mod import 裸包名 → 红', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/index.ts': "import { describe } from 'vitest';\n",
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('不允许裸包名');
+  });
+
+  it('mod 跨到另一个 mod → 红', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/index.ts': "import { x } from '../u/index';\n",
+      'mods/u/index.ts': 'export const x = 1;\n',
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('跨到了 mods/u/');
+  });
+
+  it('**测试豁免**：mod 的测试 import src/core → 通过（测试本来就要用真引擎）', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/test/x.test.ts':
+        "import { describe } from 'vitest';\n" +
+        "import { createEngine } from '../../../src/core/create';\n" +
+        'export const y = [describe, createEngine];\n',
+    });
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+});
+
+describe('check-boundaries：src/cli → mods/ 这条单向依赖', () => {
+  it('cli/ 可以 import 内建 mod → 通过', async () => {
+    const dir = await tree({
+      'src/cli/mods.ts': "import { spec } from '../../mods/t/index';\nexport const s = spec;\n",
+      'mods/t/index.ts': 'export const spec = 1;\n',
+    });
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+
+  it('内核（core/）import 内建 mod → 红：内核不认识 mod', async () => {
+    const dir = await tree({
+      'src/core/x.ts': "import { spec } from '../../mods/t/index';\nexport const s = spec;\n",
+      'mods/t/index.ts': 'export const spec = 1;\n',
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('只有 cli/ 可以 import 内建 mod');
+  });
+});
