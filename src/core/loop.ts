@@ -8,6 +8,7 @@ import type {
 } from '../contract/model-provider';
 import type { Args, EventName, Result } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
+import type { TurnReason } from '../contract/turn';
 import { CORE_ORIGIN, type Origin } from '../contract/next';
 import { withContext } from '../contract/prompt-channel';
 
@@ -22,6 +23,25 @@ const MAX_HOPS = 25;
  * "我拦了 4 次你都不理"与"我拦了 4 次"对写钩子的人是两条不同的信息。
  */
 export const MAX_STOP_BLOCKS = 3;
+
+/**
+ * 一步被输出长度上限截断之后，最多替它接几次（P8 设计 §3.2）。
+ *
+ * 数取 3 = 与 `MAX_STOP_BLOCKS` 同一个数，而那个数是**我们自己定的**（理由见上）。
+ * 复刻对象的对应闸是 8（`2.1.143`）与 14（`2.1.286`）—— **我们没抄它们的数**。
+ */
+const MAX_CONTINUATIONS = 3;
+
+/** 一步什么都没产出时最多重提示几次。复刻对象对"只回了思考块"的处置就是**一次**（`2.1.183`）。 */
+const MAX_EMPTY_NUDGES = 1;
+
+/** 续写时喂回去的话。它是一条**新的 user 消息**，也是模型真的看到的东西 —— 转录里留着。 */
+const CONTINUE_PROMPT =
+  '上一条回答被输出长度上限截断了。**接着往下写**：从断掉的地方继续，' +
+  '不要重复已经写过的内容，也不要重新开头。';
+
+/** 空步之后喂回去的话。同上，它也会留在转录里。 */
+const NUDGE_PROMPT = '你上一步没有输出任何内容（只有思考，没有正文）。请直接给出回答。';
 
 export type LoopContext = {
   $: EngineInterface;
@@ -60,26 +80,36 @@ export type LoopContext = {
 /**
  * 跑一个完整 turn：把 messages 推进到模型不再要工具为止。messages 会被就地追加。
  *
- * 返回结束时那个 stopReason（'end_turn' / 模型给的 / 'error' / 'interrupted'），
- * 调用方拿它决定退出码 —— 一次性模式下"这一趟失败了"必须是个非零退出码，
+ * 返回一个 `TurnReason`（见 `contract/turn.ts`）—— **产品语义**那一层，不是端点的步级串。
+ * 调用方拿它决定退出码：一次性模式下"这一趟没做成"必须是个非零退出码，
  * 否则 `deepcode "..." && 下一步` 会带着错误悄悄往下走。
  */
-export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<string> {
+export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<TurnReason> {
   await ctx.dispatch('turn.start', { index: ctx.turnIndex }, CORE_ORIGIN);
 
   const tools = await describeTools(ctx);
   const maxHops = ctx.maxHops ?? MAX_HOPS;
-  let stopReason = 'end_turn';
+  // 端点的**步级**停止原因。它只活在这个函数里，一步都不许漏到 `turn.complete` 上
+  // —— 那一层是产品语义，翻译只有 `reasonOf` 那一处。
+  let lastStep = 'end_turn';
   // 跑满 hop 就是撞墙了。不区分的话调用方分不清"模型说完了"与"到上限了" ——
   // 子代理那一侧会把两种情况都当正常结束，然后拿一段被截断的话当结论。
   let exhausted = true;
   // 已经因为 `turn.stop` 被拦住过几次。上限见 MAX_STOP_BLOCKS。
   let blocked = 0;
+  // 截断续写了几次、空步重提示了几次。上限见上面两个常量。
+  let continuations = 0;
+  let nudges = 0;
+  // 因为截断而断续写下来的那几段拼起来的一份。**只跨相邻的续写步**：走进工具分支就清掉
+  // （对话已经翻页了），见下面 onText 那一处的理由。
+  let carried = '';
+  // 最后一步是不是"什么都没产出"。收场理由要用它。
+  let lastEmpty = false;
 
   // 两处收场（失败与正常）共用这一份 —— 原先它们各自写死 `inputTokens: 0`，
   // 于是 `turn.complete` 长期在报假账，而压缩器唯一的信号就是它。
   let usage: Usage | undefined;
-  const complete = async (reason: string): Promise<void> => {
+  const complete = async (reason: TurnReason): Promise<void> => {
     const tokens = turnUsage(usage, ctx.systemPrompt, messages);
     ctx.onUsage?.(tokens);
     await ctx.dispatch(
@@ -139,7 +169,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
             blocks.push(block);
             toolUses.push(block);
           } else {
-            stopReason = event.stopReason;
+            lastStep = event.stopReason;
             usage = event.usage;
           }
         }
@@ -162,6 +192,20 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
     // 重试后仍然失败（或被中断）：结束本 turn，但保留会话、不退出进程。
     if (failure !== undefined) {
       const interrupted = ctx.signal.aborted;
+      // 已经吐给用户的那几段字**要留在对话里**：屏幕上显示了、转录里却一个字都没有，
+      // 那叫记录撒谎（P8 设计 §3.4；改之前这一段确实在 `messages` 里什么都不剩）。
+      //
+      // 只推 text，**绝不推 tool_use**：这次工具根本没跑，一个没有配对 tool_result 的
+      // tool_use block 会让下一次请求的 messages 非法。适配器只在参数收齐之后才发
+      // tool_use，所以"半个工具调用"到不了这儿 —— 这句是留给下一个改适配器的人的。
+      //
+      // 也不给它加"（不完整）"这类注记：模型说过的话就是它说过的话，往正文里掺一句我们
+      // 自己的话就是篡改转录。"不完整"由**收场理由 + 下面这条通知**承担。
+      if (text !== '') {
+        messages.push({ role: 'assistant', content: [{ type: 'text', text }] });
+        // 子代理那一侧也拿得到这半句：它回给父级的是"ERROR: 未正常结束（error）+ 正文"。
+        ctx.onText?.(carried + text);
+      }
       ctx.$.ui.notice(
         interrupted
           ? '这一回合已被中断（会话保留，可以继续输入）'
@@ -174,12 +218,39 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
     const assistantBlocks: ContentBlock[] = [];
     if (text) assistantBlocks.push({ type: 'text', text });
     assistantBlocks.push(...blocks);
-    messages.push({ role: 'assistant', content: assistantBlocks });
+    // 全空的一步**不往对话里塞**：一条 `content: []` 的 assistant 消息既没信息，又会随
+    // 下一次请求原样发出去（P8 设计 §3.3；这条是实测的 —— 改之前它确实躺在 `messages` 里）。
+    if (assistantBlocks.length > 0) {
+      messages.push({ role: 'assistant', content: assistantBlocks });
+    }
     // 只在有话说时调：空话会把"上一轮的话"冲掉（子代理那边用的是覆盖式收集器）。
-    if (text) ctx.onText?.(text);
+    // 带上 `carried`：续写出来的第二段与第一段是**同一句话**，而那个收集器是覆盖式的，
+    // 只给它最后那半截就等于把前半句丢了。
+    if (text) ctx.onText?.(carried + text);
+
+    lastEmpty = text === '' && blocks.length === 0;
 
     if (toolUses.length === 0) {
-      // 模型说完了 —— 但钩子可能不许它收手（Ralph 式循环的落点）。
+      // ① 被输出长度上限截断：**这不是收手**，把它接着写完（P8 设计 §3.2）。
+      if (lastStep === 'max_tokens' && continuations < MAX_CONTINUATIONS) {
+        continuations += 1;
+        carried += text;
+        // 每一次都出声：这里多花的是**一次真的模型请求**，不许悄悄花。
+        ctx.$.ui.notice(
+          `这一轮被输出长度上限截断，接着往下写（第 ${continuations}/${MAX_CONTINUATIONS} 次）`,
+        );
+        messages.push({ role: 'user', content: CONTINUE_PROMPT });
+        continue;
+      }
+      // ② 什么都没产出（可能只回了思考块）：重提示一次。顺序上排在收手之前 ——
+      //    一步没产出的模型不是"准备收手"，不该由 `turn.stop` 那道缝来裁决。
+      if (lastEmpty && nudges < MAX_EMPTY_NUDGES) {
+        nudges += 1;
+        ctx.$.ui.notice('模型这一步什么都没产出（可能只回了思考块），重提示一次。');
+        messages.push({ role: 'user', content: NUDGE_PROMPT });
+        continue;
+      }
+      // ③ 这才轮到"模型说完了" —— 但钩子可能不许它收手（Ralph 式循环的落点）。
       const stopped = await ctx.dispatch(
         'turn.stop',
         { stopHookActive: blocked > 0, lastMessage: text },
@@ -196,10 +267,21 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
         }
         ctx.$.ui.notice(`钩子第 ${MAX_STOP_BLOCKS} 次不让收手，已忽略（再往下就该是死循环了）`);
       }
+      // 真要收在这儿了：如果是 ① / ② 用尽，得说清楚 —— 否则屏幕上只有一段没头没尾的
+      // 回答（或者干脆什么都没有），没人知道为什么停在这儿。
+      if (lastStep === 'max_tokens') {
+        ctx.$.ui.notice(
+          `已续写 ${MAX_CONTINUATIONS} 次仍然被长度上限截断，就此收手 —— 上面那段回答是半截的。`,
+        );
+      } else if (lastEmpty) {
+        ctx.$.ui.notice('模型两次都没有产出任何内容，这一轮就此结束。');
+      }
       exhausted = false;
       break;
     }
 
+    // 对话翻页了（去调工具）：前面那半句不再接在这句话头上。
+    carried = '';
     // 工具仍然**串行**执行：并行 Bash 的交错输出对用户没有任何好处，不确定性倒是白送的。
     // 但结果**汇总成一条**消息 —— 一轮里模型要的几个工具是同一件事的几个面，
     // 拆成多条消息会让支持并行工具调用的端点以为这是几轮（设计 §5）。
@@ -211,10 +293,23 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
   }
 
   // 走到这儿说明要么跑满、要么模型自己收手（`exhausted = false`）。
-  if (exhausted) stopReason = 'max_hops';
+  // 跑满压过一切：撞墙比"最后那一步为什么停"更该说。
+  const reason: TurnReason = exhausted ? 'max_hops' : reasonOf(lastStep, lastEmpty);
+  await complete(reason);
+  return reason;
+}
 
-  await complete(stopReason);
-  return stopReason;
+/**
+ * 步级 → 轮级。**唯一一处**翻译，别在别的地方再看端点的串（P8 设计 §3.1）。
+ *
+ * 没建模的步级值一律归 `answer`：从产品视角看它就是"模型说完了"。至于供应商管这件事叫
+ * `end_turn`、`pause_turn` 还是别的，与我们无关 —— 那正是把两层分开要买的东西
+ * （复刻对象自己都说不清 `pause_turn` 的语义，见 `12-execution-loop.md` 存疑 4）。
+ */
+function reasonOf(step: string, empty: boolean): TurnReason {
+  if (step === 'max_tokens') return 'truncated';
+  if (step === 'refusal') return 'refusal';
+  return empty ? 'empty' : 'answer';
 }
 
 /**

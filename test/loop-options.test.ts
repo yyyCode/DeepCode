@@ -130,7 +130,7 @@ describe('LoopContext.tools —— 落点二：够不着', () => {
 });
 
 describe('maxHops 与 stopReason', () => {
-  it('撞上上限时 stopReason 是 max_hops，不是 end_turn', async () => {
+  it('撞上上限时 stopReason 是 max_hops，不是 answer', async () => {
     // 每一轮都要工具，永远不自己收手 —— 每一轮都得备一份脚本，
     // 脚本跑完后的兜底是 end_turn（见 run 的 provider），会掩盖"撞墙"这条路径。
     const { stopReason } = await run({
@@ -140,9 +140,9 @@ describe('maxHops 与 stopReason', () => {
     expect(stopReason).toBe('max_hops');
   });
 
-  it('模型自己收手时是 end_turn —— 上一条测的是区分，不是"一律 max_hops"', async () => {
+  it('模型自己收手时是 answer —— 上一条测的是区分，不是"一律 max_hops"', async () => {
     const { stopReason } = await run({ script: [say('好')], maxHops: 2 });
-    expect(stopReason).toBe('end_turn');
+    expect(stopReason).toBe('answer');
   });
 });
 
@@ -211,17 +211,23 @@ describe('用量落到 turn.complete 上', () => {
 
   it('端点报了：原样填进去，且不带 `usageEstimated`', async () => {
     const seen = await run([
+      // 先给一句正文：**一步什么都不产出现在是 `empty`**（P8 §3.3），那一轮会先被重提示
+      // 一次、再空一次才收场，测到的就不是用量了。这条要的是"模型正常答了一句"。
+      { type: 'text', text: '好' },
       { type: 'done', stopReason: 'end_turn', usage: { inputTokens: 123, outputTokens: 45 } },
     ]);
-    expect(seen).toEqual([{ stopReason: 'end_turn', inputTokens: 123, outputTokens: 45 }]);
+    // ⚠️ 这里断的是**产品语义**那一层（P8 起），不是端点原样透传的 `end_turn` ——
+    // 步级 → 轮级的唯一一处翻译在 `core/loop.ts` 的 `reasonOf`。
+    expect(seen).toEqual([{ stopReason: 'answer', inputTokens: 123, outputTokens: 45 }]);
   });
 
   it('端点没报：回落估计，并**标出来**', async () => {
-    const seen = await run([{ type: 'done', stopReason: 'end_turn' }]);
+    const seen = await run([{ type: 'text', text: '好' }, { type: 'done', stopReason: 'end_turn' }]);
     expect(seen).toEqual([
       {
-        stopReason: 'end_turn',
-        inputTokens: estimateTokens('提示'.length + '干活'.length),
+        stopReason: 'answer',
+        // 估计的输入量把这一轮刚说出去的那句话也算上 —— 下一跳它确实要再发一遍。
+        inputTokens: estimateTokens('提示'.length + '干活'.length + '好'.length),
         outputTokens: 0,
         usageEstimated: true,
       },

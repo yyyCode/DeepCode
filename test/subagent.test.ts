@@ -299,7 +299,7 @@ describe('C2-10：深度保险丝', () => {
     expect(m.spawns).toEqual(['recursor', 'recursor', 'recursor']);
     expect(m.notices.filter((line) => line.startsWith('派子代理'))).toHaveLength(3);
     // 父级没有被这件事绊倒。
-    expect(stopReason).toBe('end_turn');
+    expect(stopReason).toBe('answer');
   });
 });
 
@@ -368,7 +368,7 @@ describe('C2-13：子代理失败不炸父级', () => {
     const { messages, stopReason } = await m.runParent();
 
     expect(resultAt(messages)).toContain('未正常结束（max_hops）');
-    expect(stopReason).toBe('end_turn');
+    expect(stopReason).toBe('answer');
   });
 
   it('provider 抛异常 → 同样变成错误结果', async () => {
@@ -379,11 +379,44 @@ describe('C2-13：子代理失败不炸父级', () => {
       before: (_req, n) => {
         if (n === 2 || n === 3) throw new Error('provider 炸了');
       },
-      script: [callTask('boom'), say('父级继续了')],
+      // 按请求号点单，不写 `script`：父级的第二次请求是**第 4 次**（中间两次炸的都是子代理），
+      // 而 script 是按请次下标取的 —— 写数组会让人以为第 2 段是给父级的。
+      // ⚠️ 改之前父级那一跳落到兜底的空响应上（一句正文都没有），靠"空响应也算答完了"
+      // 才绿；P8 之后空步是 `empty`，于是这条用例的**意图**（父级照常收工）才第一次被真的测到。
+      response: (_req, n) => (n === 1 ? callTask('boom') : say('父级继续了')),
     });
     const { messages, stopReason } = await m.runParent();
 
     expect(resultAt(messages)).toContain('未正常结束（error）');
-    expect(stopReason).toBe('end_turn');
+    expect(stopReason).toBe('answer');
+  });
+
+  it('P8：只写了一半的子代理（被长度上限截断）不能被当成完整答复', async () => {
+    // 子代理那一步先给正文、再报 `max_tokens`。它自己会续写，但脚本里每一跳都被截断，
+    // 于是它在 MAX_CONTINUATIONS 用尽之后以 `truncated` 收场。
+    const half = (text: string): readonly StreamEvent[] => [
+      { type: 'text', text },
+      done('max_tokens'),
+    ];
+    const m = await mount({
+      agents: [agentSpec({ name: 'half' })],
+      script: [
+        callTask('half'),
+        half('前半截'),
+        half('后半截'),
+        half('再半截'),
+        half('还半截'),
+        say('父级收工'),
+      ],
+    });
+    const { messages, stopReason } = await m.runParent();
+
+    // 这就是 P8 要修的那个真 bug：`truncated` 以前不在黑名单里，半截答复被原样交回父级。
+    expect(resultAt(messages)).toContain('未正常结束（truncated）');
+    // 说"它没做完"的同时，那半截内容也照带回去 —— 父级两样都要。
+    expect(resultAt(messages)).toContain('前半截');
+    // 理由一路传到 CLI 那一层，通知里看得见。
+    expect(m.notices).toContain('子代理 half 回来了（truncated）');
+    expect(stopReason).toBe('answer');
   });
 });

@@ -2,6 +2,7 @@
 import type { AgentSpec, SkillSpec } from '../contract/agent';
 import type { EngineInterface } from '../contract/engine';
 import type { Plugin } from '../contract/plugin';
+import { isNormalTurn } from '../contract/turn';
 
 export type SubagentsDeps = {
   /** **已解析**的 agent 名册。发现已在 main.ts 里做完 —— 装配是同步的（设计 §4.1）。 */
@@ -17,9 +18,6 @@ export type SubagentsDeps = {
  * 这不是策略，是保险丝（设计 §8）。顶层 Task 的 depth = 1。
  */
 const MAX_DEPTH = 3;
-
-/** 子代理没正常结束的三种 stopReason。其余（end_turn / max_tokens / 端点自定义的）都当正常。 */
-const ABNORMAL_STOP = new Set(['error', 'interrupted', 'max_hops']);
 
 const TASK_DESCRIPTION =
   '派一个子代理去独立完成一件事。它**看不到**你和我现在的对话，只能看到 prompt 里写的内容 —— ' +
@@ -141,9 +139,14 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
           $.ui.notice(`子代理 ${spec.name} 回来了（${result.stopReason}）`);
 
           // 子代理失败**不是**让父级整个 turn 炸掉，而是变成本次 tool.call 的错误结果
-          // （设计 §5.3）：父级要知道"那个子代理失败了"并继续，而不是自己一起倒下。
+          // （设计 §5.3）：父级要知道"那个子代理没做完"并继续，而不是自己一起倒下。
           // `ERROR:` 前缀是 loop.ts 判 isError 的依据。
-          if (ABNORMAL_STOP.has(result.stopReason)) {
+          //
+          // ⚠️ 判据是 `isNormalTurn` 这个**白名单**，不是黑名单。P8 之前这里列的是
+          // "哪几种算不正常"，于是 `truncated`（被长度上限砍断）不在名单里 —— 一个
+          // 只写了一半的子代理把那半截当成完整答复交回父级，谁都不知道它没写完。
+          // 正文照带回去：父级既看得见"它没做完"，也拿得到那半截内容。
+          if (!isNormalTurn(result.stopReason)) {
             return {
               value: `ERROR: 子代理 ${spec.name} 未正常结束（${result.stopReason}）\n\n${result.text}`,
             };
