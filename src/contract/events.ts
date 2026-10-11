@@ -1,6 +1,7 @@
 import type { EngineInterface } from './engine';
 import type { Next } from './next';
 import type { Tier } from './tier';
+import type { TurnReason } from './turn';
 
 // ─────────────────────────────────────────────────────────────
 // 第一族：已实现链的事件（P4d 之后 22 个）
@@ -37,7 +38,13 @@ export type EventArgs = {
    */
   'turn.stop': { readonly stopHookActive: boolean; readonly lastMessage: string };
   'turn.complete': {
-    readonly stopReason: string;
+    /**
+     * **产品语义**的收场理由，七选一（定义与"两层停止原因"的理由见 `contract/turn.ts`）。
+     *
+     * ⚠️ P8 之前这里是 `string`，端点的步级串直接透传上来 —— 后果是消费方只能靠黑名单
+     * 猜"这一轮算不算做完了"，而 `max_tokens` 正好不在任何人的黑名单里。
+     */
+    readonly stopReason: TurnReason;
     readonly inputTokens: number;
     readonly outputTokens: number;
     /**

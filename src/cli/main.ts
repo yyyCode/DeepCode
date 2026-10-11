@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Message } from '../contract/model-provider';
+import type { TurnReason } from '../contract/turn';
 import { CORE_ORIGIN } from '../contract/next';
 import { withContext } from '../contract/prompt-channel';
 import { createEngine } from '../core/create';
@@ -448,7 +449,10 @@ async function main(): Promise<void> {
     const submitted = await dispatch('prompt.submit', { text: oneShot }, CORE_ORIGIN);
     messages.push({ role: 'user', content: withContext(oneShot, submitted.context) });
     const signal = turns.begin();
-    let reason = 'end_turn';
+    // 初值取不到（`runTurn` 一抛错就整个抛出去，下面那两行根本轮不上），写它是为了让
+    // 这个变量一开始就站在**轮级**那一层 —— 它下面只有白名单一种判据，初值不该是个
+    // 端点串（P8 之前这里写的是 `'end_turn'`）。
+    let reason: TurnReason = 'error';
     render.thinking();
     try {
       reason = await runTurn(
@@ -463,10 +467,14 @@ async function main(): Promise<void> {
     await persist(messages);
     // 一次性模式要能进脚本：这一趟失败或被中断就是非零退出码，
     // 否则 `deepcode "..." && 下一步` 会带着错误悄悄往下走。
-    if (reason === 'error') process.exitCode = 1;
-    else if (reason === 'interrupted') process.exitCode = 130;
-    // 撞上 hop 上限就是"这趟没做完"。与 error 一样是非零 —— 不能悄悄退 0。
-    else if (reason === 'max_hops') process.exitCode = 1;
+    //
+    // ⚠️ **白名单**：除 `answer` 之外一律非零，不再逐个列（P8 设计 §3.5）。
+    // 列黑名单的下场已经有过一次：旧写法只认 error / interrupted / max_hops，
+    // 于是被长度上限**截断**的那一趟（`truncated`）带着半截结果、以退出码 0 走掉了。
+    // 写成白名单以后，将来多一种收场方式时它**默认**是非零 —— 要让脚本继续往下走，
+    // 得专门说明理由。
+    if (reason === 'interrupted') process.exitCode = 130;
+    else if (reason !== 'answer') process.exitCode = 1;
   } else {
     await startRepl({
       $,

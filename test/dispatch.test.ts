@@ -366,7 +366,7 @@ describe('生命周期事件的内核 no-op', () => {
     ['session.end', { reason: 'exit' }],
     ['turn.start', { index: 0 }],
     ['turn.step', { delta: 'hi' }],
-    ['turn.complete', { stopReason: 'end_turn', inputTokens: 0, outputTokens: 0 }],
+    ['turn.complete', { stopReason: 'answer', inputTokens: 0, outputTokens: 0 }],
     ['session.compact', { trigger: 'manual', tokensBefore: 12_345 }],
   ];
 

@@ -71,7 +71,7 @@ describe('turn.stop —— 收手那一刻', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ stopHookActive: false, lastMessage: '第 1 轮' });
     expect(pulls).toBe(1);
-    expect(stopReason).toBe('end_turn');
+    expect(stopReason).toBe('answer');
     expect(messages).toHaveLength(2); // 用户那句 + 助手那句
   });
 
@@ -102,7 +102,7 @@ describe('turn.stop —— 不让收手', () => {
     expect(seen).toHaveLength(1 + MAX_STOP_BLOCKS);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain(String(MAX_STOP_BLOCKS));
-    expect(stopReason).toBe('end_turn');
+    expect(stopReason).toBe('answer');
   });
 
   it('空白 block 不算拦（一个只有空行的 block 是噪声，不是指令）', async () => {

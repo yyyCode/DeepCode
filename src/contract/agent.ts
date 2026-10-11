@@ -1,7 +1,9 @@
 // src/contract/agent.ts
 
+import type { TurnReason } from './turn';
+
 /**
- * 组合面的契约类型（P4a）。**type-only、零 import** —— contract/ 的边界不破。
+ * 组合面的契约类型（P4a）。**type-only、只引同目录** —— contract/ 的边界不破。
  *
  * 这里有两族，别混：
  * - `AgentSpec` / `SkillSpec` 是**策略侧**的中间表示 —— 从文件里读出来的东西。
@@ -55,5 +57,11 @@ export type AgentSpawnRequest = {
 export type AgentSpawnResult = {
   /** 子代理**最后一轮**模型说的话。中间的工具结果一个字都不在这儿。 */
   readonly text: string;
-  readonly stopReason: string;
+  /**
+   * 子代理这一轮**为什么收场**（产品语义，见 `./turn`）。
+   *
+   * 消费方（`cli/subagents.ts`）照 `isNormalTurn` 判"它干完了没有" —— 白名单。
+   * P8 之前这里是 `string` 且消费方用黑名单，于是 `truncated`（被截断）被当成正常结束。
+   */
+  readonly stopReason: TurnReason;
 };

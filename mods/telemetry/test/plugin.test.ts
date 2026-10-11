@@ -80,7 +80,7 @@ async function driveAllEvents(dispatch: Awaited<ReturnType<typeof build>>['dispa
   await dispatch('session.start', { sessionId: 's1', cwd: '/w', root: '/w' }, CORE_ORIGIN);
   await dispatch(
     'turn.complete',
-    { stopReason: 'end_turn', inputTokens: 12, outputTokens: 34, usageEstimated: true },
+    { stopReason: 'answer', inputTokens: 12, outputTokens: 34, usageEstimated: true },
     CORE_ORIGIN,
   );
   await dispatch(
@@ -121,7 +121,7 @@ describe('六个事件各记一行', () => {
       ['session.start', { session: 's1' }],
       [
         'turn.complete',
-        { stop_reason: 'end_turn', input_tokens: 12, output_tokens: 34, estimated: true },
+        { stop_reason: 'answer', input_tokens: 12, output_tokens: 34, estimated: true },
       ],
       ['tool.result', { tool: 'Bash', ok: true }],
       ['session.compact', { trigger: 'auto', tokens_before: 900 }],
@@ -133,9 +133,9 @@ describe('六个事件各记一行', () => {
   it('usageEstimated 省略时 estimated 是 false 而不是 undefined（行协议里没有 undefined）', async () => {
     const fake = fakeSink();
     const { dispatch } = await build({ sink: fake.sink });
-    await dispatch('turn.complete', { stopReason: 'end_turn', inputTokens: 1, outputTokens: 2 }, CORE_ORIGIN);
+    await dispatch('turn.complete', { stopReason: 'answer', inputTokens: 1, outputTokens: 2 }, CORE_ORIGIN);
     expect(fake.entries[0]?.fields).toEqual({
-      stop_reason: 'end_turn',
+      stop_reason: 'answer',
       input_tokens: 1,
       output_tokens: 2,
       estimated: false,

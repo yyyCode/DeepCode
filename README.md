@@ -81,6 +81,21 @@ deepcode --help / --version
 （进程内记录，照常打出），`[工作区未提交]` 归内建 mod `diff`（`git status` / `git diff`，没有 `git`
 就整个消失，那一块换成一句人话）。
 
+## 一轮怎么收场
+
+模型的一轮什么时候停，不一定等于"它说完了"。三件与这有关的事，全都**出声**，不静默处理：
+
+- **被输出长度上限截断 → 接着往下写**。最多替它接 3 次，每一次都打一行通知（这会多花模型请求，
+  所以不许悄悄花）。3 次之后还截断，就以「上面那段回答是半截的」收场。
+- **一步什么都没产出**（可能只回了思考块）→ 重提示一次；还是空就说清「两次都没有产出任何内容」。
+  空的一步**不会**在对话里留下一条空消息。
+- **模型流到一半断了**（网络、进程被掐）→ 屏幕上已经显示过的那半句**留在转录里**，
+  再加一行「本 turn 失败」。转录不许比屏幕少东西。
+
+一次性模式的退出码按**白名单**来：正常收场是 `0`，`Ctrl-C` 是 `130`，**其余一律 `1`** ——
+包括被截断、模型拒答、什么都没产出。所以 `deepcode "写一份长报告" && 下一步` 不会带着半截结果
+往下走。
+
 ## 界面
 
 界面是**逐行的纯文本流**，不占整屏（没有 alternate screen）—— 输出能被 `tee`、能被滚回、能被复制。
@@ -383,13 +398,17 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 - **`uses` 只在事件级别校验**：`tool.check` 这一个名字是粗粒度的，声明了它的插件对每个工具都能说上话。
   细到 matcher 一级的声明**仍未做** —— 它是 P3 预登记的一条偏差（`p3-design.md:571`），
   不是"排到某一阶段"。
+- **截断续写的上限 3 是我们自己定的数**，不是测出来的（理由写在 `core/loop.ts` 的注释与
+  `p8-design.md` §5）：于是"接几次才够"这件事没有依据，只有一条保险丝。
+- **没有后台工作，也就没有挂起/唤醒**：一轮跑完就是跑完，进程在等模型/等命令时不能干别的，
+  子代理是**同步**交回结果的（不是句柄）。要做得先有"能等的东西"（P8 设计 §4 逐条记了"不追"的理由）。
 
 ## 开发
 
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，66 个文件 1143 个用例
+pnpm test        # 测试，67 个文件 1159 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
@@ -421,6 +440,7 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 - P5 设计（内建与分发）：[`docs/superpowers/specs/2026-10-11-deepcode-p5-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p5-design.md)
 - P6 设计（界面与交互）：[`docs/superpowers/specs/2026-10-11-deepcode-p6-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p6-design.md)
 - P7 设计（记忆与上下文）：[`docs/superpowers/specs/2026-10-11-deepcode-p7-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p7-design.md)
+- P8 设计（执行循环的收场）：[`docs/superpowers/specs/2026-10-12-deepcode-p8-design.md`](docs/superpowers/specs/2026-10-12-deepcode-p8-design.md)
 - 架构参考：`claude-code-架构分析/`
 
 官网产物就是 `site/` 这**一整个目录**，拷到任意静态主机即可（无构建步骤，页面里没有绝对路径）；
