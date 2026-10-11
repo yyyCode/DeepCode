@@ -1281,9 +1281,12 @@ function parsePluginCommand(argv: readonly string[]): StartupAction | undefined 
     // `--from` 只认等号形态（`--from=<目录>`），先例是 `--resume=` 与 `--settings=`。
     // 它**可以出现在任意位置**：下面这行只看第一个非开关 token 定子命令，
     // 而 `--from=…` 以 `-` 开头，不会把自己变成那个 token。
-    const name = argv[first + 2];
+    // ⚠️ 名字不能写成 `argv[first + 2]`：`--from=…` 写在名字前面时，那个位置
+    // 正是 `--from=…` 自己，被 `startsWith('-')` 一挡就回落成 help 了。
+    // 名字的定义是"子命令之后第一个不是开关的 token"，所以要对后面整段找。
+    const name = argv.slice(first + 2).find((arg) => !arg.startsWith('-'));
     const from = argv.find((arg) => arg.startsWith(`${FROM}=`))?.slice(FROM.length + 1).trim();
-    if (name === undefined || name.startsWith('-') || from === undefined || from === '') {
+    if (name === undefined || from === undefined || from === '') {
       // 少了名字或 `--from` 就打说明 —— 与 `validate` 少了目录同一种处置。
       // 说明里写着这两个参数怎么写，所以这不是一条死胡同。
       return { kind: 'plugin', sub: 'help' };
@@ -1589,7 +1592,14 @@ describe('plugin add / remove', () => {
     expect(hooks).toContain('demo-hook.mjs');
   });
 
-  it('没启用的落点插件在 list 里单独一节，且不是"跳过"那种错', async () => {
+  // ⚠️ 这两条断言的是 **Task 5 才有的** `renderList` 第三节
+  // （`装进来的（1）` / `未启用` / `装上的（1）` / `已启用`）。Task 4 里 `renderList`
+  // 还没有那一节，所以执行时把它们写成 `it.skip(...)`，**并在 Task 5 做完之后把 `.skip` 摘掉**。
+  //
+  // 编在 Task 4 里是计划的排布失误（早了一个任务）。但**不许长期留着 skip** ——
+  // 一条永远不跑的用例与一条永远不红的断言是同一种摆设，只是换了件衣服。
+  // C2 有一条检查专门盯它：`grep -n "it.skip" test/plugin-command.test.ts` 必须无输出。
+  it.skip('没启用的落点插件在 list 里单独一节，且不是"跳过"那种错', async () => {
     const { home, root, market: from } = await addWorld();
     await add({ home, root }, from);
     const { text } = await list({ home, root });
@@ -1598,7 +1608,7 @@ describe('plugin add / remove', () => {
     expect(text).toContain('用户级设置');
   });
 
-  it('启用了之后它出现在「装上的」里，标着已启用', async () => {
+  it.skip('启用了之后它出现在「装上的」里，标着已启用', async () => {
     const { home, root, market: from } = await addWorld();
     await add({ home, root }, from);
     const { text } = await list({ home, root }, ['demo']);
@@ -1726,15 +1736,24 @@ tmp=$(mktemp -d) && mkdir -p "$tmp/market/.deepcode-plugin" "$tmp/market/demo" \
 ```
 
 Expected: 报告里含 `装到了 …/home/.deepcode/installed/demo` 与「它现在**不会跑**」，
-`exit=0`，**stderr 除了一条 W9（既没有入口也没有钩子）之外没有别的**
-（本机 22.19.0 不该出现 `ExperimentalWarning`；出现了就把这条记进对照表）。
+`exit=0`。**stderr 是空的** —— 计划初稿说「stderr 里除了一条 W9 之外没有别的」，
+这是写错了：W9 由 `validatePlugin` → `renderValidate` → `deps.out` 出去，走的是
+**stdout**，所以 stderr 比预想的还干净（本机 22.19.0 实测：stdout 有那段报告，
+stderr 一个字都没有，没有 `ExperimentalWarning`）。
 
 - [ ] **Step 7: 提交**
 
 ```bash
-git add src/cli/plugin-install.ts src/cli/args.ts src/cli/plugin-command.ts test/plugin-command.test.ts
+git add src/cli/plugin-install.ts src/cli/args.ts src/cli/plugin-command.ts \
+        src/cli/main.ts test/plugin-command.test.ts
 git commit -m "feat(p4c): plugin add / remove —— 落盘原子，目标已存在就拒绝"
 ```
+
+⚠️ **`src/cli/main.ts` 也在里面**，计划初稿漏了它：`PluginCommandDeps.enabledByUser`
+在这一步变成必填，而 `main.ts` 里那个 `runPluginCommand(...)` 调用（`main.ts:99`）
+立刻编译不过。补 `enabledByUser: pluginPolicy.plugins.enableByUser` —— 与
+`:210` 喂给 `enabledInstalled` 的**是同一份名单**，两个入口必须一致。
+（Task 5 Step 4 里那次看似要做的编辑，到这里其实已经做完了；那一处改成**核一遍**。）
 
 ---
 
@@ -1748,6 +1767,12 @@ git commit -m "feat(p4c): plugin add / remove —— 落盘原子，目标已存
 - Test: `test/cli.test.ts`
 
 - [ ] **Step 1: `renderList` 加第三节，来源标签认三个 origin**
+
+      ⚠️ **做完这一节之后，把 `test/plugin-command.test.ts` 里两处 `it.skip` 的 `.skip` 摘掉**
+      （`没启用的落点插件在 list 里单独一节`、`启用了之后它出现在「装上的」里`，Task 4 埋在那儿
+      因为它们要的正是你现在写的这一节）。摘掉之后这两条必须**真绿**；如果绿不了，
+      说明第三节的行为与那两条的断言对不上，先弄明白是哪边错。
+      一条永远 `skip` 的用例与一条永远不红的断言是同一种摆设。
 
 把 `plugin-command.ts:88-114` 的 `renderList` 整个换掉，并加一个 `originLabel`：
 
@@ -1870,7 +1895,11 @@ marketplace 就是一份本地目录：<目录>/.deepcode-plugin/marketplace.jso
   第三方插件只能拧紧不能拧松：它的判定要么拦下、要么往下交，放行一律忽略。
 ```
 
-- [ ] **Step 4: `main.ts` 的 plugin 分支传名单**
+- [ ] **Step 4: `main.ts` 的 plugin 分支 —— 核一遍，这一步在 Task 4 已经做完了**
+
+（`PluginCommandDeps.enabledByUser` 变成必填是在 Task 4，所以 `main.ts:105` 那处
+早就在那一轮补上了，否则 `tsc` 过不去。这里只**确认**它有，且传的是
+`pluginPolicy.plugins.enableByUser`。要看到的形状是：）
 
 `:99-106`：
 
@@ -2234,7 +2263,9 @@ Expected: 全绿。记下文件数与用例数。
 
 ## ══ 检查点 C2 ══
 
-- [ ] `pnpm typecheck` ✓ / `pnpm lint` ✓ / `pnpm test` ✓（记下 40+ 的文件数与新的用例数）
+- [ ] `pnpm typecheck` ✓ / `pnpm lint` ✓ / `pnpm test` ✓（记下文件数与新的用例数）
+- [ ] **一条 `it.skip` 都不许留** —— `grep -rn "it.skip\|describe.skip\|it.todo" test/` **必须无输出**。
+      （这是本轮唯一一个「用例存在但永远不跑」的漏洞口：Task 4 埋过两条 skip。）
 - [ ] 逐条核 spec §8 的 C2：
   - 端到端 describe 在 `test/cli.test.ts` 里，**全程零密钥**（环境里四个 API 变量都删掉了）
   - 两条反向验证**真红过**：变异 2（项目级不算数）与变异 4（`source ../x`）
@@ -2365,6 +2396,13 @@ git commit -m "docs(p4c): 落点与「装 ≠ 启用」写进 README / 项目简
 | **原子 `rename` 没有可观测的反例** —— 变异 7（把 `rename` 换成直接 `cp`）不会有测试红。这是本轮唯一一条断言不了的保证 | |
 | （计划缺陷，执行时才发现）Task 1 那份「干净清单」的 `uses` 只有 `describe` + `call`，经 M6 委托给 `validatePlugin` 后带回一条 **W7**（`plugin-manifest.ts:286`），好用例并不干净。实现是对的，错的**是计划里的固定件**。已把 `tool.check` 补进去，并把这条陷阱写在那段固定件旁边 | **执行时逮出，已修**（只动 `test/marketplace.test.ts`，`src/contract/marketplace.ts` 一个字没改） |
 | （计划缺陷，执行前重核源码时逮出）Task 2 Step 1(f) 只点了 **3** 处 policy 级 `plugins: NO_PLUGINS`，实际有 **4** 处 —— 漏掉 `test/cli.test.ts:268`，它在一条测试体中间、离 `NO_POLICY` 很远，但进的是 `registered(policy: ResolvedPolicy)` | **已补齐四处并做成表**（否则 `tsc` 会在那儿炸，虽然炸得出来，但计划该是准的） |
+| （计划缺陷，执行时逮出）Task 3 说 `installPlugins` 有「恰好 10 处」，但那串枚举本身就有 14 个 | **已改成 14** |
+| （计划缺陷，执行时逮出）Task 3 的行号是照 **Task 2 之前**的文件写的，而计划把 Task 3 排在 Task 2 之后 —— `plugin-dir.ts` 被插了约 50 行，声明从 `:199` 漂到 `:250` | **已改成「按符号找、别照数行」**，并写明漂移的来由 |
+| （**验收标准本身错了**，执行 C1 时逮出）C1 清单要求 `grep -o "'M[1-8]'"` 出 `M1…M8` 八条。**M6 按设计没有自己的编号** —— 它转发 `validatePlugin` 的 `E2`/`E3`，文件里不可能有 `'M6'` 字面量。实测正好七条 | **已改成七条 + 写清 M6 靠哪两条用例名去核**。值得记一笔：如果只跑代码不核清单，这条会被当「通过」放过去 —— 一条**永远不可能失败**的检查，与摆设断言是同一个毛病，只是长在计划里 |
+| （计划缺陷，执行时逮出）Task 4 漏了 `src/cli/main.ts`：`PluginCommandDeps.enabledByUser` 变必填的瞬间 `main.ts:99` 就编译不过，而计划把它的接线推给了 Task 5 | **已并入 Task 4 的改文件表与 `git add`**；Task 5 Step 4 改成「核一遍」 |
+| （计划缺陷，执行时逮出）Task 4 的 `--from` 解析写成 `argv[first + 2]`，在 `--from=…` 写在名字前面时那个位置正是 `--from=…` 自己，被 `startsWith('-')` 一挡回落成 help —— **计划自己的那条测试就会红** | **已改成 `argv.slice(first + 2).find(a => !a.startsWith('-'))`** |
+| （计划排布失误，执行时逮出）Task 4 里那两条 `plugin list` 第三节的用例，断言的是 **Task 5 才有的** `renderList` 行为，早了一个任务 | Task 4 写成 `it.skip`，**Task 5 摘掉**；C2 新增一条硬检查：`grep -rn "it.skip\|describe.skip\|it.todo" test/` 必须无输出 |
+| （计划说错了，执行时逮出）Task 4 Step 6 说 stderr 里有一条 W9 —— 实际 W9 走 `deps.out` 进 **stdout**，stderr 是**空的** | **已按实测改写**（本机 22.19.0：stdout 有报告，stderr 一个字没有，无 `ExperimentalWarning`）。`fs.cp` 那条预登记假设在本机成立 |
 
 ## 自查（写完计划后自己过一遍的那张表）
 
