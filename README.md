@@ -56,6 +56,10 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
 | `/help` | 列出可用命令与工具 |
 | `/diff` | 看本会话改过哪些文件（unified 格式，带着色） |
 | `/clear` | 清空上下文（磁盘上的转录保留） |
+| `/compact` | 手动压缩上下文（自动压缩默认关） |
+| `/permissions` | 看当前生效的权限规则、每条来自哪一层 |
+| `/config` | 看生效的配置项与来源 |
+| `/telemetry` | 看遥测开关、文件路径、本次会话写了多少行 |
 | `/exit` | 退出（`Ctrl-D` 也行） |
 | `Ctrl-C` | 掐断当前这一回合（正在跑的模型请求与命令一起断），进程不退，可以接着聊；空闲时按 = 退出，同一回合里连按两次 = 强制退出 |
 
@@ -325,6 +329,43 @@ Windows 上就是 `C:\Users\<你>\.deepcode\projects\<工作目录>\sessions\<id
 落盘写不进去（`~/.deepcode` 只读、磁盘满）时**不拖垮产品**：打一行警告，然后照常跑完这一轮，
 只是这次 `--resume` 接不上。转录是便利功能，不该因为它能不能写而决定你能不能干活。
 
+## 遥测
+
+**默认关着。** 打开它要你亲自在**用户级** `~/.deepcode/settings.json` 里写一句：
+
+```json
+{ "telemetry": { "enabled": true } }
+```
+
+只有用户层能开 —— 项目级 / 本地级写的这一块会被丢弃并出声（别人仓库里的一份文件不该替你
+按下开关）。反过来，**托管层能一句话把它关掉**，压过用户层的 `true`。按 `y` 之前先看一眼
+开关的状态：
+
+```
+/telemetry         # 开关、理由、文件路径、本次会话写了多少行、丢了几条
+```
+
+开着的时候，六个事件各写一行到**用户级** `~/.deepcode/telemetry.jsonl`（不进项目目录）：
+
+| 事件 | 记的字段 |
+|---|---|
+| `session.start` | 会话 id |
+| `turn.complete` | 收手原因、输入/输出 token、是否估算 |
+| `tool.result` | 工具名、成功与否 |
+| `session.compact` | 触发方式、压缩前 token 数 |
+| `agent.spawn` | 子代理名 |
+| `session.end` | 退出原因 |
+
+> ⚠️ **每一行都是零自由文本的。** 字段名与字符串值必须是标识符形状
+> （`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`），数字必须有限，布尔照收。任何一行不合规就
+> **整条丢掉**（不是截断、不是改写），计数并在第一次出现时说一声 —— `/telemetry` 上看得见。
+> 这条协议是这份功能唯一的隐私闸门：能塞自由文本，就等于给插件开了一条把文件路径、工具入参、
+> 模型输出写进磁盘的通道。
+
+**没有网络上报。** 这个功能不连任何端点，写进去的就是上面那张表里的东西 —— 一份纯本地记录，
+路径与转录同级（同在主目录下，同样不随仓库走）。批到 20 行冲一次盘，`session.end` 时把
+剩下的冲掉；写不进去只吭一声，会话照常（与转录同一条取向）。
+
 ## 着色与 spinner
 
 - `NO_COLOR`：设了**且非空**就关掉着色（空串等于没设）。
@@ -381,7 +422,8 @@ marketplace 就是一份本地目录：`<目录>/.deepcode-plugin/marketplace.js
   规则用**数据**写，钩子只负责把规则读进来、把判定吐出去。
 
 hookify 值得单独说一句，因为它演示的是"**加一套语法**"而不是"加一个工具"：你在项目里放一个
-`.deepcode/hookify.<随便什么>.local.md`，它就被编译成一个 `PreToolUse` 判定。
+`.deepcode/hookify.<随便什么>.local.md`，它就被编译成一个判定。规则写在**哪个事件**上由
+`event` 字段说了算（省略 = `PreToolUse`），现在有四个事件可写。
 
 ```markdown
 ---
@@ -397,14 +439,26 @@ message: 文件里出现了形似 AWS access key 的东西
 要写就先把 key 换成占位符，或者从环境变量读。
 ```
 
-判定词汇**只有 `deny` 与 `ask`**：`decision: allow` 会被当成规则文件的错误当场点名。
-理由与上面那条一模一样 —— 一个插件的 `allow` 是空头承诺，支持它只会让人写出一条看起来
-生效、其实什么都不做的规则。
+判定词汇**逐事件不同，且只有兑现得了的词才许写**：
+
+| `event` | `field` 取自 | `decision` 只能是 | 省略时 |
+| --- | --- | --- | --- |
+| `PreToolUse` | 工具入参 `tool_input` | `deny` / `ask` | `deny` |
+| `PostToolUse` | 工具结果 `tool_response`（`{ok, output}`） | `notify` | `notify` |
+| `UserPromptSubmit` | `prompt` | `notify` | `notify` |
+| `Stop` | `last_assistant_message` | `deny` | `deny` |
+
+`decision: allow` 会被当成规则文件的错误当场点名。理由与上面那条一模一样 ——
+一个插件的 `allow` 是空头承诺，支持它只会让人写出一条看起来生效、其实什么都不做的规则。
+同一条道理还有别的方向：工具已经跑完了、提示词已经要进去了，这两个点上"拒绝"同样兑现不了，
+所以那里只允许 `notify`（往模型那边补一段话）。
 
 > ⚠️ **一个写坏的规则文件会让你的 `Write` / `Edit` / `Bash` 全部被拒绝**，直到修好或删掉它。
 > 规则文件读不动、frontmatter 缺字段、算子是写错的、正则编译不过、钩子进程自己崩了 ——
-> 一律非零退出，而非零就是 `deny`（这就是 fail-closed 的代价，如实写在这里）。
-> 报错会点名是哪个文件、哪一行。参考实现的 hookify 在这里反着来：它在 `finally` 里
+> 一律非零退出，而非零就是失败（这就是 fail-closed 的代价，如实写在这里）。
+> 报错会点名是哪个文件、哪一行。**但代价逐事件不同**：只有 `PreToolUse` 上 fail 会翻成
+> `deny`，另外三个事件上只是一句 `notice` —— 那些点上没有可拦的动作。
+> 参考实现的 hookify 在这里反着来：它在 `finally` 里
 > `sys.exit(0)`，注释写着"钩子出错永远不该阻断操作"。我们不接受那个方向 ——
 > 一个读不懂自己规则的守卫，比一个假装没事的守卫危险。
 
@@ -423,8 +477,9 @@ message: 文件里出现了形似 AWS access key 的东西
 会把钩子要跑的命令原文打出来，那是在装之前你能看见的全部。
 
 已知偏差见 [P3 设计 §11](docs/superpowers/specs/2026-10-11-deepcode-p3-design.md)：
-只桥了 3 个 classic 事件（`PreToolUse` / `SessionStart` / `SessionEnd`），
-`type: "prompt"` 型钩子与正则 matcher 不支持，`commands/agents/skills/mcpServers` 只校验不加载。
+桥了 6 个 classic 事件（`PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop` /
+`SessionStart` / `SessionEnd`），`type: "prompt"` 型钩子与正则 matcher 不支持，
+`commands/agents/skills/mcpServers` 只校验不加载。
 
 ## 子代理与技能
 
@@ -497,14 +552,15 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   它下面的孙进程可能继续残留（没有进程组）。
 - **没有 TUI、没有语法高亮**：现在有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，
   也不走 `ui.render` 事件（那一层排到 P3）。
-- **39 个事件里实现了 19 个**：其余 20 个已声明、未实现，用到时会抛 `NotImplementedError`。
+- **41 个事件里实现了 22 个**：其余 19 个已声明、未实现，用到时会抛 `NotImplementedError`。
 - **非 TTY 下 REPL 收不到输入**：`echo '/diff' | deepcode` 这种喂法**无效**。readline 在
   `createInterface` 之后就开始读，而 `main()` 到 `startRepl` 挂上第一个监听之间还隔着好几个
   `await`（找或建会话转录、建引擎、`session.start`、读指令文件）—— 管道里的那几行就在这段
   空窗里被读掉、扔了。要脚本化请用一次性模式 `deepcode "..."`，那条路是好的。
-- **插件只桥了 3 个 classic 事件**（`PreToolUse` / `SessionStart` / `SessionEnd`）。
-  参考实现有 33 个事件名；其余 30 个在 `hooks.json` 里会被跳过并点名，不是静默忽略 ——
-  它们要的是我们还没有的钩子点（比如 `PostToolUse` 要一个 `tool.result` 事件）。
+- **插件只桥了 6 个 classic 事件**（`PreToolUse` / `PostToolUse` / `UserPromptSubmit` /
+  `Stop` / `SessionStart` / `SessionEnd`）。
+  参考实现有 33 个事件名；其余 27 个在 `hooks.json` 里会被跳过并点名，不是静默忽略 ——
+  它们要的是我们还没有的钩子点。
 - **`uses` 只在事件级别校验**：`tool.check` 这一个名字是粗粒度的，一个声明了它的插件
   对每个工具都能说上话。细到 matcher 一级的声明排在 P4。
 
@@ -513,7 +569,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，44 个文件 738 个用例
+pnpm test        # 测试，52 个文件 891 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 

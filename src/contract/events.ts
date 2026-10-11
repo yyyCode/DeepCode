@@ -52,7 +52,7 @@ export type EventArgs = {
    *
    * classic 钩子的 stdin 里有 `tool_use_id`，而 loop 手里本来就有 `use.id` ——
    * 多传一个字段比"桥接层自己去猜 / 去额外配一次对"便宜得多。
-   * 这是**契约变宽**，不是新事件：39 声明 / 19 实现那两项计数都不变。
+   * 这是**契约变宽**，不是新事件：声明的条数与实现的条数都不变。
    */
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   /**
