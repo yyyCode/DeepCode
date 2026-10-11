@@ -11,7 +11,12 @@ import { createSessionChanges } from '../src/cli/changes';
 import { createRenderer } from '../src/cli/render';
 import { createEngine } from '../src/core/create';
 import { scriptedProvider } from './harness';
-import { DEFAULT_COMPACT, EMPTY_SANDBOX, type ResolvedPolicy } from '../src/cli/settings';
+import {
+  DEFAULT_COMPACT,
+  DEFAULT_TELEMETRY,
+  EMPTY_SANDBOX,
+  type ResolvedPolicy,
+} from '../src/cli/settings';
 
 const POLICY: ResolvedPolicy = {
   sources: [],
@@ -19,6 +24,7 @@ const POLICY: ResolvedPolicy = {
   personalRules: [],
   sandbox: EMPTY_SANDBOX,
   compact: DEFAULT_COMPACT,
+  telemetry: DEFAULT_TELEMETRY,
   plugins: { enable: [], enableByUser: [], deny: [] },
 };
 

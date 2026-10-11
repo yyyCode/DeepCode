@@ -62,6 +62,33 @@ export const DEFAULT_COMPACT: CompactConfig = { auto: false, atTokens: 100_000, 
 /** 沙箱没开、也没有任何规则。 */
 export const EMPTY_SANDBOX: SandboxConfig = { enabled: false, deny: [], allow: [] };
 
+/**
+ * 遥测开关。**只有用户层能开、托管层能关**（设计 §6.4）：
+ *
+ *   enabled = (用户层 === true) && (托管层 !== false)
+ *
+ * 一个克隆下来的仓库不该悄悄打开你的遥测 —— 与 `plugins.enableByUser` 完全同构。
+ * 托管层那句话压过用户层，是"只能更严"在这份设置上的落法：它管不了你开不开，
+ * 但能一句话把它关掉。
+ *
+ * ⚠️ **只有 user 与 policy 两层有话可说**，project / local / flag 写了会被丢弃并出声 ——
+ * 与 `plugins.enable` 同一条道理：让别人仓库里的一份文件替你按下开关，
+ * 正是"个人配置掀翻托管策略"的入场券。
+ */
+export type TelemetryPolicy = {
+  readonly enabled: boolean;
+  /** 为什么是这个值。给 `/telemetry` 直接打出来 —— 一个不给理由的开关没人敢用。 */
+  readonly why: string;
+};
+
+export const DEFAULT_TELEMETRY: TelemetryPolicy = {
+  enabled: false,
+  why: '默认关（没有哪一层说要开）',
+};
+
+/** 一层的 `telemetry` 段：只存这一层**写了**的字段。 */
+type TelemetryLayer = { readonly enabled?: boolean };
+
 /** 一层的 `sandbox` 段解析结果。`enabled` 是各层的**或**，所以逐层分开存。 */
 type SandboxLayer = {
   readonly enabled: boolean;
@@ -74,7 +101,7 @@ const EMPTY_SANDBOX_LAYER: SandboxLayer = { enabled: false, deny: [], allow: [] 
 type CompactLayer = Partial<CompactConfig>;
 
 /** 认得出来的顶层键。**加一个顶层块就得加一项** —— 漏了就是给用户发一条假警告。 */
-const KNOWN_TOP_LEVEL = new Set(['permissions', 'plugins', 'sandbox', 'compact']);
+const KNOWN_TOP_LEVEL = new Set(['permissions', 'plugins', 'sandbox', 'compact', 'telemetry']);
 
 export type SourceInfo = {
   readonly source: SettingsSource;
@@ -121,6 +148,11 @@ export type ResolvedPolicy = {
    * 压缩偏好。它不是权限 —— 挤在这份"权限快照"里只因为 `resolvePolicy` 是唯一走完五层的地方。
    */
   readonly compact: CompactConfig;
+  /**
+   * 遥测开关。同样是"挤进来"的：只有 user 与 policy 两层能说话，
+   * 但判定要用到五层读完之后的结论。
+   */
+  readonly telemetry: TelemetryPolicy;
 };
 
 /**
@@ -196,6 +228,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   const pluginsBySource = new Map<SettingsSource, PluginsLayer>();
   const sandboxLayers = new Map<SettingsSource, SandboxLayer>();
   const compactLayers = new Map<SettingsSource, CompactLayer>();
+  const telemetryLayers = new Map<SettingsSource, TelemetryLayer>();
 
   for (const layer of layers) {
     const read = await readLayer(layer, deps.home, warn, readText);
@@ -204,6 +237,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     pluginsBySource.set(layer.source, read.plugins);
     sandboxLayers.set(layer.source, read.sandbox);
     compactLayers.set(layer.source, read.compact);
+    telemetryLayers.set(layer.source, read.telemetry);
   }
 
   const withSource = (source: SettingsSource, names: readonly string[]): readonly PluginRule[] =>
@@ -235,6 +269,17 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     Object.assign(compact, compactLayers.get(source) ?? {});
   }
 
+  // ── 遥测 ──
+  // ⚠️ **不是**"后读到的覆盖先读到的"（那是 compact 的规矩）。这里只有两个方向：
+  // 用户层能把它打开，托管层能把它关掉 —— 个人配置在这件事上**没有**说话的份。
+  // project / local / flag 写了会被 `readTelemetry` 丢掉并出声，走不到这儿。
+  const telemetry: TelemetryPolicy =
+    telemetryLayers.get('user')?.enabled !== true
+      ? DEFAULT_TELEMETRY
+      : telemetryLayers.get('policy')?.enabled === false
+        ? { enabled: false, why: '托管层把它关了（压过用户层）' }
+        : { enabled: true, why: '用户层开了' };
+
   return {
     sources,
     // policy 源 vs. 其余全部 —— 在固定优先级下这是唯一承重的划分（设计 §4.3）。
@@ -259,6 +304,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     },
     sandbox,
     compact,
+    telemetry,
   };
 }
 
@@ -280,6 +326,7 @@ type LayerRead = {
   readonly plugins: PluginsLayer;
   readonly sandbox: SandboxLayer;
   readonly compact: CompactLayer;
+  readonly telemetry: TelemetryLayer;
 };
 
 async function readLayer(
@@ -297,6 +344,7 @@ async function readLayer(
       plugins: EMPTY_PLUGINS,
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
+      telemetry: {},
     };
   }
 
@@ -308,6 +356,7 @@ async function readLayer(
       plugins: EMPTY_PLUGINS,
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
+      telemetry: {},
     };
   };
 
@@ -325,6 +374,7 @@ async function readLayer(
       plugins: EMPTY_PLUGINS,
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
+      telemetry: {},
     };
   }
 
@@ -358,6 +408,8 @@ async function readLayer(
   // 否则一份只有 sandbox 段、没有 permissions 段的设置会把闸丢掉。
   const sandbox = readSandbox(record.sandbox, layer, where, home, warn);
   const compact = readCompact(record.compact, layer, where, warn);
+  // 同在 permissions 的早期 return 之前 —— 一份只写 telemetry 的设置文件不该被丢掉。
+  const telemetry = readTelemetry(record.telemetry, layer, where, warn);
 
   if (raw === undefined) {
     return {
@@ -366,6 +418,7 @@ async function readLayer(
       plugins: plugins.value,
       sandbox,
       compact,
+      telemetry,
     };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -416,6 +469,7 @@ async function readLayer(
     plugins: plugins.value,
     sandbox,
     compact,
+    telemetry,
   };
 }
 
@@ -587,6 +641,52 @@ function readSandboxList(
 /** 绝对路径式：`/…`、`~/…`、`C:/…`（反斜杠也认，`sandboxRule` 里会统一）。 */
 function isAbsoluteLike(path: string): boolean {
   return path.startsWith('/') || path.startsWith('~') || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/**
+ * 解析一层的 `telemetry` 段。**只有 user 与 policy 两层收下**，别的层写了就丢掉并出声。
+ *
+ * 形状错的处置与 `compact` 一致（字段级降级：`enabled` 不是布尔就按没写处理 + 出声），
+ * 不整块废掉这一层 —— 遥测不是权限，猜错方向的代价只是"开关没生效"，
+ * 而它**默认就是关的**，所以"读不懂就不动"在这里天然是安全的那一侧。
+ */
+function readTelemetry(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  warn: (line: string) => void,
+): TelemetryLayer {
+  if (value === undefined) return {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    warn(`${label(layer.source)} ${where} 的 telemetry 块整块忽略 —— 不是一个对象。`);
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  const unknown = Object.keys(record).filter((key) => key !== 'enabled');
+  if (unknown.length > 0) {
+    warn(`${label(layer.source)} ${where} 的 telemetry 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+  }
+
+  if (record.enabled === undefined) return {};
+  if (typeof record.enabled !== 'boolean') {
+    warn(`${label(layer.source)} ${where} telemetry.enabled 不是布尔值，按没写处理。`);
+    return {};
+  }
+
+  // ⚠️ 丢掉个人层的那一句**必须在解析成功之后**说：一份 `enabled: "yes"` 的
+  // project 设置该收到的是"类型不对"，不是"你这一层不算数"—— 后者会让人以为
+  // 把值写对了就能生效。
+  if (layer.source !== 'user' && layer.source !== 'policy') {
+    warn(
+      `${label(layer.source)} ${where} 里写了 telemetry.enabled —— ` +
+        `只有用户层能开遥测（托管层能关），这一份已丢弃：` +
+        `别人仓库里的一份文件不该替你按下开关。`,
+    );
+    return {};
+  }
+
+  return { enabled: record.enabled };
 }
 
 /**
