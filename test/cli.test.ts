@@ -128,6 +128,10 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       env: {},
       policy: NO_POLICY,
       home: process.cwd(),
+      // 遥测那两条外设。这里**关着**（NO_POLICY 的 telemetry 是默认值），
+      // 所以它一个系统调用都不会发 —— 这些用例一个字都不该因为这个插件变。
+      sessionId: 's1',
+      warn: () => {},
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',
@@ -169,6 +173,10 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       env: {},
       policy: NO_POLICY,
       home: process.cwd(),
+      // 遥测那两条外设。这里**关着**（NO_POLICY 的 telemetry 是默认值），
+      // 所以它一个系统调用都不会发 —— 这些用例一个字都不该因为这个插件变。
+      sessionId: 's1',
+      warn: () => {},
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',
@@ -204,6 +212,10 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
       env: {},
       policy,
       home: process.cwd(),
+      // 遥测那两条外设。这里**关着**（NO_POLICY 的 telemetry 是默认值），
+      // 所以它一个系统调用都不会发 —— 这些用例一个字都不该因为这个插件变。
+      sessionId: 's1',
+      warn: () => {},
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',

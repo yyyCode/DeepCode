@@ -105,11 +105,13 @@ export function makeThirdPartyOn(deps: ThirdPartyOnDeps): On {
     const matcher = third === undefined ? undefined : (second as Record<string, unknown>);
 
     if (pattern === 'engine.create') {
-      // 今天这是个**静默无效**：`engine.create` 早在插件注册之前就折叠完了，
-      // 挂上去的 hook 永远不会跑，而插件会以为自己扩展了 `$`（MVP §10 偏差 7）。
-      // 静默无效比明着不支持坏得多 —— 改成当场拒绝，让它自己知道。
+      // 折叠现在确实发生在注册之后（`core/create.ts` 折两次），所以这条路**能通** ——
+      // 但只开给第一方。理由不是"技术上做不到"（那曾经是，MVP §10 偏差 7），是判定：
+      // `$` 是插件给所有人的门面，一个从目录里掉进来的东西改写它，等于让 `fs.write`
+      // 这种名词由它说了算 —— 与"第三方只能拧紧不能拧松"（权限那条）是同一个方向。
+      // 静默无效比明着不支持坏得多，所以是当场拒绝，让它自己知道。
       deps.log(
-        `[插件] ${deps.plugin} 想扩展 $（往 engine.create 挂 hook）—— 本版本不支持，这条注册被丢弃（插件扩展 $ 排在 P4）。`,
+        `[插件] ${deps.plugin} 想扩展 $（往 engine.create 挂 hook）—— 这条路只开给 CLI 自带的插件，这条注册被丢弃。`,
       );
       return;
     }

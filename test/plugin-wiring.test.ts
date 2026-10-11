@@ -40,6 +40,8 @@ function bundle(overrides: Partial<Parameters<typeof cliPlugins>[0]> = {}) {
     env: {},
     policy: POLICY,
     home: '/home/u',
+    sessionId: 's1',
+    warn: () => {},
     agents: [],
     skills: [],
     baseSystemPrompt: '基础提示',

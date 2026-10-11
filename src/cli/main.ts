@@ -262,6 +262,9 @@ async function main(): Promise<void> {
     env: engineEnv,
     policy,
     home,
+    // 与 `session.start` 派发出去的那个是同一个（上面 `transcript?.id ?? Date.now()`）。
+    sessionId,
+    warn: warnLine,
     agents,
     skills,
     // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。

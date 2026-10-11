@@ -131,13 +131,28 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
   });
   dispatchFn = dispatch;
 
-  // 折叠：core 在最内层，插件按列表顺序、最外层在前。
-  const folded = (await dispatch(
-    'engine.create',
-    { plugins: deps.plugins.map((p) => p.name) },
-    CORE_ORIGIN,
-  )) as EngineInterface;
-  engine = folded;
+  const fold = async (): Promise<EngineInterface> =>
+    (await dispatch(
+      'engine.create',
+      { plugins: deps.plugins.map((p) => p.name) },
+      CORE_ORIGIN,
+    )) as EngineInterface;
+
+  // 折叠要折**两次**，顺序是有理由的。
+  //
+  // 第一次（下面这行，注册之前）：只折出内核名词，但 `$` 从此有了 —— 注册期间跑的那些
+  // hook（`plugin.register` 由 plugin-guard 应答）也要拿到它。dispatch 是**无条件**
+  // 取 `deps.engine()` 的（`core/dispatch.ts` 那行 `reg.hook(deps.engine(), …)`），
+  // 那会儿 `$` 还没建出来的话，每一次注册都会走进"hook 失败已跳过"那条路 ——
+  // 闸门静默失灵，比它不存在更坏。
+  engine = await fold();
+
+  // 第二次在注册**之后**（本函数最后一行）：这时插件的 `engine.create` hook 才在链上，
+  // 它们贡献的名词才进得来。`contract/engine.ts` 那段 `declare module` 说"插件可以往
+  // `$` 上加名词"，兑现的就是这一折 —— 只有一折的话那句话是假的：hook 永远不会被 dispatch。
+  //
+  // 两次都用同一张 registry，所以"谁的名词赢"与裁决链的顺序是同一条规则
+  // （`{...await next(e), 我这份}` = 靠外的赢 = tier 更权威的赢），不需要第二套说法。
 
   // 准入 + 注册。座位读的是 deps.seating 这张表，不是插件自己说的。
   const thirdParty = new Set(deps.thirdParty ?? []);
@@ -173,6 +188,9 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
         : makeOn(registry, plugin.name, tier),
     );
   }
+
+  // 第二次折叠：插件的名词在这里才叠上去（见上面那段注释）。
+  engine = await fold();
 
   return { $: engine, registry, dispatch };
 }

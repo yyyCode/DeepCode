@@ -450,3 +450,64 @@ describe('调试轨迹（DEEPCODE_DEBUG 打开后能看到的那条线）', () =
     expect(h.debugLines.join('\n')).toContain('✗');
   });
 });
+
+describe('折叠：插件的名词真的进得来', () => {
+  /**
+   * 折叠折**两次**，第二次在注册之后 —— 只有一折的话（注册之前折）这句
+   * "插件可以通过声明合并往 $ 上加名词"在运行时是假的：hook 永远不会被 dispatch，
+   * 而 `$` 上缺一个名词是那种静默失效。这个 describe 就是那句话的兑现证明。
+   */
+  const nounPlugin = (name: string, value: string): Plugin => ({
+    name,
+    uses: ['engine.create'],
+    register(on) {
+      // 走 `On` 的宽重载（`pattern: string`）：加的是合并进来的名词，
+      // `Partial<EngineInterface>` 里没有它，返回类型只能是 any。
+      on('engine.create' as string, async (_$, e, next) => ({
+        ...(await (next as (e: unknown) => Promise<Record<string, unknown>>)(e)),
+        probe: { value },
+      }));
+    },
+  });
+
+  async function engineWith(plugins: Plugin[]) {
+    return createEngine({
+      plugins,
+      seating: {},
+      signal: () => new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+    });
+  }
+
+  const probeOf = (engine: Awaited<ReturnType<typeof engineWith>>) =>
+    (engine.$ as unknown as { probe?: { value: string } }).probe;
+
+  it('插件挂的名词出现在折叠后的 $ 上，内核名词一个不少', async () => {
+    const { $ } = await engineWith([nounPlugin('p', 'P')]);
+    expect(probeOf({ $ } as never)).toEqual({ value: 'P' });
+    expect(typeof $.ui.log).toBe('function');
+    expect($.session.id()).toBe('s1');
+  });
+
+  it('两个插件都供同名名词：靠外的赢（与裁决链同一条规则）', async () => {
+    // 同 tier 内先注册者在外层 —— 于是先装的那个盖住后装的。
+    const { $ } = await engineWith([nounPlugin('outer', 'O'), nounPlugin('inner', 'I')]);
+    expect(probeOf({ $ } as never)).toEqual({ value: 'O' });
+  });
+
+  it('座位把它抬到 prepend 就压过 builtin —— 权威序在两个方向上一致', async () => {
+    const engine = await createEngine({
+      plugins: [nounPlugin('deep', 'D'), nounPlugin('high', 'H')],
+      seating: { high: 'prepend' },
+      signal: () => new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+    });
+    expect(probeOf(engine)).toEqual({ value: 'H' });
+  });
+});
