@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CORE_ORIGIN } from '../src/contract/next';
-import { discoverPlugins, installPlugins } from '../src/cli/plugin-dir';
+import { discoverPlugins, loadPlugins } from '../src/cli/plugin-dir';
 import { createHarness, seat } from './harness';
 
 /**
@@ -236,7 +236,7 @@ describe('装载', () => {
       };\n`,
     });
     const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
-    const installed = await installPlugins(found.loaded, {
+    const installed = await loadPlugins(found.loaded, {
       projectDir: world.root,
       session: { id: 's1', transcriptPath: undefined },
       env: process.env,
@@ -259,7 +259,7 @@ describe('装载', () => {
     });
     const lines: string[] = [];
     const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
-    const installed = await installPlugins(found.loaded, {
+    const installed = await loadPlugins(found.loaded, {
       projectDir: world.root,
       session: { id: 's1', transcriptPath: undefined },
       env: process.env,
@@ -277,7 +277,7 @@ describe('装载', () => {
     });
     const lines: string[] = [];
     const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
-    const installed = await installPlugins(found.loaded, {
+    const installed = await loadPlugins(found.loaded, {
       projectDir: world.root,
       session: { id: 's1', transcriptPath: undefined },
       env: process.env,
@@ -295,7 +295,7 @@ describe('装载', () => {
     });
     const lines: string[] = [];
     const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
-    const installed = await installPlugins(found.loaded, {
+    const installed = await loadPlugins(found.loaded, {
       projectDir: world.root,
       session: { id: 's1', transcriptPath: undefined },
       env: process.env,
@@ -315,7 +315,7 @@ describe('装载', () => {
     });
     const lines: string[] = [];
     const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
-    const installed = await installPlugins(found.loaded, {
+    const installed = await loadPlugins(found.loaded, {
       projectDir: world.root,
       session: { id: 's1', transcriptPath: undefined },
       env: process.env,

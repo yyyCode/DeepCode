@@ -17,7 +17,7 @@ import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
 import { resolvePolicy } from './settings';
-import { discoverPlugins, installPlugins } from './plugin-dir';
+import { discoverPlugins, loadPlugins } from './plugin-dir';
 import { discoverAgents } from './agents';
 import { discoverSkills } from './skills';
 import { renderOffer } from './offer';
@@ -210,7 +210,7 @@ async function main(): Promise<void> {
     enabledInstalled: policy.plugins.enableByUser,
     warn: (line) => process.stderr.write(`${line}\n`),
   });
-  const thirdParty = await installPlugins(found.loaded, {
+  const thirdParty = await loadPlugins(found.loaded, {
     projectDir: root,
     session: { id: sessionId, transcriptPath: transcript?.path },
     env: process.env,

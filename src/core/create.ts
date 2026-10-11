@@ -19,7 +19,7 @@ export type CreateEngineDeps = CoreNounsDeps & {
    */
   seating?: Readonly<Record<string, Tier>>;
   /**
-   * 第三方插件的名字。**名单由调用方给**（生产里是 `cliPlugins` 从 `installPlugins`
+   * 第三方插件的名字。**名单由调用方给**（生产里是 `cliPlugins` 从 `loadPlugins`
    * 的结果推出来的），不是插件自述的 —— 与座位同一条道理：插件自己说了不算。
    *
    * 列进来的插件：座位强制 `append`、`on` 走 `makeThirdPartyOn`（剥 allow / 查 uses / 拒挂 $）。

@@ -8,7 +8,7 @@ import { CORE_ORIGIN } from '../src/contract/next';
 import { confirmPlugin } from '../src/builtins/confirm';
 import { coreTools } from '../src/builtins/tools';
 import { createEngine } from '../src/core/create';
-import { discoverPlugins, installPlugins } from '../src/cli/plugin-dir';
+import { discoverPlugins, loadPlugins } from '../src/cli/plugin-dir';
 import { scriptedProvider } from './harness';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -43,7 +43,7 @@ async function walking(dir: string): Promise<readonly string[]> {
 async function install(world: { home: string; root: string }, projectDir: string) {
   const found = await discoverPlugins({ ...world, enabled: [], warn: () => {} });
   expect(found.skipped).toEqual([]);
-  return await installPlugins(found.loaded, {
+  return await loadPlugins(found.loaded, {
     projectDir,
     session: { id: 's1', transcriptPath: undefined },
     env: process.env,

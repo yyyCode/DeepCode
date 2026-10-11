@@ -11,9 +11,12 @@ import { subdirectories } from './walkdir';
 /**
  * 插件目录的发现与装载。
  *
+ * 注意"装载"与"安装"是两件事：这个文件只做**装载**（把已经在目录里的搬进内存）。
+ * 把文件从 marketplace 拷进落点的是 `plugin-install.ts` —— 安装（P4c）。
+ *
  * **两段，不是一个函数**，这是这个文件最要紧的结构：
  * - `discoverPlugins` 读清单（**不执行任何代码**）
- * - `installPlugins` import 入口（执行代码）
+ * - `loadPlugins` **装载**（import 入口模块，代码从这里开始跑）
  *
  * ⚠️ 目录有**三个来源**，不是两个：项目级、用户级，以及 `plugin add` 装进来的落点。
  * 三者的闸门不一样：项目级要 `plugins.enable`、用户级自动装载、落点要**用户级的**
@@ -22,7 +25,7 @@ import { subdirectories } from './walkdir';
  * `deepcode plugin list` 与 `validate` 只做前者。列个清单不该执行别人的代码 ——
  * 这条分界线让"看一眼"这个动作在安全上是平凡的。
  *
- * ⚠️ 而 `installPlugins` 里的那一行 `import` 就是"装一个插件 = 信任它"的全部。
+ * ⚠️ 而 `loadPlugins` 里的那一行 `import` 就是"装一个插件 = 信任它"的全部。
  * 准入闸门管的是**链上权威**（谁能放宽权限），不是"这段代码能不能跑" ——
  * 把插件目录放进去，就是让它以你的身份跑。参考实现也是这个语义（设计 §4.6）。
  */
@@ -247,7 +250,7 @@ export type InstallDeps = {
  * 合流的意义不只是方便：两者共用**一个插件名、一个 `register`**，于是也共用
  * `uses` 检查与"剥掉 allow"那两道闸（设计 §5.0）。
  */
-export async function installPlugins(
+export async function loadPlugins(
   discovered: readonly DiscoveredPlugin[],
   deps: InstallDeps,
 ): Promise<readonly Plugin[]> {
