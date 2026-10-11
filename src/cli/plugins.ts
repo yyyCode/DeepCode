@@ -1,6 +1,7 @@
 import type { Plugin } from '../contract/plugin';
 import type { Message } from '../contract/model-provider';
 import type { Tier } from '../contract/tier';
+import type { AgentSpec, SkillSpec } from '../contract/agent';
 import { coreTools } from '../builtins/tools';
 import { confirmPlugin } from '../builtins/confirm';
 import { commandsPlugin } from '../builtins/commands';
@@ -11,6 +12,7 @@ import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands } from './commands';
 import { createPermissionsCommand } from './permissions-command';
+import { createSubagentsPlugin } from './subagents';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
 import type { Palette } from './ansi';
@@ -28,6 +30,15 @@ export type CliPluginDeps = {
   readonly policy: ResolvedPolicy;
   /** 规则里 `~` 展开用的主目录（在 settings.ts 解析时就用掉了）。 */
   readonly home: string;
+  /** **已解析**的 agent 名册。发现是异步的、在 main.ts 里做完（设计 §4.1）。 */
+  readonly agents: readonly AgentSpec[];
+  /** **已解析**的技能名册。 */
+  readonly skills: readonly SkillSpec[];
+  /**
+   * 会话那一份**基础** system prompt（`main.ts` 的 `SYSTEM_PROMPT` 常量，不是拼完那份）。
+   * agent 正文为空时回落到它。给拼完的那份会递归 —— 拼完的那份里已经含着这儿的清单。
+   */
+  readonly baseSystemPrompt: string;
   /**
    * 从插件目录里发现并装载好的第三方插件。CLI 把它们**排在最后** ——
    * 座位由引擎强制成 `append`（见 core/third-party.ts），这里的顺序只在同 tier 内的
@@ -72,6 +83,13 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     createPermissionsPlugin({ rules: deps.policy.personalRules }),
     createChangesPlugin(deps.changes),
     ...coreTools,
+    // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
+    // 名字自动进下面的第一方名单（`names`），于是 deny 名单点它也没用。
+    createSubagentsPlugin({
+      agents: deps.agents,
+      skills: deps.skills,
+      baseSystemPrompt: deps.baseSystemPrompt,
+    }),
     confirmPlugin,
     commandsPlugin,
     streamPlugin(deps.render),

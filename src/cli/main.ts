@@ -17,6 +17,9 @@ import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { resolvePolicy } from './settings';
 import { discoverPlugins, installPlugins } from './plugin-dir';
+import { discoverAgents } from './agents';
+import { discoverSkills } from './skills';
+import { renderOffer } from './offer';
 import { runPluginCommand } from './plugin-command';
 import {
   createPersister,
@@ -211,6 +214,18 @@ async function main(): Promise<void> {
     warn: (line) => process.stderr.write(`${line}\n`),
   });
 
+  // ── 名册 ──
+  // 发现是异步的、装配是同步的（`cliPlugins` 是同步函数），所以发现放在这儿：
+  // 结果是两张**已经解析好**的名册，以参数进 `cliPlugins`（设计 §4.1）。
+  // 只有判为 `loaded` 的插件贡献名册 —— 被 deny 的、项目级没 enable 的、清单坏掉的，
+  // 它们的 agent 也不该出现。
+  const warnLine = (line: string): void => {
+    process.stderr.write(`${line}\n`);
+  };
+  const pluginDirs = found.loaded.map((plugin) => ({ name: plugin.name, dir: plugin.dir }));
+  const agents = await discoverAgents({ root, home, plugins: pluginDirs, warn: warnLine });
+  const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
+
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
   const bundle = cliPlugins({
     render,
@@ -220,6 +235,10 @@ async function main(): Promise<void> {
     palette,
     policy,
     home,
+    agents,
+    skills,
+    // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。
+    baseSystemPrompt: SYSTEM_PROMPT,
     discovered: thirdParty,
     pluginDeny: policy.plugins.deny,
   });
@@ -240,7 +259,11 @@ async function main(): Promise<void> {
   await dispatch('session.start', { sessionId: $.session.id(), cwd: root, root }, CORE_ORIGIN);
 
   const instructions = await loadInstructions(root, home);
-  const systemPrompt = instructions ? `${SYSTEM_PROMPT}\n\n${instructions}` : SYSTEM_PROMPT;
+  // 能派什么、能加载什么，报给模型（设计 §7）。模型看到的是一行 description，不是文件。
+  const offer = await dispatch('agent.offer', {}, CORE_ORIGIN);
+  const systemPrompt = [SYSTEM_PROMPT, instructions ?? '', renderOffer(offer)]
+    .filter((part) => part !== '')
+    .join('\n\n');
 
   const oneShot = action.text;
 
@@ -264,6 +287,8 @@ async function main(): Promise<void> {
     // 否则 `deepcode "..." && 下一步` 会带着错误悄悄往下走。
     if (reason === 'error') process.exitCode = 1;
     else if (reason === 'interrupted') process.exitCode = 130;
+    // 撞上 hop 上限就是"这趟没做完"。与 error 一样是非零 —— 不能悄悄退 0。
+    else if (reason === 'max_hops') process.exitCode = 1;
   } else {
     await startRepl({ $, dispatch, render, rl, systemPrompt, turns, messages, persist });
   }

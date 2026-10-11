@@ -117,6 +117,9 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       palette: createPalette(false),
       policy: NO_POLICY,
       home: process.cwd(),
+      agents: [],
+      skills: [],
+      baseSystemPrompt: '基础提示',
     });
 
     const built = await createEngine({
@@ -154,6 +157,9 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       palette: createPalette(false),
       policy: NO_POLICY,
       home: process.cwd(),
+      agents: [],
+      skills: [],
+      baseSystemPrompt: '基础提示',
     });
 
     expect(bundle.seating).toEqual({
@@ -185,6 +191,9 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
       palette: createPalette(false),
       policy,
       home: process.cwd(),
+      agents: [],
+      skills: [],
+      baseSystemPrompt: '基础提示',
     });
 
     const h = createHarness({ engine, coreImpls });
