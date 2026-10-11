@@ -162,3 +162,35 @@ describe('Anthropic SSE 解析', () => {
     ]);
   });
 });
+
+describe('usage', () => {
+  it('message_start 的 input_tokens 与 message_delta 的 output_tokens 归一成 usage', async () => {
+    stub([
+      'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":123,"output_tokens":1}}}\n\n',
+      'event: content_block_delta\ndata: {"index":0,"delta":{"type":"text_delta","text":"好"}}\n\n',
+      'event: message_delta\ndata: {"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":45}}\n\n',
+      'event: message_stop\ndata: {}\n\n',
+    ]);
+
+    expect(await collect()).toEqual([
+      { type: 'text', text: '好' },
+      { type: 'done', stopReason: 'end_turn', usage: { inputTokens: 123, outputTokens: 45 } },
+    ]);
+  });
+
+  it('端点没报 usage：`done` 上就没有 usage 这个字段（不塞 0）', async () => {
+    stub([
+      'event: message_delta\ndata: {"delta":{"stop_reason":"end_turn"}}\n\n',
+      'event: message_stop\ndata: {}\n\n',
+    ]);
+    expect(await collect()).toEqual([{ type: 'done', stopReason: 'end_turn' }]);
+  });
+
+  it('只报了一半：整份不带 —— 报半个账比不报更坏', async () => {
+    stub([
+      'event: message_start\ndata: {"type":"message_start","message":{"usage":{"input_tokens":123}}}\n\n',
+      'event: message_stop\ndata: {}\n\n',
+    ]);
+    expect(await collect()).toEqual([{ type: 'done', stopReason: 'end_turn' }]);
+  });
+});

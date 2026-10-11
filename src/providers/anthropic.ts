@@ -4,7 +4,9 @@ import type {
   ModelProvider,
   StreamEvent,
   ToolSpec,
+  Usage,
 } from '../contract/model-provider';
+import { toUsage } from '../contract/model-provider';
 import { describeHttpFailure } from './http';
 import { sseFrames } from './sse';
 
@@ -51,9 +53,17 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
 
       const pending = new Map<number, { type: string; id: string; name: string; json: string }>();
       let stopReason = 'end_turn';
+      // 两份用量分两次到达：Anthropic 在 `message_start` 里给 `input_tokens`，
+      // 在末尾的 `message_delta` 里给 `output_tokens`。少接一个就会报半个假账。
+      let inputTokens: unknown;
+      let outputTokens: unknown;
 
       for await (const frame of sseFrames(response.body)) {
-        if (frame.event === 'content_block_start') {
+        if (frame.event === 'message_start') {
+          // 这一帧此前**完全没有被处理过** —— `usage.input_tokens` 就藏在它里面。
+          const data = JSON.parse(frame.data);
+          inputTokens = data?.message?.usage?.input_tokens ?? inputTokens;
+        } else if (frame.event === 'content_block_start') {
           const data = JSON.parse(frame.data);
           const block = data.content_block ?? {};
           pending.set(data.index, {
@@ -84,6 +94,7 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
         } else if (frame.event === 'message_delta') {
           const data = JSON.parse(frame.data);
           if (data.delta?.stop_reason) stopReason = data.delta.stop_reason;
+          outputTokens = data?.usage?.output_tokens ?? outputTokens;
         } else if (frame.event === 'error') {
           // 错误帧必须抛出去。默不作声地略过，一次 overloaded_error 就会变成一个
           // "成功的空 turn"：没有文本、没有工具调用、stopReason 还是 end_turn ——
@@ -96,15 +107,20 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
             `anthropic 流中错误帧: ${type}${detail ? ` — ${detail}` : ''}`,
           );
         } else if (frame.event === 'message_stop') {
-          yield { type: 'done', stopReason } satisfies StreamEvent;
+          yield doneEvent(stopReason, toUsage(inputTokens, outputTokens));
           return;
         }
       }
 
       // 服务端没发 message_stop 就断了：当作正常结束，不留悬挂的 await。
-      yield { type: 'done', stopReason };
+      yield doneEvent(stopReason, toUsage(inputTokens, outputTokens));
     },
   };
+}
+
+/** 没有用量就不带那个字段 —— 带上一个 `usage: undefined` 会让"端点报了"与"端点没报"长得一样。 */
+function doneEvent(stopReason: string, usage: Usage | undefined): StreamEvent {
+  return usage === undefined ? { type: 'done', stopReason } : { type: 'done', stopReason, usage };
 }
 
 /** 中立的 Message 表示 → Anthropic 协议。工具结果在 Anthropic 里是 user 消息里的 tool_result block。 */

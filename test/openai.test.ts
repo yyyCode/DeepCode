@@ -219,3 +219,32 @@ describe('OpenAI 兼容 SSE 解析', () => {
     ]);
   });
 });
+
+describe('usage', () => {
+  it('`include_usage` 那一帧（choices 为空）也能被读到', async () => {
+    stub([
+      frame({ choices: [{ delta: { content: '好' } }] }),
+      frame({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 4 } }),
+      'data: [DONE]\n\n',
+    ]);
+
+    expect(await collect()).toEqual([
+      { type: 'text', text: '好' },
+      { type: 'done', stopReason: 'end_turn', usage: { inputTokens: 10, outputTokens: 4 } },
+    ]);
+  });
+
+  it('请求体里带上了 `stream_options.include_usage`', async () => {
+    let body: string | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        body = init.body as string;
+        return sseResponse(['data: [DONE]\n\n']);
+      }),
+    );
+
+    await collect();
+    expect(JSON.parse(body!)).toMatchObject({ stream_options: { include_usage: true } });
+  });
+});
