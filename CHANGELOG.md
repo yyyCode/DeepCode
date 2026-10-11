@@ -39,7 +39,8 @@
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
-`#10 p6-design`、`#11 p6a-activity`、`#12 p6b-content`、`#13 p6c-changes`（P6c + P6d 同一条）、`#14 p6d-banner`（收口后补的开场那一屏）、`#16 p6d-banner-fix`（那一屏第一版没画出来）、`#17 readme-site-trim`（README 与官网重写）。
+`#10 p6-design`、`#11 p6a-activity`、`#12 p6b-content`、`#13 p6c-changes`（P6c + P6d 同一条）、`#14 p6d-banner`（收口后补的开场那一屏）、`#16 p6d-banner-fix`（那一屏第一版没画出来）、`#17 readme-site-trim`（README 与官网重写）、
+`#19 site-centered-topo`（置中版式 + 拓扑图第一版）、`#20 site-topo-svg`（那版图还是文字，改成 SVG）。
 
 ---
 
@@ -365,3 +366,29 @@ interactive)`，并把"`parseArgs([]).text` 就是空串"也钉一条测试。�
 用 HTML + CSS 画而不是 SVG：文字是真文字（能选中、能搜、读屏认得），窄屏自己换行，
 也就不用往页面里塞几何代码。这张图**替掉了原来的 tier 列表**（同样的信息，一处讲清），
 所以页面没有因此变长。
+
+### 官网第三版：拓扑图改成真的画出来（`#20`）
+
+**上一版做错了，这里记下来**。`#19` 那张"拓扑图"是三条横带、每条一行方框、方框之间夹
+`→` 字符 —— 排版上确实像流程图，但用户一眼就看穿了：**它还是文字**。原话
+「怎么你说的拓扑图只有这些文字描述？」。当时的理由（文字可选中、可搜、读屏认得）没
+错，错在拿它当了图 —— 一张图要能一眼看出**谁连着谁、哪条线是回头路**，而字符箭头做
+不到这件事。
+
+改成**内联 SVG**（`site/index.html` 里的 `<svg class="topo" viewBox="0 0 1024 580">`，
+21 个矩形）：
+
+| 带 | 画了什么 |
+| --- | --- |
+| 执行链路 | 终端 → `engine.dispatch` → **tier 链**（五个小格 prepend/user/append/builtin/core）→ `provider`；`AGENTS.md × 5 层` 单独接到 `provider` |
+| 安全闸门 | 工具 ×8 → `tool.check`（等一行 y/N）→ `sandbox`（Bash 路径闸）→ `spawn` / 写盘 |
+| 记忆与上下文 | 转录 JSONL（用户级 · 0600）、输入历史、遥测、上下文压缩 |
+
+带与带之间是**三条真的线**，不是箭头字符：链尾实线进工具；`tool.check` 的 `deny` 用琥珀
+虚线**折回链上**（模型重新决定）；转录经 `--resume` 用墨绿虚线**绕右外边距**回到请求路径
+（走外边距是为了不与任何框相交 —— 拐三次，零交叉）。带内的小格用 `marker` 画箭头，
+`<title>` / `<desc>` 给读屏，图下保留原来那两行实话（fail-closed 三条 + 指令五层里只有
+托管层能写）。窄屏不缩：`min-width: 880px` + `overflow-x: auto`，另加一句"左右滑动查看"。
+
+**事实一条没变**：图的每个框里的字仍能追到 README 或设计文档，一个数字都没编。
+页面 337 → 454 行、css 296 → 318 行（多出来的就是几何），旧的 `.topo__` 组件名全删。
