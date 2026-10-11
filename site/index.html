@@ -69,7 +69,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>1121</b><span>用例全绿 · 64 个文件</span></li>
+    <li><b>1141</b><span>用例全绿 · 66 个文件</span></li>
     <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
     <li><b>3</b><span>条命令管质量（typecheck / lint / test）</span></li>
   </ul>
@@ -193,11 +193,11 @@
       <h3 class="mod__h">记忆与上下文<span>记在哪、怎么接上</span></h3>
       <dl>
         <dt>指令</dt>
-        <dd><code>AGENTS.md</code> × 5 层拼进系统提示 —— 五层里只有托管层能写</dd>
+        <dd><code>AGENTS.md</code> × 5 层拼进系统提示（<strong>每轮重算</strong>，改了当场生效）—— 五层里只有托管层能写</dd>
         <dt>转录</dt>
         <dd>用户级目录、0600 的 JSONL，<code>--resume</code> 接上一次会话</dd>
         <dt>历史</dt>
-        <dd><code>~/.deepcode/history</code>；压缩用 <code>/compact</code>，自动压缩默认关</dd>
+        <dd><code>~/.deepcode/history</code>；<code>/context</code> 看账本（不报「还剩多少」），<code>/compact</code> 手动压、自动压缩默认关</dd>
       </dl>
     </article>
 
@@ -282,7 +282,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
 <!-- ─────────────────────────── 路线图 ─────────────────────────── -->
 <section class="wrap band" id="roadmap">
   <h2>走到哪一步了</h2>
-  <p class="section__lede">七个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
+  <p class="section__lede">八个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
     <a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a>里。</p>
 
   <table>
@@ -296,6 +296,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <tr><td><strong>P4</strong> 组合面</td><td><code>Task</code> / <code>Skill</code>、沙箱、会话压缩、marketplace、遥测</td></tr>
       <tr><td><strong>P5</strong> 内建与分发</td><td>四个内建 mod、指令文件五层、托管三通道</td></tr>
       <tr><td><strong>P6</strong> 界面与交互</td><td>开场屏、活动区、内容面、两份账、历史与补全（全是<strong>行内增强</strong>，不占整屏）</td></tr>
+      <tr><td><strong>P7</strong> 记忆与上下文</td><td><code>/context</code> 账本（<strong>明说不报「还剩多少」</strong>）、系统提示每轮重算、<code>/compact</code> 能带一句说明、压缩后重新附上目录约定、两道断电器</td></tr>
     </tbody>
   </table>
 </section>

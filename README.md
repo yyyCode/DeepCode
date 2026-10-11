@@ -67,7 +67,8 @@ deepcode --help / --version
 | `/help` | 列出可用命令与工具 |
 | `/diff` | 两块：本会话改过哪些文件、工作区还有什么没提交（unified 格式，带着色） |
 | `/clear` | 清空上下文（磁盘上的转录保留） |
-| `/compact` | 手动压缩上下文（自动压缩默认关） |
+| `/compact [说明]` | 手动压缩上下文；带上一句说明就拼进摘要那一轮的提示（`/compact 保住 API 设计决策`）。自动压缩默认关 |
+| `/context` | 看上下文账本：系统提示逐节多少 token、会话消息多少、合计、压缩阈值、上次实测用量 |
 | `/permissions` | 看当前生效的权限规则、每条来自哪一层 |
 | `/config` | 看生效的配置项与来源 |
 | `/telemetry` | 看遥测开关、文件路径、本次会话写了多少行 |
@@ -156,6 +157,9 @@ $env:ANTHROPIC_BASE_URL; $env:ANTHROPIC_AUTH_TOKEN    # PowerShell
 （`~/.deepcode/`）→ 托管 → 嵌套（更深目录的 `AGENTS.md`，读到那里的文件时才附上）。
 **只有托管那层能写**，别的四层写了会被丢掉并告诉你。
 
+系统提示**每一轮重算**（不是一个会话算一次）：会话中途改 `AGENTS.md` 当场生效，压缩之后注入面也
+重新求值。代价是每轮多几次文件读，而且系统提示的字节可能在会话中途变化。
+
 ## 权限
 
 `config.json` 管连接，权限是另一套：`.deepcode/settings.json`。
@@ -233,6 +237,9 @@ Windows 注册表 `HKLM\SOFTWARE\DeepCode` ／ macOS 托管偏好域 `com.deepco
 （每条转录里记着真实 cwd，撞名也不会接错）。找不到时以退出码 1 收场并说清楚 ——
 你明确要求恢复，没能恢复就不是成功。落盘写不进去（目录只读、磁盘满）时**不拖垮产品**：
 打一行警告，照常跑完这一轮，只是这次 `--resume` 接不上。
+
+**数组被改短时落盘游标要一起归零** —— 压缩和 `/clear` 都会就地改短那个数组，两处都跟着
+`reseed` 一次；漏掉的话，被改短之后的新消息会有若干条**静默不落盘**，而转录看上去一切正常。
 
 > ⚠️ **转录里是代码与文件内容。** 删掉那个 `.jsonl` 文件，就等于删掉那次会话 —— 没有别的副本，
 > 也不做过期清理。
@@ -363,6 +370,9 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   路径比较**区分大小写**（与权限规则一致）。
 - **压缩的阈值 `compact.atTokens` 默认 100_000 是猜的**（引擎内部看不见真实窗口）。自动压缩**默认关**，
   `/compact` 手动始终可用；摘要失败 / 返回空 / 压完反而更长 —— 三种情况都**不压缩**，出声，原文一条不动。
+  自动压缩还有两道**断电器**：连续失败 3 次就停手、连压 3 次之后上下文仍然超阈值也停手（停手时会说清
+  怎么恢复：`/compact` 手动再试一次、调大阈值、或关掉 `compact.auto`）。⚠️ **这两个 3 是照抄复刻对象的
+  数，不是我们测出来的**（`docs/superpowers/specs/2026-10-11-deepcode-p7-design.md` §5 偏差 3）。
 - **中断只杀外壳**：`Bash` 在 Windows 上经 `cmd.exe` 起命令，`Ctrl-C` 掐断的是这层外壳，
   它下面的孙进程可能继续残留（没有进程组）。
 - **没有整屏 TUI、没有语法高亮**：界面是逐行的纯文本流，markdown 只认一个子集，代码块不着色。
@@ -379,7 +389,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，64 个文件 1121 个用例
+pnpm test        # 测试，66 个文件 1141 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
@@ -410,6 +420,7 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 - P4e 设计（CI 与工程化）：[`docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md)
 - P5 设计（内建与分发）：[`docs/superpowers/specs/2026-10-11-deepcode-p5-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p5-design.md)
 - P6 设计（界面与交互）：[`docs/superpowers/specs/2026-10-11-deepcode-p6-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p6-design.md)
+- P7 设计（记忆与上下文）：[`docs/superpowers/specs/2026-10-11-deepcode-p7-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p7-design.md)
 - 架构参考：`claude-code-架构分析/`
 
 官网产物就是 `site/` 这**一整个目录**，拷到任意静态主机即可（无构建步骤，页面里没有绝对路径）；

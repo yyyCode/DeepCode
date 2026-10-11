@@ -83,8 +83,20 @@ export type CliPluginDeps = {
    * 压缩入口（`/compact` 用）。**延迟取的回调**：压缩器要到 `createEngine` 之后才建得出来
    * （它需要 `dispatch`），而这张表是那之前装的 —— 与 `core/nouns/index.ts` 里那两个
    * `refs` 同一种写法。不给 = 没有 `/compact` 这条命令。
+   *
+   * 参数是 `/compact <说明>` 的那段说明（P7 §3.3）。
    */
-  readonly compact?: () => Promise<void>;
+  readonly compact?: (instructions?: string) => Promise<void>;
+  /**
+   * `/context` 的几行（P7 §3.1）。同样是延迟取的回调：它要读最近一次建出来的系统提示
+   * 分节，而那份要到第一个 turn 才存在。不给 = 没有 `/context` 这条命令。
+   */
+  readonly context?: () => readonly string[];
+  /**
+   * 落盘游标归零（`/clear` 用，P7 §3.6）。落盘器建在 `createEngine` **之前**
+   * （`main.ts` 里紧跟 `--resume` 之后），所以这个不是延迟取的回调 —— 直接给就行。
+   */
+  readonly reseed?: (length: number) => void;
   /**
    * 问一条命令它自己是什么（`/help` 用）。**同样是延迟取的回调** —— 它要派发
    * `command.describe`，而 `dispatch` 要到 `createEngine` 之后才拿得到。
@@ -171,6 +183,8 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       paneLoaded: deps.paneLoaded,
       ...(deps.paneUnavailable === undefined ? {} : { paneUnavailable: deps.paneUnavailable }),
       ...(deps.compact === undefined ? {} : { compact: deps.compact }),
+      ...(deps.context === undefined ? {} : { context: deps.context }),
+      ...(deps.reseed === undefined ? {} : { reseed: deps.reseed }),
       ...(deps.describeCommand === undefined ? {} : { describeCommand: deps.describeCommand }),
     }),
     // /permissions 同理。

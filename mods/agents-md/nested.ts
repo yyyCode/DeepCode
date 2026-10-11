@@ -21,13 +21,25 @@ export function createAgentsMdPlugin(deps: AgentsMdDeps): Plugin {
   // 同层去重：一个文件一次会话只附一次。
   // "一次会话"以**插件实例**为界 —— `--resume` 起新实例会再附一次，可接受：
   // 重新开一段对话，重新给一遍上下文是对的。
+  //
+  // ⚠️ **压缩之后要清掉这张表**（P7 §3.4，见下面那条 `session.compact`）：压缩把附在
+  // `Read` 结果后面的约定从上下文里拿掉了，而这张表还记着"附过了" —— 于是它**永远不会
+  // 再被附上**，模型丢了约定还不知道自己丢了。这就是"记忆越压越糊"的入门形状。
+  // 复刻对象的正确姿势写在 `InstructionsLoaded.load_reason` 里：有 `'compact'` 这个取值
+  // —— **压缩边界上重新装载文件，而不是把文件压进摘要**（对话有损、文件无损）。
   const attached = new Set<string>();
 
   return {
     name: 'agents-md',
-    uses: ['tool.call', 'fs', 'session'],
+    uses: ['tool.call', 'fs', 'session', 'session.compact'],
 
     register(on) {
+      // 压缩是**纯通知**（派在改之前），这里只看一眼就把话传下去 —— 不拦、不改。
+      on('session.compact', (_$, e, next) => {
+        attached.clear();
+        return next(e);
+      });
+
       on('tool.call', { tool: 'Read' }, async ($, e, next) => {
         const result = await next(e);
 

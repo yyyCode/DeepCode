@@ -576,7 +576,7 @@ describe('cli 命令：/diff 与 /clear', () => {
   });
 
   /** 真临时目录 + 真 SessionChanges + 把消息收进 logs 的假 $。 */
-  function setup() {
+  function setup(over: { reseed?: (length: number) => void } = {}) {
     const root = mkdtempSync(join(tmpdir(), 'deepcode-cmd-'));
     roots.push(root);
 
@@ -596,6 +596,8 @@ describe('cli 命令：/diff 与 /clear', () => {
       palette: createPalette(false),
       // 这一组测的是 CLI 自己那一份 `/diff`（mod 不在场时的形状）。
       paneLoaded: false,
+      // 落盘游标是 REPL 那边的东西，这一组不落盘 —— 想看它被复位就得自己记一笔。
+      ...(over.reseed === undefined ? {} : { reseed: over.reseed }),
     });
     plugin.register(((pattern: string, second: any, third?: any) => {
       if (third !== undefined) h.on('builtin', plugin.name, pattern, second, third as EventHook);
@@ -664,6 +666,20 @@ describe('cli 命令：/diff 与 /clear', () => {
     expect(result).toEqual({ handled: true });
     expect(messages.length).toBe(0); // 清的是 REPL 手里那个同一个引用
     expect(logs.join('\n')).toContain('已清空上下文');
+  });
+
+  it('P7 §3.6 /clear 顺手把落盘游标归零（不归零 = 新对话的头几条静默不落盘）', async () => {
+    // 数组被清空、游标还停在 N：下一批消息是「新对话的第 1 条」，落盘器却按 `slice(N)`
+    // 去取 —— 前 N 条永远写不下去，而转录看上去一切正常。这条测试钉的就是那一句 `reseed(0)`。
+    const seen: number[] = [];
+    const { h, messages } = setup({ reseed: (length) => seen.push(length) });
+    messages.push({ role: 'user', content: '一' });
+    messages.push({ role: 'assistant', content: [{ type: 'text', text: '二' }] });
+    messages.push({ role: 'user', content: '三' });
+
+    await run(h, 'clear');
+
+    expect(seen).toEqual([0]);
   });
 });
 

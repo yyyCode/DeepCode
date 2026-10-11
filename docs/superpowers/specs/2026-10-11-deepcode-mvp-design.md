@@ -394,21 +394,21 @@ DeepCode/
 
 ### 9.2 模块 × 阶段矩阵
 
-| 模块 | **MVP** | **P1 会话与体验**（已完成） | **P2 安全与策略**（已完成） | **P3 扩展面**（已完成） | **P4 组合面**（已完成） | **P5 内建与分发**（已完成） | **P6 界面与交互**（已完成） |
-|---|---|---|---|---|---|---|---|
-| `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 **已完成**（只桥 3 个，见 P3 设计 §11 偏差 4） | `AgentSpec` 全字段 | — | — |
-| **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 **已完成** | — | — | — |
-| **provider** | Anthropic 适配器 | OpenAI 兼容适配器 | gateway / `base_url` 收口 | — | — | — | — |
-| **工具** | 6 个核心工具 | +TodoWrite/WebFetch/WebSearch | 按权限过滤工具可见性 **已完成**（只对整工具 deny 生效，见 P2 设计 §5.2） | MCP 桥接 | Task 工具（派子代理） | — | — |
-| **权限安全** | 最小确认 y/N | — | 5 层来源 + allow/ask/deny（含 `Bash(git push:*)` 带参匹配）+ `sec-default` 守门器 + deny 带规则名（**不做重放**，见 P2 设计 §11 偏差 1）**已完成** | — | 沙箱（**仅 Bash**） | MDM 托管推送 | — |
-| **指令文件** | — | CLAUDE.md 两层 | — | — | AGENTS.md 惰性嵌套 + 双层去重 | 五层优先级 + 托管下发 | — |
-| **扩展面** | — | — | — | 拆 workspaces + `plugin.json` + 五类约定目录 + `${CLAUDE_PLUGIN_ROOT}` + `validate` 子命令 **部分完成**（`plugin.json` / 约定目录的发现与校验 / `${CLAUDE_PLUGIN_ROOT}` / `plugin list`·`validate` 都做了；**workspaces 没拆**，见 P3 设计 §11 偏差 3） | marketplace | 第三方插件生态 | — |
-| **hooks** | — | — | — | classic hooks（stdin/stdout JSON · exit 0/1/2 · matcher · 按事件输出白名单） **部分完成**（前三项做了；`type:"prompt"` 与正则 matcher 不支持，输出只收阻断类字段 —— 没有 `additionalContext`/`updatedInput` 的着陆点，见 §11 偏差 2、4） | hookify DSL | — | — |
-| **组合面** | — | 斜杠命令完备 | — | — | 子代理 + 技能 + `description` 路由 + 渐进式披露 + 模型分层 + 上下文隔离 | Agent SDK | — |
-| **会话** | 内存 transcript | 落盘 + `--resume` | — | — | 上下文压缩 | — | — |
-| **UI** | 纯文本流 | cli 层自用 Ink 组件（spinner / diff / 确认框，**不走事件**） | — | `ui.render` 数据树 + `$.ui.resolve` 逐 surface 元素表（**渲染首次暴露为事件给插件**） | 多 surface | 桌面 / IDE 扩展 | 活动面 / 内容面 / 改动面 / 输入面 **已完成**（行内增强，UI 是**既有事件的观察者**；`ui.render` 数据树**仍未做**，理由见 P6 设计 §2.3） |
-| **内建 mod** | — | `/diff` 雏形 | — | — | telemetry 零自由文本行协议 | diff 分屏 + agents-md 范式 | — |
-| **CI 分发** | lint + test | — | — | 校验器进 CI | 硬化三件套 | 安装面 + gateway + CHANGELOG 产品面 | — |
+| 模块 | **MVP** | **P1 会话与体验**（已完成） | **P2 安全与策略**（已完成） | **P3 扩展面**（已完成） | **P4 组合面**（已完成） | **P5 内建与分发**（已完成） | **P6 界面与交互**（已完成） | **P7 记忆与上下文**（已完成） |
+|---|---|---|---|---|---|---|---|---|
+| `contract` | 39 事件全量冻结 | 补 `ui.*` 实现类型 | `settings`/`permissions` 类型 | `classic.*` 33 事件 **已完成**（只桥 3 个，见 P3 设计 §11 偏差 4） | `AgentSpec` 全字段 | — | — | — |
+| **引擎内核** | 12 事件、2 层实落、`next` 全签名 | 座位算法完整版 | `next.to` 生效 + deny 重放 | `plugin.register` 准入闸门 **已完成** | — | — | — | — |
+| **provider** | Anthropic 适配器 | OpenAI 兼容适配器 | gateway / `base_url` 收口 | — | — | — | — | — |
+| **工具** | 6 个核心工具 | +TodoWrite/WebFetch/WebSearch | 按权限过滤工具可见性 **已完成**（只对整工具 deny 生效，见 P2 设计 §5.2） | MCP 桥接 | Task 工具（派子代理） | — | — | — |
+| **权限安全** | 最小确认 y/N | — | 5 层来源 + allow/ask/deny（含 `Bash(git push:*)` 带参匹配）+ `sec-default` 守门器 + deny 带规则名（**不做重放**，见 P2 设计 §11 偏差 1）**已完成** | — | 沙箱（**仅 Bash**） | MDM 托管推送 | — | — |
+| **指令文件** | — | CLAUDE.md 两层 | — | — | AGENTS.md 惰性嵌套 + 双层去重 | 五层优先级 + 托管下发 | — | 每轮重算 + 压缩边界上重装 **已完成** |
+| **扩展面** | — | — | — | 拆 workspaces + `plugin.json` + 五类约定目录 + `${CLAUDE_PLUGIN_ROOT}` + `validate` 子命令 **部分完成**（`plugin.json` / 约定目录的发现与校验 / `${CLAUDE_PLUGIN_ROOT}` / `plugin list`·`validate` 都做了；**workspaces 没拆**，见 P3 设计 §11 偏差 3） | marketplace | 第三方插件生态 | — | — |
+| **hooks** | — | — | — | classic hooks（stdin/stdout JSON · exit 0/1/2 · matcher · 按事件输出白名单） **部分完成**（前三项做了；`type:"prompt"` 与正则 matcher 不支持，输出只收阻断类字段 —— 没有 `additionalContext`/`updatedInput` 的着陆点，见 §11 偏差 2、4） | hookify DSL | — | — | — |
+| **组合面** | — | 斜杠命令完备 | — | — | 子代理 + 技能 + `description` 路由 + 渐进式披露 + 模型分层 + 上下文隔离 | Agent SDK | — | — |
+| **会话** | 内存 transcript | 落盘 + `--resume` | — | — | 上下文压缩 | — | — | `/context` 账本 + 两道断电器 + `/compact <说明>`（含 `/clear` 游标修复）**已完成** |
+| **UI** | 纯文本流 | cli 层自用 Ink 组件（spinner / diff / 确认框，**不走事件**） | — | `ui.render` 数据树 + `$.ui.resolve` 逐 surface 元素表（**渲染首次暴露为事件给插件**） | 多 surface | 桌面 / IDE 扩展 | 活动面 / 内容面 / 改动面 / 输入面 **已完成**（行内增强，UI 是**既有事件的观察者**；`ui.render` 数据树**仍未做**，理由见 P6 设计 §2.3） | — |
+| **内建 mod** | — | `/diff` 雏形 | — | — | telemetry 零自由文本行协议 | diff 分屏 + agents-md 范式 | — | 压缩边界上清去重表（重装那一半）**已完成** |
+| **CI 分发** | lint + test | — | — | 校验器进 CI | 硬化三件套 | 安装面 + gateway + CHANGELOG 产品面 | — | — |
 
 > **P3 已完成（2026-10-11）**。实际交付这 5 项，逐条与偏差见 `2026-10-11-deepcode-p3-design.md` §11：
 >
@@ -450,6 +450,7 @@ DeepCode/
 | **P4** | 一个 `agents/*.md` 子代理能被 `description` 正确路由，且工具白名单生效（未列出的工具调用被拒） |
 | **P5** | 三个内建 mod 全部通过各自测试套件，可选依赖缺失时主流程无损；CI 里 workflow 硬化校验器能在漏配 firewall runner 时让流水线失败 |
 | **P6**（**已完成** 2026-10-11） | 四条（逐条判据见 `2026-10-11-deepcode-p6-design.md` §1）：① 执行过程中终端看得见每个工具的开始 / 结束 / 耗时 / 结果摘要，且同一条命令管道出去逐字节与 P6 之前相同；② 工具结果在终端被截断、回给模型的是完整原文（两条断言同时存在才算）；③ 这一阶段 `src/core/**` 没有行为改动（UI 是插件不是内核）；④ `NO_COLOR` / `TERM=dumb` / 拿不到宽度时全部降级为人话，不留残缺框线 |
+| **P7**（**已完成** 2026-10-12） | 四条（逐条判据见 `2026-10-11-deepcode-p7-design.md` §1）：① `/context` 报得出这一轮上下文的构成（系统提示逐节 / 会话消息 / 阈值 / 上次实测），且**明说自己不知道模型窗口** —— 不报"还剩多少"；② `/compact <说明>` 的那段说明真的进了摘要那一轮；③ 压缩边界上被压掉的目录约定**重新附上**；④ 摘要连续失败 3 次、或连压 3 次仍超阈值 → **停手**，报一条可操作的错（不是每轮再试一次并刷屏） |
 
 ### 9.4 明确不做（YAGNI）
 

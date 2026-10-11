@@ -36,6 +36,7 @@
 | P6b 内容面 | markdown 子集、按行缓冲的流式、折行 | `p6-design.md:45` | 同上 |
 | P6c 改动面 | 一份账两个消费者、确认框预览、`+N −M` | `p6-design.md:46` | 同上 |
 | P6d 输入面 | 行队列（空窗）、去抖、历史、补全、续行 | `p6-design.md:47` | 同上 |
+| P7 记忆与上下文 | `/context` 账本、每轮重算注入面、`/compact <说明>`、压缩后重装、断电器 | `p7-design.md:11` | `p7-design.md:226` |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
@@ -323,6 +324,49 @@ interactive)`，并把"`parseArgs([]).text` 就是空串"也钉一条测试。�
 
 **刻意不做**：`p6-design.md:293` §7 —— 全屏 alternate screen、语法高亮、鼠标、`ui.render`
 数据树、多 surface、进度条、表格渲染、主题系统、打字机动画、任何形态的自动放行开关、没接上的 `esc` 键。
+
+---
+
+## P7 记忆与上下文
+
+**范围**：`cli/context-view.ts`（`/context` 的账本，纯函数）、`cli/system-prompt.ts`
+（系统提示从"启动算一次"改成每轮重算）、`cli/compact.ts`（`/compact <说明>` 与两道断电器）、
+`cli/commands.ts` / `cli/plugins.ts` / `cli/repl.ts` / `cli/main.ts` 的接线、
+`mods/agents-md/nested.ts`（压缩边界上清去重表）。
+
+**不新增存储层，也不新增事件**：这一阶段补的是**已有三层**（指令文件 / 转录 / 压缩）的
+账本、权威面与失败方向。`session.compact` 仍是纯通知（派在改之前），`prompt.section` /
+`agent.offer` 仍是启动时就有的那两个缝。
+
+**出口标准**（`p7-design.md:11`，四条）：`/context` 报得出构成且**明说自己不知道模型窗口**；
+`/compact <说明>` 的说明真的进摘要那一轮；压缩边界上被压掉的目录约定**重新附上**；
+摘要连续失败 3 次或连压 3 次仍超阈值 → **停手**并报一条可操作的错。
+
+**预登记偏差**（`p7-design.md:226`）：
+
+| # | 行 | 偏离 |
+| --- | --- | --- |
+| 1 | :228 | 账本只报阈值与构成，**不报"还剩多少"** —— 没有模型注册表，猜一个窗口就是编数字 |
+| 2 | :230 | 每轮重算 ⇒ 系统提示的**字节可能在会话中途变化**（每轮多几次文件读；我们不主动管 prompt cache） |
+| 3 | :232 | 断电器那两个 **3 是照抄复刻对象的数**，不是我们测出来的经验值（代码注释里标了出处） |
+| 4 | :234 | `/clear` 的游标修复**救不了已经写坏的转录**，只保证之后的会话不错位 |
+| 5 | :236 | `/context` 的 token 数是**估的**（4 字符 1 token，中英混排失真）；只有端点报的 usage 那一行不是估的，所以它**单独列** |
+
+**施工阶段实际发生的一处**：`/clear` **清空上下文却没重置落盘游标**（`p7-design.md:185`
+§3.6 那条的设计对象，写设计时才发现）。数组被清空、游标还停在旧的长度 N —— 新对话的前 N 条
+消息**一条都不落盘**，等数组再长过 N，`slice(N)` 从新数组的中段开始写，盘上变成"旧对话 + 新
+对话的一段尾巴"，而转录看上去一切正常、`--resume` 接回来才发现少了开头。压缩那条路一直有
+`reseed`（`compact.ts`），`/clear` 这条从 P1 起就漏了。修法：`/clear` 里补一句
+`deps.reseed?.(0)`，并把"数组被改短就要 reseed"写进 README 的「会话落盘」一节。
+**反向验证做了**：把 `reseed?.(0)` 那一句删掉，`test/cli.test.ts` 里新加的那条立刻红；
+把 `mods/agents-md/nested.ts` 里 `attached.clear()` 删掉，「压缩后重新附上」那条立刻红 ——
+两条都是"不红就是摆设"的对照。
+
+**刻意不做**：`p7-design.md:209` §4 十条，逐条给了"不追"的理由 —— 语义检索 / embedding、
+auto-memory 与 `MEMORY.md`、记忆文件注入面消毒、`/rewind` + 文件版本备份、prompt cache
+稳定性清单、投机压缩 `precompute`、工具结果外置落盘、每轮注入"剩余预算"提示、
+`PreCompact` 可否决与 `session.summarize`、`PostCompact` 读摘要全文。
+其中"注入面消毒"记的是**等有了引擎写入者就必须跟着做的第一件事**，不是忘了。
 
 ---
 
