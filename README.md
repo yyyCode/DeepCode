@@ -71,6 +71,19 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
 **优先级：环境变量 > 项目级 > 用户级。** 两层都有时逐字段合并，不是整体替换 ——
 项目级只写 `model`，用户级的 `baseUrl` 仍然生效。
 
+不用编辑器也行：
+
+```bash
+deepcode config list                # 生效的每一项、当前值、从哪来的（env / user / project / default）
+deepcode config set model <名字>     # 写进用户级 ~/.deepcode/config.json
+```
+
+**可写的只有 `model` 一个。** `config list` 把每一项的来源都标出来，就是为了让"想改哪一层"
+先有个答案；**它会碰的设置一个字都不碰** —— `config.json` 与 `settings.json` 是两份文件，
+权限、沙箱、插件那些在后者里，`config set` 够不着。一条命令替你把代码放行或把闸门拧松，
+与这个项目禁掉 `--yes` 是同一条理由。写入是原子的（先写临时文件再 `rename`），
+权限 `0600`。
+
 ```json
 {
   "apiKey": "sk-ant-...",
@@ -356,7 +369,7 @@ deepcode plugin remove <名字>        # 从落点删掉
 marketplace 就是一份本地目录：`<目录>/.deepcode-plugin/marketplace.json` 列出若干条目，
 每条一个 `name` 与一个相对的 `source`。**只有本地索引**：没有网络、没有签名与校验和、
 没有版本与升级（要更新就是 `remove` 之后再 `add`）。仓库自己那份在
-[`.deepcode-plugin/marketplace.json`](.deepcode-plugin/marketplace.json)，列的就是下面那两个插件。
+[`.deepcode-plugin/marketplace.json`](.deepcode-plugin/marketplace.json)，列的就是下面那三个插件。
 
 一份插件至少要有 `plugin.json`（`name` / `version`），可以再带：
 
@@ -364,6 +377,36 @@ marketplace 就是一份本地目录：`<目录>/.deepcode-plugin/marketplace.js
   注册 hook。仓库里的 [`plugins/todo`](plugins/todo/) 是这样加了一个新工具。
 - 一份 `hooks/hooks.json` —— Claude Code 风格的 classic 钩子。仓库里的
   [`plugins/secret-guard`](plugins/secret-guard/) 用它拦下了往仓库里写密钥。
+- 两者都行 —— [`plugins/hookify`](plugins/hookify/) 是一份 `hooks.json` 加一个纯逻辑模块：
+  规则用**数据**写，钩子只负责把规则读进来、把判定吐出去。
+
+hookify 值得单独说一句，因为它演示的是"**加一套语法**"而不是"加一个工具"：你在项目里放一个
+`.deepcode/hookify.<随便什么>.local.md`，它就被编译成一个 `PreToolUse` 判定。
+
+```markdown
+---
+name: no-aws-keys
+tool: Write|Edit
+field: content
+operator: matches
+pattern: AKIA[0-9A-Z]{16}
+decision: deny
+message: 文件里出现了形似 AWS access key 的东西
+---
+
+要写就先把 key 换成占位符，或者从环境变量读。
+```
+
+判定词汇**只有 `deny` 与 `ask`**：`decision: allow` 会被当成规则文件的错误当场点名。
+理由与上面那条一模一样 —— 一个插件的 `allow` 是空头承诺，支持它只会让人写出一条看起来
+生效、其实什么都不做的规则。
+
+> ⚠️ **一个写坏的规则文件会让你的 `Write` / `Edit` / `Bash` 全部被拒绝**，直到修好或删掉它。
+> 规则文件读不动、frontmatter 缺字段、算子是写错的、正则编译不过、钩子进程自己崩了 ——
+> 一律非零退出，而非零就是 `deny`（这就是 fail-closed 的代价，如实写在这里）。
+> 报错会点名是哪个文件、哪一行。参考实现的 hookify 在这里反着来：它在 `finally` 里
+> `sys.exit(0)`，注释写着"钩子出错永远不该阻断操作"。我们不接受那个方向 ——
+> 一个读不懂自己规则的守卫，比一个假装没事的守卫危险。
 
 **第三方插件只能拧紧，不能拧松。** 这不是约定，是结构：
 
@@ -454,7 +497,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   它下面的孙进程可能继续残留（没有进程组）。
 - **没有 TUI、没有语法高亮**：现在有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，
   也不走 `ui.render` 事件（那一层排到 P3）。
-- **39 个事件里实现了 16 个**：其余 23 个已声明、未实现，用到时会抛 `NotImplementedError`。
+- **39 个事件里实现了 19 个**：其余 20 个已声明、未实现，用到时会抛 `NotImplementedError`。
 - **非 TTY 下 REPL 收不到输入**：`echo '/diff' | deepcode` 这种喂法**无效**。readline 在
   `createInterface` 之后就开始读，而 `main()` 到 `startRepl` 挂上第一个监听之间还隔着好几个
   `await`（找或建会话转录、建引擎、`session.start`、读指令文件）—— 管道里的那几行就在这段
@@ -470,7 +513,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，41 个文件 658 个用例
+pnpm test        # 测试，44 个文件 738 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 

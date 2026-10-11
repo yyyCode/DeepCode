@@ -68,7 +68,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>658</b><span>用例全绿 · 41 个文件</span></li>
+    <li><b>738</b><span>用例全绿 · 44 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
     <li><b>16/39</b><span>事件已实现（如实标注）</span></li>
   </ul>
@@ -333,7 +333,7 @@
   </table>
 
   <div class="callout">
-    <p><strong>39 个事件已声明，16 个已实现。</strong>其余 23 个在类型里躺着，
+    <p><strong>39 个事件已声明，19 个已实现。</strong>其余 20 个在类型里躺着，
       用到时会抛 <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
   </div>
 </section>
@@ -343,8 +343,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>658</b>
-      <p>用例，41 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>738</b>
+      <p>用例，44 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -393,7 +393,10 @@
         <code>plugins/todo</code> 加出了一个 <code>TodoWrite</code> 工具，而 <code>src/</code> 里 grep 不到这个名字）；
         <code>deepcode plugin validate &lt;dir&gt;</code> 能拦住坏清单；classic hook 的 <code>exit 2</code>
         能真正阻断工具调用（<code>plugins/secret-guard</code> 拦下了往仓库里写密钥）。
-        <strong>第三方插件只能拧紧不能拧松</strong>：放行判定一律被丢弃，座位强制在最内层。</p>
+        <strong>第三方插件只能拧紧不能拧松</strong>：放行判定一律被丢弃，座位强制在最内层。
+        仓库里还有第三个：<code>plugins/hookify</code> 把 <code>.deepcode/hookify.*.local.md</code>
+        里的<strong>声明式规则</strong>编译成 <code>PreToolUse</code> 判定 —— 加的不是一个工具，
+        是<strong>一套语法</strong>。</p>
     </li>
     <li>
       <div class="road__head"><span class="pill">进行中</span><h3>P4 组合面</h3></div>
@@ -465,6 +468,16 @@
     </article>
 
     <article class="card card--limit">
+      <h3>hookify 的规则写坏了，工具会全停</h3>
+      <p>规则词汇只有 <code>deny</code> / <code>ask</code>（写 <code>allow</code> 是<strong>错误</strong>，
+        会当场点名 —— 插件返回的放行判定在这个框架里一律被丢弃）。而任何说不清的规则文件
+        —— 缺字段、算子写错、正则编译不过、钩子进程崩了 —— 一律非零退出，非零就是 <code>deny</code>。</p>
+      <p class="card__cost">于是一个写坏的规则文件会让 <code>Write</code> / <code>Edit</code> /
+        <code>Bash</code> <strong>全部被拒绝</strong>，直到修好它。我们接受这个代价 ——
+        一个读不懂自己规则的守卫，比一个假装没事的守卫危险。</p>
+    </article>
+
+    <article class="card card--limit">
       <h3>marketplace 只做本地索引</h3>
       <p><code>plugin add</code> 从一份<strong>本地</strong>索引把插件拷进落点
         <code>~/.deepcode/installed/</code>：不 fetch、不 clone、不 HTTP，没有签名与校验和。</p>
@@ -494,9 +507,16 @@ EOF">复制</button>
       <code class="install__cmd">cd /你的项目 &amp;&amp; deepcode "跑一下测试，把失败的那条修掉"</code>
       <button class="copy" type="button" data-copy='cd /你的项目 &amp;&amp; deepcode "跑一下测试，把失败的那条修掉"'>复制</button>
     </div>
+    <div class="install__row">
+      <code class="install__cmd">deepcode config list &amp;&amp; deepcode config set model &lt;名字&gt;</code>
+      <button class="copy" type="button" data-copy="deepcode config list &amp;&amp; deepcode config set model &lt;名字&gt;">复制</button>
+    </div>
   </div>
   <p class="muted">key 也可以放环境变量（<code>ANTHROPIC_API_KEY</code>），或者换成任何 Anthropic / OpenAI
-    兼容的端点 —— 改 <code>apiKey</code> / <code>baseUrl</code> / <code>model</code> 三样就行。</p>
+    兼容的端点 —— 改 <code>apiKey</code> / <code>baseUrl</code> / <code>model</code> 三样就行。
+    <code>config list</code> 把每一项的值与来源（env / user / project / default）打出来；
+    <code>config set</code> <strong>只有 <code>model</code> 可写</strong>，写进用户级
+    <code>config.json</code>，而权限 / 沙箱 / 插件在另一份 <code>settings.json</code> 里，它一个都不碰。</p>
 </section>
 
 </main>
