@@ -47,7 +47,8 @@
 `#19 site-centered-topo`（置中版式 + 拓扑图第一版）、`#20 site-topo-svg`（那版图还是文字，改成 SVG）、
 `#21 site-topo-overlap`（连线把标题划穿了）、`#22 site-modules`（图撤了，换成六个核心模块）、
 `#23 p7-memory-context`（P7 记忆与上下文）。
-`#26 p8-execution-loop`（P8 执行循环的收场）、`#28 p9-tool-listing`（P9 工具清单）。
+`#26 p8-execution-loop`（P8 执行循环的收场）、`#28 p9-tool-listing`（P9 工具清单）、
+`#30 p10-agent-boundary`（P10 子代理的边界）。
 
 ---
 
