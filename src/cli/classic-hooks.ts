@@ -70,7 +70,14 @@ function makeCheck(deps: ClassicHooksDeps, group: ResolvedHookGroup) {
       const verdict = classify(result);
 
       const said = result.stdout.trim();
-      if (said !== '') $.ui.log(`[钩子 ${deps.plugin}] ${said}`);
+      // stdout 是带判定的 JSON 时，它是**协议**不是给人看的话 —— 原样回显只会是一行生 JSON。
+      // 只有 classify 说"没意见"（纯文本 stdout，读不出判定）时才当说明打出来。
+      // 在此之前没有任何钩子走过 JSON 判定这条路（现有的那个用 exit 2 + stderr，
+      // stdout 是空的），所以这一行一直潜伏着没被发现。
+      //
+      // 注释里刻意不写是哪个插件踩到的：`plugin-e2e.test.ts` 有一条断言按**字面文本**
+      // 扫 src/，要求那儿一个字的插件名都没有。那条绝对性是有意留的，别为了写清来龙去脉破它。
+      if (said !== '' && verdict.kind === 'silent') $.ui.log(`[钩子 ${deps.plugin}] ${said}`);
 
       if (verdict.kind === 'block' || verdict.kind === 'fail') {
         return {

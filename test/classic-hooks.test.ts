@@ -119,11 +119,22 @@ describe('PreToolUse → tool.check', () => {
     expect(result.rule).not.toContain('仓库里不许'); // 第二条没跑
   });
 
-  it('钩子写进 stdout 的东西照旧打给人看', async () => {
+  it('钩子往 stdout 写的**纯文本**照旧打给人看', async () => {
     const lines: string[] = [];
-    const h = mount([group('PreToolUse', 'say-allow.mjs')], lines, []);
+    const h = mount([group('PreToolUse', 'plain-text.mjs')], lines, []);
+    // 纯文本 stdout 读不出判定，classify 当它没意见 —— 但这句话是给人看的，要打。
     await h.dispatch('tool.check', WRITE, CORE_ORIGIN);
-    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.join('\n')).toContain('改完记得跑 fmt');
+  });
+
+  it('stdout 是**带判定的 JSON** 时不回显 —— 它是协议，不是给人看的话', async () => {
+    const lines: string[] = [];
+    const h = mount([group('PreToolUse', 'say-deny.mjs')], lines, []);
+    await h.dispatch('tool.check', WRITE, CORE_ORIGIN);
+    // 这一条是防回显的：理由走 result.rule（模型看得见的那句），不该再原样打一行 JSON 到屏幕上。
+    const said = lines.join('\n');
+    expect(said).not.toContain('hookSpecificOutput');
+    expect(said).not.toContain('permissionDecision');
   });
 });
 
