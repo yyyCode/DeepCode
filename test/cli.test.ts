@@ -58,6 +58,7 @@ const NO_POLICY: ResolvedPolicy = {
   compact: DEFAULT_COMPACT,
   telemetry: DEFAULT_TELEMETRY,
   plugins: NO_PLUGIN_POLICY,
+  instructions: [],
 };
 /** 真实清单里的 confirm 会问 `$.ui.ask`，不给 engine 桩的话整条链会炸。 */
 const NOOP_UI = {
@@ -296,6 +297,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
         compact: DEFAULT_COMPACT,
         telemetry: DEFAULT_TELEMETRY,
         plugins: NO_PLUGIN_POLICY,
+        instructions: [],
       },
       NOOP_UI,
       // 真实内核的 tool.check 兜底是 fail-closed 的 deny，这里照抄一份：
@@ -613,6 +615,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       compact: DEFAULT_COMPACT,
       telemetry: DEFAULT_TELEMETRY,
       plugins: NO_PLUGIN_POLICY,
+      instructions: [],
     };
   }
 
@@ -649,6 +652,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       compact: DEFAULT_COMPACT,
       telemetry: DEFAULT_TELEMETRY,
       plugins: NO_PLUGIN_POLICY,
+      instructions: [],
     };
     seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');
 

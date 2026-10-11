@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isSupported, parseRule, type Behavior, type Rule } from '../contract/policy';
+import type { ManagedInstruction } from '../contract/instructions';
 import { sandboxRule, type SandboxConfig } from '../contract/sandbox';
 import { isPluginName } from '../contract/plugin-manifest';
 import { DEFAULT_TELEMETRY, type TelemetryPolicy } from '../contract/telemetry';
@@ -97,7 +98,14 @@ const EMPTY_SANDBOX_LAYER: SandboxLayer = { enabled: false, deny: [], allow: [] 
 type CompactLayer = Partial<CompactConfig>;
 
 /** 认得出来的顶层键。**加一个顶层块就得加一项** —— 漏了就是给用户发一条假警告。 */
-const KNOWN_TOP_LEVEL = new Set(['permissions', 'plugins', 'sandbox', 'compact', 'telemetry']);
+const KNOWN_TOP_LEVEL = new Set([
+  'permissions',
+  'plugins',
+  'sandbox',
+  'compact',
+  'telemetry',
+  'instructions',
+]);
 
 export type SourceInfo = {
   readonly source: SettingsSource;
@@ -149,6 +157,15 @@ export type ResolvedPolicy = {
    * 但判定要用到五层读完之后的结论。
    */
   readonly telemetry: TelemetryPolicy;
+  /**
+   * 托管层下发的指令段（P5b）。**只有 policy 一层能写** —— 与 `sandbox.paths.allow`、
+   * `plugins.enable`（托管层写了会被丢）同一条规矩：让一份克隆下来的仓库文件
+   * 往你每一次系统提示里塞一段话，正是"个人配置掀翻托管策略"的入场券。
+   *
+   * 它不在这里拼进提示：提示是插件的活。这一段作为**数据**进 `ModDeps`
+   * 交给 `agents-md` mod（`main.ts` 那一行）。
+   */
+  readonly instructions: readonly ManagedInstruction[];
 };
 
 /**
@@ -225,6 +242,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   const sandboxLayers = new Map<SettingsSource, SandboxLayer>();
   const compactLayers = new Map<SettingsSource, CompactLayer>();
   const telemetryLayers = new Map<SettingsSource, TelemetryLayer>();
+  const instructionLayers = new Map<SettingsSource, readonly ManagedInstruction[]>();
 
   for (const layer of layers) {
     const read = await readLayer(layer, deps.home, warn, readText);
@@ -234,6 +252,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     sandboxLayers.set(layer.source, read.sandbox);
     compactLayers.set(layer.source, read.compact);
     telemetryLayers.set(layer.source, read.telemetry);
+    instructionLayers.set(layer.source, read.instructions);
   }
 
   const withSource = (source: SettingsSource, names: readonly string[]): readonly PluginRule[] =>
@@ -301,6 +320,10 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     sandbox,
     compact,
     telemetry,
+    // 只有托管层的话能到这儿 —— 别的层写了会在 readInstructions 里被丢掉并出声。
+    // 不必像 sandbox 那样再遍历一遍其余四层：丢弃就发生在解析那一层，
+    // 这里取 policy 那一份就是全部（不并集，也不覆盖）。
+    instructions: instructionLayers.get('policy') ?? [],
   };
 }
 
@@ -323,6 +346,7 @@ type LayerRead = {
   readonly sandbox: SandboxLayer;
   readonly compact: CompactLayer;
   readonly telemetry: TelemetryLayer;
+  readonly instructions: readonly ManagedInstruction[];
 };
 
 async function readLayer(
@@ -341,6 +365,7 @@ async function readLayer(
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
       telemetry: {},
+      instructions: [],
     };
   }
 
@@ -353,6 +378,7 @@ async function readLayer(
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
       telemetry: {},
+      instructions: [],
     };
   };
 
@@ -371,6 +397,7 @@ async function readLayer(
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
       telemetry: {},
+      instructions: [],
     };
   }
 
@@ -406,6 +433,10 @@ async function readLayer(
   const compact = readCompact(record.compact, layer, where, warn);
   // 同在 permissions 的早期 return 之前 —— 一份只写 telemetry 的设置文件不该被丢掉。
   const telemetry = readTelemetry(record.telemetry, layer, where, warn);
+  // ⚠️ 与 plugins / sandbox / telemetry 同一条：**必须在 permissions 的早期 return
+  // 之前**。一份只写了 instructions、没有 permissions 的托管设置不该被丢掉 ——
+  // 而"组织只下发了一段话"恰恰是最典型的那一种。这一格踩过同一个坑，别再踩。
+  const instructions = await readInstructions(record.instructions, layer, where, warn, readText);
 
   if (raw === undefined) {
     return {
@@ -415,6 +446,7 @@ async function readLayer(
       sandbox,
       compact,
       telemetry,
+      instructions,
     };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -466,6 +498,7 @@ async function readLayer(
     sandbox,
     compact,
     telemetry,
+    instructions,
   };
 }
 
@@ -683,6 +716,101 @@ function readTelemetry(
   }
 
   return { enabled: record.enabled };
+}
+
+/**
+ * 解析一层的 `instructions` 段（P5b）—— 托管层下发指令内容。
+ *
+ * 形状：
+ *
+ *   "instructions": { "text": "一段话", "files": ["/etc/deepcode/policy.md"] }
+ *
+ * 两个字段都可省；`text` 排在前，`files` 按给的顺序排在后
+ * （顺序可预期，才好被钉 —— 与 `INSTRUCTION_LAYERS` 那条同一个道理）。
+ *
+ * ⚠️ **只有托管层收下**，别的层写了就整项丢掉并出声。方向与 `telemetry`
+ * （只有用户层能开）相反，道理是同一条：这一段的用处是"组织往每一次系统提示里放一句话"，
+ * 让一份克隆下来的仓库文件也能做到这件事，等于把"个人配置掀不翻托管策略"反过来。
+ * 这就是设计 §4.2 那句判据的落法：把托管那份抄进个人规则里想覆盖它 →
+ * 被忽略，并且被告知已丢弃。
+ *
+ * 形状错的处置沿用 `sandbox` 那一档（**块内降级 + 出声**，不废掉整份文件）：
+ * 它不裁决任何动作，读不懂就不动，比"整层作废"少一次意外。
+ *
+ * 唯一格外要吼的是**点名的文件读不动 / 不存在**：那是组织配错了，
+ * 而"安静的失效"是这个项目最想防的失败形状（`defaultTextReader` 的注释里
+ * 那条 fail-open 在这儿落第二处 —— 吼一声，但照旧返回，一行配置不该让 CLI 起不来）。
+ */
+async function readInstructions(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  warn: (line: string) => void,
+  readText: TextReader,
+): Promise<readonly ManagedInstruction[]> {
+  if (value === undefined) return [];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    warn(`${label(layer.source)} ${where} 的 instructions 块整块忽略 —— 不是一个对象。`);
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const unknown = Object.keys(record).filter((key) => key !== 'text' && key !== 'files');
+  if (unknown.length > 0) {
+    warn(`${label(layer.source)} ${where} 的 instructions 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+  }
+
+  if (layer.source !== 'policy') {
+    warn(
+      `${label(layer.source)} ${where} 里写了 instructions —— 只有托管层能下发指令` +
+        `（它是组织放进每一次系统提示的一段话），这一份已丢弃：` +
+        `别人仓库里的一份文件不该往你的提示里塞东西。`,
+    );
+    return [];
+  }
+
+  const out: ManagedInstruction[] = [];
+
+  if (record.text !== undefined) {
+    if (typeof record.text !== 'string') {
+      warn(`${label(layer.source)} ${where} 的 instructions.text 不是字符串，按没写处理。`);
+    } else if (record.text.trim() === '') {
+      warn(`${label(layer.source)} ${where} 的 instructions.text 是空的，按没写处理。`);
+    } else {
+      out.push({ label: `${where} 内嵌的 instructions.text`, text: record.text });
+    }
+  }
+
+  if (record.files !== undefined) {
+    if (!Array.isArray(record.files) || record.files.some((item) => typeof item !== 'string')) {
+      warn(`${label(layer.source)} ${where} 的 instructions.files 不是字符串数组，整项忽略。`);
+      return out;
+    }
+    for (const path of record.files as string[]) {
+      const trimmed = path.trim();
+      if (trimmed === '') {
+        warn(`${label(layer.source)} ${where} 的 instructions.files 里有一条是空的。`);
+        continue;
+      }
+      let text: string | undefined;
+      try {
+        text = await readText(trimmed);
+      } catch (error) {
+        warn(
+          `${label(layer.source)} ${where} 点名要的指令文件 ${trimmed} 读不了` +
+            `（${error instanceof Error ? error.message : String(error)}）—— 这一段跳过。`,
+        );
+        continue;
+      }
+      if (text === undefined) {
+        warn(`${label(layer.source)} ${where} 点名要的指令文件 ${trimmed} 不存在 —— 这一段跳过。`);
+        continue;
+      }
+      out.push({ label: trimmed, text });
+    }
+  }
+
+  return out;
 }
 
 /**

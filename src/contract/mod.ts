@@ -1,3 +1,4 @@
+import type { ManagedInstruction } from './instructions';
 import type { Plugin } from './plugin';
 import type { Rule } from './policy';
 import type { TelemetryPolicy } from './telemetry';
@@ -18,6 +19,14 @@ export type ModDeps = {
   readonly telemetry: TelemetryPolicy;
   /** **只**来自 policy 源的那份规则（`sec-default` 的持有物）。 */
   readonly policyRules: readonly Rule[];
+  /**
+   * 托管层下发的指令段（P5b，`agents-md` 的持有物）。与 `policyRules` 同一条：
+   * **只有托管层的话能到这儿** —— 个人层写了会被 `cli/settings.ts` 丢掉并出声。
+   *
+   * ⚠️ **必填**，不给默认 `[]`：给了的话，"忘了接线"会表现成"托管下发静默失效"
+   * 而三条检查全绿（P5a 给 `cliPlugins.mods` 定这条时记的就是同一种形状）。
+   */
+  readonly managedInstructions: readonly ManagedInstruction[];
 };
 
 /**

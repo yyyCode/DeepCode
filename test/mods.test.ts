@@ -22,6 +22,7 @@ const DEPS: ModDeps = {
   warn: () => {},
   telemetry: DEFAULT_TELEMETRY,
   policyRules: [],
+  managedInstructions: [],
 };
 
 function plugin(name: string): Plugin {

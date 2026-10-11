@@ -26,6 +26,7 @@ const POLICY: ResolvedPolicy = {
   compact: DEFAULT_COMPACT,
   telemetry: DEFAULT_TELEMETRY,
   plugins: { enable: [], enableByUser: [], deny: [] },
+  instructions: [],
 };
 
 const THIRD: Plugin = { name: 'todo', uses: [], register: () => {} };
@@ -103,6 +104,43 @@ describe('指令文件真的是从链上来的', () => {
       const result = await dispatch('prompt.section', {}, CORE_ORIGIN);
       const text = result.sections.map((section) => section.text).join('\n');
       expect(text).toContain('这个项目只用 pnpm。');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('托管下发的指令走 `ModDeps` 进来，一路到 prompt.section', async () => {
+    // P5b：`main.ts` 把 `policy.instructions` 塞进 `ModDeps`，`agents-md` 那个 mod
+    // 把它拼在最后。这条钉的是**那条路是通的** —— 少接一根线，托管下发就静默失效，
+    // 而除了这一条，没有任何东西会红。
+    const root = await mkdtemp(join(tmpdir(), 'deepcode-wiring-managed-'));
+    const home = await mkdtemp(join(tmpdir(), 'deepcode-wiring-managed-home-'));
+    try {
+      const b = bundle({
+        root,
+        home,
+        mods: await modPlugins({
+          root,
+          home,
+          managedInstructions: [{ label: '/etc/deepcode/policy.md', text: '组织下发的口令：Zx9' }],
+        }),
+      });
+
+      const { dispatch } = await createEngine({
+        plugins: b.plugins,
+        thirdParty: b.thirdParty,
+        seating: b.seating as never,
+        signal: () => new AbortController().signal,
+        provider: scriptedProvider([]),
+        ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+        sessionInfo: { id: 's1', cwd: root, root },
+        env: {},
+      });
+      const result = await dispatch('prompt.section', {}, CORE_ORIGIN);
+      const text = result.sections.map((section) => section.text).join('\n');
+      expect(text).toContain('组织下发的口令：Zx9');
+      expect(text).toContain('/etc/deepcode/policy.md');
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });

@@ -287,6 +287,7 @@ describe('装配级', () => {
     compact: DEFAULT_COMPACT,
     telemetry: DEFAULT_TELEMETRY,
     plugins: { enable: [], enableByUser: [], deny: [] },
+    instructions: [],
   };
 
   it('cliPlugins 的清单里有 telemetry，且它是第一方（不在第三方名单里）', async () => {

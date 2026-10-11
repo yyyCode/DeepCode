@@ -265,6 +265,7 @@ async function main(): Promise<void> {
       warn: warnLine,
       telemetry: policy.telemetry,
       policyRules: policy.policyRules,
+      managedInstructions: policy.instructions,
     },
     builtinMods(),
   );

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CORE_ORIGIN } from '../../../src/contract/next';
+import type { ManagedInstruction } from '../../../src/contract/instructions';
 import { createEngine } from '../../../src/core/create';
 import { createInstructionsPlugin } from '../instructions';
 import { scriptedProvider } from '../../../test/harness';
@@ -26,9 +27,10 @@ afterAll(async () => {
 
 async function sections(
   files = { root, home },
+  managed: readonly ManagedInstruction[] = [],
 ): Promise<readonly { readonly name: string; readonly text: string }[]> {
   const { dispatch } = await createEngine({
-    plugins: [createInstructionsPlugin(files)],
+    plugins: [createInstructionsPlugin({ ...files, managed })],
     provider: scriptedProvider([]),
     ui: { print: () => {}, notice: () => {}, ask: async () => '' },
     sessionInfo: { id: 's1', cwd: files.root, root: files.root },
@@ -101,6 +103,96 @@ describe('prompt.section：指令文件从事件里来', () => {
     } finally {
       warn.mockRestore();
       await rm(brokenRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * P5b：本机层与托管下发。
+ *
+ * 上面那五条是 P5a 原样搬过来的回归 —— 它们钉的顺序（根 AGENTS → 根 CLAUDE →
+ * 用户层 AGENTS）在这一轮之后**仍然成立**：新加的 `local` 层插在 project 与 user
+ * 之间，`managed` 排在最后，都没有打乱那三份的相对次序。这正是"顺序从
+ * `INSTRUCTION_LAYERS` 推"的好处：改动加一层，不需要去改旧断言。
+ */
+describe('五层：本机层、用户层与托管下发的顺序', () => {
+  /** 造一棵有 project + local 两层的树，返回它的根。 */
+  async function layeredRoot(): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'deepcode-instructions-five-'));
+    await mkdir(join(dir, '.deepcode'), { recursive: true });
+    await writeFile(join(dir, 'AGENTS.md'), '项目层正文', 'utf8');
+    await writeFile(join(dir, '.deepcode', 'AGENTS.md'), '本机层正文', 'utf8');
+    return dir;
+  }
+
+  it('项目 → 本机 → 用户 → 托管：越贴近这个仓库的越靠前，托管最后说话', async () => {
+    const dir = await layeredRoot();
+    try {
+      const text = await sections({ root: dir, home }, [
+        { label: '/etc/deepcode/policy.md', text: '托管层正文' },
+      ]).then((got) => got[0]?.text ?? '');
+
+      // 四份都在，且次序就是契约里那张表。
+      const at = ['项目层正文', '本机层正文', '用户层 AGENTS 正文', '托管层正文'].map((needle) =>
+        text.indexOf(needle),
+      );
+      expect(at.every((i) => i >= 0)).toBe(true);
+      expect(at).toEqual([...at].sort((a, b) => a - b));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('本机层住 `.deepcode/`，两份文件都收 —— 它不该进版本库，那个目录已经在 .gitignore 里', async () => {
+    const dir = await layeredRoot();
+    try {
+      await writeFile(join(dir, '.deepcode', 'CLAUDE.md'), '本机层 CLAUDE 正文', 'utf8');
+      const text = await sections({ root: dir, home }).then((got) => got[0]?.text ?? '');
+      expect(text).toContain(`Contents of ${join(dir, '.deepcode', 'AGENTS.md')}:`);
+      expect(text).toContain(`Contents of ${join(dir, '.deepcode', 'CLAUDE.md')}:`);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('托管下发的那几段带自己的出处，且按给的顺序排', async () => {
+    const dir = await layeredRoot();
+    try {
+      const text = await sections({ root: dir, home }, [
+        { label: '/etc/deepcode/a.md', text: '甲段' },
+        { label: `${dir} 内嵌的 instructions.text`, text: '乙段' },
+      ]).then((got) => got[0]?.text ?? '');
+
+      // 出处要跟着正文走：模型得知道每段话是从哪儿来的。
+      expect(text).toContain('托管下发的指令（/etc/deepcode/a.md）：');
+      expect(text).toContain(`托管下发的指令（${dir} 内嵌的 instructions.text）：`);
+      const at = ['甲段', '乙段'].map((needle) => text.indexOf(needle));
+      expect(at).toEqual([...at].sort((a, b) => a - b));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('没有任何下发时，这一个字节都不多 —— 与今天的三层完全一样', async () => {
+    const dir = await layeredRoot();
+    try {
+      const text = await sections({ root: dir, home }).then((got) => got[0]?.text ?? '');
+      expect(text).not.toContain('托管');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('只有托管那一份时也成节 —— 组织下发的东西不依赖仓库里有没有指令文件', async () => {
+    const empty = await mkdtemp(join(tmpdir(), 'deepcode-instructions-only-managed-'));
+    try {
+      const got = await sections({ root: empty, home: empty }, [
+        { label: '托管设置', text: '只有托管这一句' },
+      ]);
+      expect(got).toHaveLength(1);
+      expect(got[0]?.text).toContain('只有托管这一句');
+    } finally {
+      await rm(empty, { recursive: true, force: true });
     }
   });
 });

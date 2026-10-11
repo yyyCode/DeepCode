@@ -181,13 +181,27 @@ export const spec: ModSpec = {
 
 **我们不改名字，但把第五层落到我们自己的东西上**：我们没有 `memory` 这种类型，我们有的是 P1 的**会话落盘/记忆**这条线（`src/cli/transcript.ts`）。判据是"同一件事只有一个说法"（P4d 决策 4 用过同一条）：指令文件的五层来源必须与 `settings` 的五层来源**是同五个概念**，不许另起一套。
 
-| 层 | 谁写 | 我们今天的对应 |
+| 层 | 谁写 | 落地路径（P5b 执行时定稿） |
 | --- | --- | --- |
-| `managed` | 组织 | `policy` 源（`settings.ts:223`），路径见 §6.1 |
-| `user` | 用户 | `~/.deepcode/AGENTS.md`（今天已在 `instructions.ts` 里） |
 | `project` | 仓库 | `<root>/AGENTS.md` · `<root>/CLAUDE.md` |
-| `local` | 本机 | `<root>/.deepcode/*.md`（与 `.deepcode/settings.local.json` 同形） |
+| `local` | 本机 | `<root>/.deepcode/AGENTS.md` · `<root>/.deepcode/CLAUDE.md` |
+| `user` | 用户 | `~/.deepcode/AGENTS.md`（今天已在 `instructions.ts` 里） |
+| `managed` | 组织 | 托管设置里的 `instructions` 段，路径见 §6.1 |
 | 嵌套 | 约定 | P4a 已经做了（`mods/agents-md/nested.ts`，惰性附在 `Read` 的结果后面） |
+
+三条执行时定下的口径（都写进了代码注释与 README）：
+
+1. **表的顺序就是送进模型那段文本的顺序**：越贴近这个仓库的越靠前，**托管那份压在最末** ——
+   它是权威，所以它最后说话。这一条同时让 P5a 之前那条已有断言（根 AGENTS → 根 CLAUDE →
+   用户层 AGENTS）原样成立，不必改判词。词表落在 `src/contract/instructions.ts`，
+   mod 的顺序**从那张表推**，不另排一遍（两处各写一份就会漂）。
+2. **`local` 用 `.deepcode/` 而不是通配 `*.md`**：那个目录在 `.gitignore` 里，"本机的东西不进
+   版本库"在那一个目录上已经说过了；而点名两个文件名胜过扫一个目录 —— 往 `.deepcode/` 里
+   扔一个临时 `.md` 不该悄悄进提示。与 `settings.local.json` 相比少一个 `.local.` 后缀，
+   是因为那边要那个后缀只为了与同目录的 `settings.json` 分得开。
+3. **`managed` 那一段以数据进 mod**：它是 `cli/settings.ts` 用五层那套读完的，经
+   `ModDeps.managedInstructions`（**必填**）交进来 —— mod 只许 import 契约，
+   而"哪几个来源算一层"是 CLI 那一侧的判定。
 
 ### 4.2 托管下发
 
@@ -195,6 +209,17 @@ export const spec: ModSpec = {
 
 - 其它四层：**可以不放**、可以互相覆盖；
 - `managed` 层：**在**，且个人层掀不翻（沿用 P2 那条"allow 的效力上限是把 ask 变成 allow"的方向）。
+
+落地的写法是托管设置多认一个顶层键：
+
+```json
+{ "instructions": { "text": "一段话", "files": ["/etc/deepcode/policy.md"] } }
+```
+
+`text` 在前、`files` 按给的顺序在后。**只有 `policy` 层能写**，别的四层写了整项丢弃 + 出声 ——
+与 `sandbox.paths.allow`（只有托管层能设）、`plugins.enable`（托管层写了会被丢）同一句判词形状。
+点名的文件读不动 / 不存在：吼一声、跳过那一段、照旧返回（`defaultTextReader` 那条 fail-open
+在哪儿落的第二处）—— 但一行配错的托管配置不该让 CLI 起不来。
 
 判据：五层各写一份，按优先级看到它们在送进模型的那段文本里的**顺序**；把 `managed` 那一份的内容写进个人规则里"想覆盖它"，结果是被忽略并被告知已丢弃 —— 与 P4d 遥测那条"托管层能关、别人打不开"是同一条验收形状。
 

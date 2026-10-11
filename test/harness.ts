@@ -129,6 +129,8 @@ export async function modPlugins(over: Partial<ModDeps> = {}): Promise<readonly 
     warn: () => {},
     telemetry: DEFAULT_TELEMETRY,
     policyRules: [],
+    // 默认没有托管下发 —— 要测那一条的用 `over` 传（P5b）。
+    managedInstructions: [],
     ...over,
   };
   return (await loadMods(deps, builtinMods())).plugins;

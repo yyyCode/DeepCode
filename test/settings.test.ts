@@ -25,7 +25,9 @@ function files(table: Record<string, string>): TextReader {
   return async (path) => table[path];
 }
 
-type LoadOptions = Omit<ResolvePolicyDeps, 'home' | 'root' | 'managedPath' | 'warn' | 'readText'>;
+// `readText` 留在里面：传了它就盖掉上面那张路径表 ——
+// "托管设置自己读得动、它点名要的那份读不动"这种用例只能这么造。
+type LoadOptions = Omit<ResolvePolicyDeps, 'home' | 'root' | 'managedPath' | 'warn'>;
 
 async function load(table: Record<string, string>, extra: LoadOptions = {}) {
   const warnings: string[] = [];
@@ -408,5 +410,121 @@ describe('遥测开关', () => {
   it('`telemetry` 不再被当成不认识的顶层键', async () => {
     const { warnings } = await load({ [USER]: block({ enabled: true }) });
     expect(warnings.join('\n')).not.toContain('不认识的顶层键');
+  });
+});
+
+/**
+ * P5b：托管层下发指令。
+ *
+ * 这一段的判据只有一条，但那条是全部：**只有托管层能写**。
+ * 其余四层写了要"被忽略并告知已丢弃" —— 这就是设计 §4.2 那句
+ * "把 managed 那一份写进个人规则里想覆盖它"的落法，与 `sandbox.paths.allow`
+ * （只有托管层能设）、`telemetry`（只有用户层能开）同一条规矩。
+ */
+describe('instructions 段：只有托管层能下发', () => {
+  const MANAGED_INSTRUCTION_FILE = resolve('/managed/policy.md');
+  const block = (value: unknown): string => JSON.stringify({ instructions: value });
+
+  it('托管层写 text + files → 收下两条，text 在前、files 按给的顺序，label 是出处', async () => {
+    const { policy, warnings } = await load({
+      [MANAGED]: block({ text: '组织的话', files: [MANAGED_INSTRUCTION_FILE] }),
+      [MANAGED_INSTRUCTION_FILE]: '文件里的话',
+    });
+
+    expect(policy.instructions).toEqual([
+      { label: `${MANAGED} 内嵌的 instructions.text`, text: '组织的话' },
+      { label: MANAGED_INSTRUCTION_FILE, text: '文件里的话' },
+    ]);
+    // 正常路径上一个字都不多说 —— 与"遥测关着的时候零输出"同一条口径。
+    expect(warnings).toEqual([]);
+  });
+
+  it('`instructions` 不再被当成不认识的顶层键', async () => {
+    const { warnings } = await load({ [MANAGED]: block({ text: 'x' }) });
+    expect(warnings.join('\n')).not.toContain('不认识的顶层键');
+  });
+
+  it('其余四层写了 → 整项丢弃 + 出声（判词点明只有托管层能下发）', async () => {
+    for (const path of [USER, PROJECT, LOCAL]) {
+      const { policy, warnings } = await load({ [path]: block({ text: '个人想覆盖的话' }) });
+      expect(policy.instructions).toEqual([]);
+      expect(warnings.join('\n')).toContain('只有托管层能下发指令');
+      expect(warnings.join('\n')).toContain('这一份已丢弃');
+    }
+    // flag 层（`--settings=`）也一起钉住：它同样只是"个人"的另一种写法。
+    const flag = await load({ [FLAG]: block({ text: 'x' }) }, { settingsPath: FLAG });
+    expect(flag.policy.instructions).toEqual([]);
+    expect(flag.warnings.join('\n')).toContain('只有托管层能下发指令');
+  });
+
+  it('一份**只写了 instructions**、没有 permissions 的托管设置照样收得下', async () => {
+    // 早期 return 那个坑：`plugins` / `sandbox` / `telemetry` 都在它之前解析过，
+    // 这一块也必须在之前。而"组织只下发了一段话"恰恰是最典型的那一种托管设置。
+    const { policy } = await load({ [MANAGED]: block({ text: '只有这一段的托管文件' }) });
+    expect(policy.instructions).toHaveLength(1);
+    expect(policy.instructions[0]?.text).toBe('只有这一段的托管文件');
+  });
+
+  it('点名要的文件不存在 → 出声（含那个路径）、跳过这一段，别的照收', async () => {
+    const missing = resolve('/managed/nope.md');
+    const { policy, warnings } = await load({
+      [MANAGED]: block({ text: '照收的话', files: [missing] }),
+    });
+    expect(policy.instructions).toEqual([
+      { label: `${MANAGED} 内嵌的 instructions.text`, text: '照收的话' },
+    ]);
+    expect(warnings.join('\n')).toContain(missing);
+    expect(warnings.join('\n')).toContain('不存在');
+  });
+
+  it('点名要的文件读不动（抛）→ 出声、跳过，resolvePolicy 照旧返回', async () => {
+    // 与 `defaultTextReader` 那条 fail-open 同一个方向：**吼一声，但照旧往下走**。
+    // 一行配错的托管配置不该让 CLI 起不来。
+    const locked = resolve('/managed/locked.md');
+    const settings = block({ files: [locked] });
+    const { policy, warnings } = await load(
+      { [MANAGED]: settings },
+      {
+        // 托管设置文件自己读得动，**它点名要的那份**读不动。
+        readText: async (path) => {
+          if (path === MANAGED) return settings;
+          if (path === locked) throw new Error('EACCES: 读不动');
+          return undefined;
+        },
+      },
+    );
+    expect(policy.instructions).toEqual([]);
+    expect(warnings.join('\n')).toContain('读不了');
+    expect(warnings.join('\n')).toContain('EACCES');
+  });
+
+  it('text 空串 / 不是字符串 → 忽略并出声；files 不是字符串数组 → 整项忽略', async () => {
+    const empty = await load({ [MANAGED]: block({ text: '   ' }) });
+    expect(empty.policy.instructions).toEqual([]);
+    expect(empty.warnings.join('\n')).toContain('是空的');
+
+    const wrongType = await load({ [MANAGED]: block({ text: 42 }) });
+    expect(wrongType.policy.instructions).toEqual([]);
+    expect(wrongType.warnings.join('\n')).toContain('不是字符串');
+
+    const badFiles = await load({ [MANAGED]: block({ text: '留着', files: 'a.md' }) });
+    expect(badFiles.policy.instructions).toEqual([
+      { label: `${MANAGED} 内嵌的 instructions.text`, text: '留着' },
+    ]);
+    expect(badFiles.warnings.join('\n')).toContain('不是字符串数组');
+
+    const badItem = await load({ [MANAGED]: block({ files: ['a.md', 7] }) });
+    expect(badItem.policy.instructions).toEqual([]);
+    expect(badItem.warnings.join('\n')).toContain('不是字符串数组');
+  });
+
+  it('instructions 块不是一个对象 / 有不认识的子键 → 整块忽略 + 出声', async () => {
+    const notObject = await load({ [MANAGED]: block([1, 2]) });
+    expect(notObject.policy.instructions).toEqual([]);
+    expect(notObject.warnings.join('\n')).toContain('instructions 块整块忽略');
+
+    const unknownKey = await load({ [MANAGED]: block({ text: 'x', 语气: '严厉' }) });
+    expect(unknownKey.policy.instructions).toHaveLength(1);
+    expect(unknownKey.warnings.join('\n')).toContain('不认识的子键');
   });
 });

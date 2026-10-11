@@ -13,7 +13,11 @@ export const spec: ModSpec = {
   name: 'agents-md',
   summary: 'AGENTS.md / CLAUDE.md：指令文件装载 + 嵌套目录约定',
   create: (deps) => [
-    createInstructionsPlugin({ root: deps.root, home: deps.home }),
+    createInstructionsPlugin({
+      root: deps.root,
+      home: deps.home,
+      managed: deps.managedInstructions,
+    }),
     createAgentsMdPlugin({ root: deps.root }),
   ],
 };

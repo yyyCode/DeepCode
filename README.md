@@ -117,8 +117,25 @@ deepcode config set model <名字>     # 写进用户级 ~/.deepcode/config.json
 | `DEEPCODE_PROVIDER` | 选后端协议：`anthropic` / `openai`，默认 `anthropic`。写别的直接报错，**不静默退回默认值** |
 | `DEEPCODE_DEBUG` | 打开调试轨迹（走 stderr）：每次 dispatch 一行，说明这个事件被哪些 hook 应答、谁被跳过了。流式事件 `turn.step` 不打，否则会刷屏 |
 
-此外还会读取项目指令文件，拼进系统提示：`<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md`、
-`~/.deepcode/AGENTS.md`。
+此外还会读取指令文件，按**五层**拼进系统提示。顺序就是这张表自上而下 —— 越贴近这个仓库的
+越靠前，托管那份压在最末（它是权威，所以它最后说话）：
+
+| 层 | 文件 | 谁写 |
+| --- | --- | --- |
+| 项目 | `<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md` | 这个仓库 |
+| 本机 | `<工作目录>/.deepcode/AGENTS.md`、`<工作目录>/.deepcode/CLAUDE.md` | 你，在这台机器上（`.deepcode/` 在 `.gitignore` 里） |
+| 用户 | `~/.deepcode/AGENTS.md` | 你，所有仓库通用 |
+| 托管 | 托管设置里的 `instructions` 段 | 组织 |
+| 嵌套 | 更深目录里的 `AGENTS.md`，被读到那个目录的文件时才附上 | 约定 |
+
+托管那层与其余各层有一点不同，而这一点是全部：**只有它能写**（别的四层写了会被丢掉并告诉你）。
+`instructions` 段可以给一段文本、也可以点名几个文件：
+
+```json
+{ "instructions": { "text": "组织的一句话", "files": ["/etc/deepcode/policy.md"] } }
+```
+
+点名的文件读不动或不存在会**吼一声**然后跳过那一段 —— 但不会让 CLI 起不来。
 
 ### 换成别的后端（例如 DeepSeek）
 
@@ -238,6 +255,10 @@ reg delete "HKCU\Environment" /v ANTHROPIC_AUTH_TOKEN /f
 > 托管文件存在但**读不了**时，这一层按空处理，只打一行醒目的警告。这是本设计里唯一一条
 > 真正的 fail-open，且无法消除：策略文件按定义是可选的，不存在时静默是正确行为；
 > 存在却读不了时，"拒绝启动"对一个个人 CLI 是过度反应。**看到那行警告就是没有守护。**
+
+托管文件里能写的顶层块：`permissions`、`plugins`、`sandbox`、`compact`、`telemetry`、
+`instructions`（指令文件那一节的托管层，见上）。写别的会告诉你"不认识的顶层键（已忽略）"，
+而不是把整份文件丢掉 —— 将来加块时，旧版本读新文件不该整份失效。
 
 ### 规则怎么写
 
@@ -569,7 +590,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，53 个文件 909 个用例
+pnpm test        # 测试，53 个文件 923 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
