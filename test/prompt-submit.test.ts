@@ -53,6 +53,8 @@ function silentRenderer(): Renderer {
     delta: () => {},
     newline: () => {},
     thinking: () => {},
+    activity: () => {},
+    settle: () => {},
   };
 }
 

@@ -42,6 +42,8 @@ function spyRenderer(): { render: Renderer; written: () => string } {
       },
       newline: () => {},
       thinking: () => {},
+      activity: () => {},
+      settle: () => {},
     },
     written: () => pending,
   };
@@ -312,6 +314,9 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     expect(h.registry.hooksFor('tool.check', {}).map((r) => [r.plugin, r.tier])).toEqual([
       ['sec-default', 'prepend'],
       ['permissions', 'user'],
+      // 活动面（P6a）也在 tool.check 上挂了一只手：它只**看**裁决（deny 要看得见），
+      // 不改裁决 —— 但它在链上的位置是实打实的一格，所以列在这儿。
+      ['cli-activity', 'builtin'],
       ['confirm', 'builtin'],
     ]);
   });

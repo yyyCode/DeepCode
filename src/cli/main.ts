@@ -231,13 +231,13 @@ async function main(): Promise<void> {
     enabled: policy.plugins.enable.map((rule) => rule.name),
     // 落点只认用户层的名单 —— 与上面那行**不是同一个东西**，别合并（设计 §0 决策 3）。
     enabledInstalled: policy.plugins.enableByUser,
-    warn: (line) => process.stderr.write(`${line}\n`),
+    warn: (line) => render.notice(line),
   });
   const thirdParty = await loadPlugins(found.loaded, {
     projectDir: root,
     session: { id: sessionId, transcriptPath: transcript?.path },
     env: process.env,
-    warn: (line) => process.stderr.write(`${line}\n`),
+    warn: (line) => render.notice(line),
   });
 
   // ── 名册 ──
@@ -245,9 +245,12 @@ async function main(): Promise<void> {
   // 结果是两张**已经解析好**的名册，以参数进 `cliPlugins`（设计 §4.1）。
   // 只有判为 `loaded` 的插件贡献名册 —— 被 deny 的、项目级没 enable 的、清单坏掉的，
   // 它们的 agent 也不该出现。
-  const warnLine = (line: string): void => {
-    process.stderr.write(`${line}\n`);
-  };
+  // ⚠️ 走 `render.notice` 而不是直接写 `process.stderr`：stderr 与 stdout 在终端里
+  // 是同一块屏幕，而活动区（P6a）是一块被借走、随时会被重画的区域。绕过渲染器写出去的
+  // 每一个字节都可能糊在那半行小圆圈后面。这些警告大多发生在活动区起来之前，所以今天
+  // 还没炸过 —— 但活动区一旦变成多行，散在外面的写入口每一处都是新的残影来源。
+  const warnLine = (line: string): void => render.notice(line);
+
   const pluginDirs = found.loaded.map((plugin) => ({ name: plugin.name, dir: plugin.dir }));
   const agents = await discoverAgents({ root, home, plugins: pluginDirs, warn: warnLine });
   const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
