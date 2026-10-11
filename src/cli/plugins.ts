@@ -9,6 +9,7 @@ import { createPermissionsPlugin } from '../builtins/permissions';
 import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin-guard';
 import { streamPlugin } from './stream';
 import { createActivityPlugin } from './activity';
+import { createTally, type Tally } from './tally';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands, type CommandDescription } from './commands';
 import { createPermissionsCommand } from './permissions-command';
@@ -105,6 +106,11 @@ export type CliPluginBundle = {
   readonly seating: Record<string, Tier>;
   /** 第三方插件的名字，交给 `createEngine` 的 `thirdParty`。 */
   readonly thirdParty: readonly string[];
+  /**
+   * 会话账本。**从这里交出去**，`main.ts` 退出时读它印那一屏 ——
+   * 只活在 `createActivityPlugin` 的闭包里的话，退出摘要就没得可读了。
+   */
+  readonly tally: Tally;
 };
 
 /**
@@ -119,6 +125,9 @@ export type CliPluginBundle = {
  * P2 之后它多了一件事：座位不再由引擎默认（`builtin`），而是这里显式钉。
  */
 export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
+  // 账本先建出来：活动面往里记，退出摘要从它读（见下面返回的那一份）。
+  const tally = createTally();
+
   // ⚠️ 顺序是契约，不是随手排的（下面每条都承重）：
   // 1. 座位比顺序更重要：prepend 的 plugin-guard 与 sec-default、user 的 permissions
   //    天然在外层，无论它们在数组里排第几。数组顺序只在**同 tier 内**有效。
@@ -131,7 +140,13 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   const firstParty: Plugin[] = [
     // 活动面（P6a）排在最外：它量的耗时要是**用户实际等的那个时间**，
     // 排在 session-changes 里面的话，快照文件那一段就不算数了。
-    createActivityPlugin({ render: deps.render, palette: deps.palette }),
+    // 它同时也是界面那一面（P6c）：`+3 −1` 从 `deps.changes` 读，与 `/diff` 是同一份。
+    createActivityPlugin({
+      render: deps.render,
+      palette: deps.palette,
+      changes: deps.changes,
+      tally,
+    }),
     // 个人规则：policy 之外的四个来源。
     createPermissionsPlugin({ rules: deps.policy.personalRules }),
     createChangesPlugin(deps.changes),
@@ -209,5 +224,6 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 座位不在这里给第三方钉：引擎按 `thirdParty` 名单**强制** append，
     // 连这张表都钉不动它们 —— 见 core/create.ts。
     thirdParty: discovered.map((plugin) => plugin.name),
+    tally,
   };
 }

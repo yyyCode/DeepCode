@@ -457,6 +457,25 @@ Windows 上就是 `C:\Users\<你>\.deepcode\projects\<工作目录>\sessions\<id
 
 关掉着色时输出与"根本没有这个功能"逐字节相同。
 
+## 界面
+
+界面是**逐行的纯文本流**，不占整屏（没有 alternate screen）—— 输出能被 `tee`、能被滚回、
+能被复制。它只做四件事，且**一个事件都没新增**：全是既有事件（`turn.*`、`tool.*`、
+`session.compact`）的观察者。
+
+- **活动区是借来的**：模型在转、工具在跑的时候，那几行画在光标处（`\r` 与 `\u001b[K` 擦掉重画）；
+  结果一到（`settle`）就擦掉、换成**永久行** —— 屏幕上留下来的每一行都有信息量。
+- **一份账两个消费者**：每轮结束落一行摘要（几次工具、多少 token、改了哪些文件、花了多久），
+  退出时同一份账再打一遍。token 是端点报的就照报，是估的就带 `（估）`—— 宁可多标，不轻信。
+- **内容面**：模型说的话按行过一遍 markdown 子集（标题、列表、行内代码、代码块、粗体）。
+  认不出的语法**原样留着**，不吞字；`_` 永远不当分隔符；代码块与行内代码**逐字节保真**。
+- **输入面**：`~/.deepcode/history` 存上/下键历史（与转录同一套规矩：用户级 home、0600）；
+  行尾 `\` 续行（提示符变 `… `）；`Tab` 补 `/` 命令名与 `@` 当前目录里的路径；
+  一次粘贴进来的多行算**一次**提交（30ms 内的行合成一批）。
+
+**非 TTY 下界面一个字节都不产出**：`activity` / `thinking` / `settle` 全是 no-op，
+管道里的输出只由真正的数据行组成 —— 没有提示符、没有转义序列、没有半分屏。
+
 ## 架构一句话
 
 引擎在每个调用点抛出一个事件，所有插件（**包括六个内建工具**）把自己的 hook 注册成中间件，
@@ -655,13 +674,10 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   都**不压缩**，出声，原文一条不动。
 - **中断只杀外壳**：`Bash` 在 Windows 上经 `cmd.exe` 起命令，`Ctrl-C` 掐断的是这层外壳，
   它下面的孙进程可能继续残留（没有进程组）。
-- **没有 TUI、没有语法高亮**：现在有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，
-  也不走 `ui.render` 事件（那一层排到 P3）。
+- **没有整屏 TUI、没有语法高亮**：界面是逐行的纯文本流（行内增强，不占整屏），markdown 只认
+  一个子集，代码块不着色。也不走 `ui.render` 事件 —— 那棵"界面数据树"的结构今天还没有消费者
+  能把它钉住（P6 设计 §2.3 记了理由）。
 - **41 个事件里实现了 22 个**：其余 19 个已声明、未实现，用到时会抛 `NotImplementedError`。
-- **非 TTY 下 REPL 收不到输入**：`echo '/diff' | deepcode` 这种喂法**无效**。readline 在
-  `createInterface` 之后就开始读，而 `main()` 到 `startRepl` 挂上第一个监听之间还隔着好几个
-  `await`（找或建会话转录、建引擎、`session.start`、读指令文件）—— 管道里的那几行就在这段
-  空窗里被读掉、扔了。要脚本化请用一次性模式 `deepcode "..."`，那条路是好的。
 - **插件只桥了 6 个 classic 事件**（`PreToolUse` / `PostToolUse` / `UserPromptSubmit` /
   `Stop` / `SessionStart` / `SessionEnd`）。
   参考实现有 33 个事件名；其余 27 个在 `hooks.json` 里会被跳过并点名，不是静默忽略 ——
@@ -676,7 +692,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，59 个文件 1016 个用例
+pnpm test        # 测试，63 个文件 1112 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
@@ -719,6 +735,7 @@ H7 agent job 的权限姿态必须显式写一行 `# deepcode:permission-mode de
 - P4c 设计（分发与治理）：[`docs/superpowers/specs/2026-10-11-deepcode-p4c-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4c-design.md)
 - P4e 设计（CI 与工程化）：[`docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md)
 - P5 设计（内建与分发）：[`docs/superpowers/specs/2026-10-11-deepcode-p5-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p5-design.md)
+- P6 设计（界面与交互）：[`docs/superpowers/specs/2026-10-11-deepcode-p6-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p6-design.md)
 - 架构参考：`claude-code-架构分析/`
 
 ## 官网（静态页面）

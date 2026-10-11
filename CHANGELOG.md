@@ -32,9 +32,14 @@
 | P5b 指令文件五层 | 五层优先级 + 托管下发 | 同上 | 同上 |
 | P5c diff 分屏 | 内建 mod `diff` 拿到第一份真的可选依赖 | 同上 | 同上 |
 | P5d 托管推送与分发面 | MDM 三通道、gateway 接入面、CI 硬化三件套 | `mvp-design.md:451`、`p5-design.md:34` 第 3 条 | `p5d.md` §4 |
+| P6a 活动面 | 五种活动行、结果摘要截断、`warnLine` 缺陷 | `p6-design.md:44` | `p6-design.md:311` §8.1 |
+| P6b 内容面 | markdown 子集、按行缓冲的流式、折行 | `p6-design.md:45` | 同上 |
+| P6c 改动面 | 一份账两个消费者、确认框预览、`+N −M` | `p6-design.md:46` | 同上 |
+| P6d 输入面 | 行队列（空窗）、去抖、历史、补全、续行 | `p6-design.md:47` | 同上 |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
-`#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`。
+`#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
+`#10 p6-design`、`#11 p6a-activity`、`#12 p6b-content`、`#13 p6c-changes`（P6c + P6d 同一条）。
 
 ---
 
@@ -259,3 +264,53 @@ mod 改成五层读取。
 **刻意不做**：`2026-10-11-deepcode-p5d.md:404`——不拆 workspaces（预登记偏差）、
 不改 `private: true`、不碰 `LICENSE`、不做 ADMX、不做网关服务端、不做豁免表、
 不做二进制 plist、不在真机上验 MDM。
+
+---
+
+## P6 界面与交互
+
+**出口标准**（`p6-design.md:42` §1，四条）：终端看得见每个工具的开始 / 结束 / 耗时 / 结果摘要，
+且管道出去逐字节与 P6 之前相同；工具结果在终端被截断、回给模型的是完整原文（两条断言同时存在）；
+这一阶段 `src/core/**` 没有行为改动（UI 是插件不是内核）；`NO_COLOR` / `TERM=dumb` /
+拿不到宽度时全部降级为人话，不留残缺框线。
+
+**预登记偏差**（`p6-design.md:311` §8）：终端能力探测不可靠、Windows 上的光标上移、
+粘贴去抖窗口做不到可靠区分就退回按行提交、流式 markdown 的未闭合围栏与多字节边界、
+改 `render.ts` 会动到既有逐字节断言、活动区与 readline 抢终端、可能逼出一处内核改动。
+**七条里只有第 7 条没发生**（`src/core/**` 全程零改动），其余按各自的退路走。
+
+**实际发生的偏差**（`p6-design.md` §8.1，五条，逐条带理由）：`agent.spawn` 没有专门的处理器
+（那半对事件不齐，由 `Task` 的动作行覆盖）、代码块超宽时不截断（偏离 §4.3，保真优先）、
+`（估）` 一路带到退出摘要（往严的一侧偏）、非交互下不画提示符（管道那头没有人在等）、
+readline 的历史里同时也记下确认时的 `y`（与 shell 一致，不另记一本账）。
+
+### P6a 活动面
+
+**范围**：`cli/activity.ts`（`tool.check` / `tool.call` / `turn.start` / `turn.complete` /
+`session.compact` 的观察者）、`cli/render.ts` 的活动区与 `settle`、结果摘要的截断、
+`cli/width.ts`（宽 / 窄 / 零宽三档）、`main.ts` 的 `warnLine` 缺陷（警告曾经绕过渲染器、
+粘在 spinner 那半行后面）。
+
+### P6b 内容面
+
+**范围**：`cli/markdown.ts` 的 markdown 子集与 `wrap()`（中文算 2 列）、按行缓冲的流式
+（未闭合围栏是途中常态）、`render.delta` 只走 TTY 一侧 —— 非 TTY 下 `delta` 逐字节不变。
+
+### P6c 改动面
+
+**范围**：`cli/tally.ts`（会话账本，**一份两个消费者**：每轮摘要与退出摘要）、
+`cli/preview-view.ts`（确认框那一屏从 `builtins/confirm.ts` 搬出来 —— 边界规则不许
+`builtins/` import `Palette`）、`diff-render.ts` 的 `changeStat`（`+N −M` 与 `/diff`
+同一份数据）、退出那一屏（干了多少 / 改了哪些 / 转录在哪儿）。
+
+### P6d 输入面
+
+**范围**：`cli/input.ts`（行队列补上启动空窗、30ms 去抖、`/`-命令就地切开、`\` 续行、
+`/` 与 `@` 补全）、`cli/history.ts`（`~/.deepcode/history`，与 transcript 同一套安全规矩：
+用户级 home、0600）、`repl.ts` 重写。
+
+**顺带修掉的既有欠账**：README「已知限制」里那条**「非 TTY 下 REPL 收不到输入」**
+（`echo '/diff' | deepcode` 无效）—— 修了，所以从三份文档里删掉，不是改成"解释了"。
+
+**刻意不做**：`p6-design.md:293` §7 —— 全屏 alternate screen、语法高亮、鼠标、`ui.render`
+数据树、多 surface、进度条、表格渲染、主题系统、打字机动画、任何形态的自动放行开关、没接上的 `esc` 键。

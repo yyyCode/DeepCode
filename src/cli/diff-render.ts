@@ -51,6 +51,29 @@ export function formatUnified(
 }
 
 /**
+ * 一条会话改动的 `+N −M`（P6c）。
+ *
+ * **与 `/diff` 读同一份数据、同一套 diff** —— 这里只是不渲染正文，只数行数。
+ * 两处各算一份的话，屏幕上那行 `+3 −1` 迟早会与 `/diff` 里那块对不上。
+ *
+ * 任一侧 `skipped`（太大 / 是目录 / 读不动）就给不出数字：那时候连正文都没有，
+ * 编一个 `+0 −0` 出来是假账。调用方拿到 `undefined` 就**不印**这一段。
+ */
+export function changeStat(
+  change: FileChange,
+): { readonly added: number; readonly removed: number } | undefined {
+  if (change.before.kind === 'skipped' || change.after.kind === 'skipped') return undefined;
+
+  const before = change.before.kind === 'text' ? splitLines(change.before.text) : [];
+  const after = change.after.kind === 'text' ? splitLines(change.after.text) : [];
+  const lines = diffLines(before, after);
+  return {
+    added: lines.filter((line) => line.kind === 'add').length,
+    removed: lines.filter((line) => line.kind === 'del').length,
+  };
+}
+
+/**
  * 一条**会话改动**渲染成一屏 unified diff（或一句退化说明）。
  *
  * 三种退化各有独立输出，不混成一句：

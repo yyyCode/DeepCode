@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import type { Interface } from 'node:readline';
 import { Registry } from '../src/core/registry';
 import { createDispatcher, type CoreImpls, type DispatchFn } from '../src/core/dispatch';
 import type { EngineInterface } from '../src/contract/engine';
@@ -58,6 +60,65 @@ export function createHarness(options: HarnessOptions = {}) {
   }
 
   return { on, dispatch: dispatcher.dispatch, registry, warnings, debugLines };
+}
+
+/**
+ * 假的 readline：行**由测试自己推**（`pushLine`），而不是从一块真的 stdin 上来。
+ *
+ * 只实现 REPL（经 `cli/input.ts` 的行队列）与确认提示用得着的那几个方法。
+ * 真的 `createInterface` 要一块 stdin 管道，那会把"验 REPL 的语义"变成"验终端"——
+ * 而终端那部分已经由 `createPromptSink` 自己那几条测试管着。
+ *
+ * ⚠️ 先 `pushLine` 再起 `startRepl` 是**故意的**：真正的管道就是这个形状
+ * （输入在 REPL 开始读之前就到了），而那段空窗正是 P6d 修掉的那个洞。
+ */
+export function fakeReadline(): {
+  readonly rl: Interface;
+  /** 模拟管道上来了一行。 */
+  pushLine(line: string): void;
+  /** 模拟 Ctrl-D / 流关掉。 */
+  pushEof(): void;
+  /** 依次画过的提示符（`\u001b` 之外的字面串）。 */
+  readonly prompts: string[];
+} {
+  const prompts: string[] = [];
+  let current = '';
+
+  class FakeInterface extends EventEmitter {
+    setPrompt(prompt: string): void {
+      current = prompt;
+    }
+    getPrompt(): string {
+      return current;
+    }
+    prompt(): void {
+      prompts.push(current);
+    }
+    close(): void {
+      this.emit('close');
+    }
+    question(_query: string, callback: (answer: string) => void): void {
+      stdio.push(callback);
+    }
+  }
+
+  /** `question` 的挂起回调。测试要答确认提示时从这儿取。 */
+  const stdio: ((answer: string) => void)[] = [];
+  const rl = new FakeInterface() as unknown as Interface;
+
+  return {
+    rl,
+    prompts,
+    pushLine: (line) => {
+      // 与 readline 一样：有 `question` 挂着时那一行归它，否则发 `line` 事件。
+      const waiting = stdio.shift();
+      if (waiting !== undefined) waiting(line);
+      else rl.emit('line', line);
+    },
+    pushEof: () => {
+      rl.emit('close');
+    },
+  };
 }
 
 /** 脚本化的模型响应：E2E 用它驱动 loop，不花 token、可确定性重放。 */

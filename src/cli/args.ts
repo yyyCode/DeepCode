@@ -168,6 +168,11 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
   /help  列出命令与工具        /exit  退出（Ctrl-D 也行）
   /diff  看本会话改过哪些文件    /clear 清空上下文（磁盘上的转录保留）
   Ctrl-C 掐断当前这一回合，进程不退，可以接着聊
+  Ctrl-D 结束输入（同 /exit）
+  多行    行尾敲一个 \\ 回车，提示符变成 … 接着往下写
+  粘贴    一口气粘进来的多行算**一次**提交（30ms 内到达的行合成一批）
+  上/下键 翻历史（存在 ~/.deepcode/history，和转录一样只有你自己能读）
+  Tab    行首敲 / 补命令名，敲 @ 补当前目录里的路径
 
 配置（优先级 高 → 低）
   环境变量 > 项目级 <工作目录>/.deepcode/config.json > 用户级 ~/.deepcode/config.json
