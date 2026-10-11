@@ -42,7 +42,8 @@
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
 `#10 p6-design`、`#11 p6a-activity`、`#12 p6b-content`、`#13 p6c-changes`（P6c + P6d 同一条）、`#14 p6d-banner`（收口后补的开场那一屏）、`#16 p6d-banner-fix`（那一屏第一版没画出来）、`#17 readme-site-trim`（README 与官网重写）、
 `#19 site-centered-topo`（置中版式 + 拓扑图第一版）、`#20 site-topo-svg`（那版图还是文字，改成 SVG）、
-`#21 site-topo-overlap`（连线把标题划穿了）、`#22 site-modules`（图撤了，换成六个核心模块）。
+`#21 site-topo-overlap`（连线把标题划穿了）、`#22 site-modules`（图撤了，换成六个核心模块）、
+`#23 p7-memory-context`（P7 记忆与上下文）。
 
 ---
 
