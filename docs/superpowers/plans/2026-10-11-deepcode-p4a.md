@@ -912,7 +912,7 @@ export type LoopContext = {
 - [ ] **Step 7: 跑测试，确认它通过**
 
 Run: `pnpm test test/loop-options.test.ts`
-Expected: PASS —— 10 passed
+Expected: PASS —— 9 passed
 
 - [ ] **Step 8: 跑全套确认没有回归**
 
@@ -3042,10 +3042,17 @@ async function mount(options: MountOptions) {
   return { ...engine, requests, describes, toolCalls, spawns, deltas, notices, asks, runParent };
 }
 
-/** 最后一条消息是工具结果；取第 n 个的内容。 */
+/**
+ * 最后一条**工具结果**消息里的第 n 个内容。
+ *
+ * ⚠️ **别用 `messages.at(-1)`**：loop 在 `break` 之前还会 push 一条 assistant 消息
+ * （没有文本时 `content` 是空数组，见 `core/loop.ts:130-139`），所以 turn 跑完之后
+ * 最后一条**往往不是**工具消息。这里要的是"上一轮工具拿回了什么"，得往回找。
+ * （这条是 T3 执行时实测出来的，原计划的写法三处用例全挂。）
+ */
 function resultAt(messages: readonly Message[], index = 0): string {
-  const last = messages.at(-1);
-  if (last?.role !== 'tool') throw new Error(`最后一条不是工具消息：${last?.role ?? '(空)'}`);
+  const last = [...messages].reverse().find((message) => message.role === 'tool');
+  if (last?.role !== 'tool') throw new Error('这一轮没有任何工具结果消息');
   return last.results[index]?.content ?? '';
 }
 
@@ -3646,10 +3653,17 @@ async function mount(script: readonly (readonly StreamEvent[])[], extra: readonl
   return { engine, requests, describes, asks, messages, ctx, skills, run: () => runTurn(ctx, messages) };
 }
 
-/** 最后一条消息是工具结果；取第 n 个的内容。 */
+/**
+ * 最后一条**工具结果**消息里的第 n 个内容。
+ *
+ * ⚠️ **别用 `messages.at(-1)`**：loop 在 `break` 之前还会 push 一条 assistant 消息
+ * （没有文本时 `content` 是空数组，见 `core/loop.ts:130-139`），所以 turn 跑完之后
+ * 最后一条**往往不是**工具消息。这里要的是"上一轮工具拿回了什么"，得往回找。
+ * （这条是 T3 执行时实测出来的，原计划的写法三处用例全挂。）
+ */
 function resultAt(messages: readonly Message[], index = 0): string {
-  const last = messages.at(-1);
-  if (last?.role !== 'tool') throw new Error(`最后一条不是工具消息：${last?.role ?? '(空)'}`);
+  const last = [...messages].reverse().find((message) => message.role === 'tool');
+  if (last?.role !== 'tool') throw new Error('这一轮没有任何工具结果消息');
   return last.results[index]?.content ?? '';
 }
 
@@ -4010,4 +4024,37 @@ git commit --allow-empty -m "checkpoint: P4a C3 通过（技能与收口）" -m 
   并给出那一步的临时探针写法；正式的替换测试留在 Task 5。
 - **影响**：零。但这条值得单独记：**反向验证要在"消费者存在"的那一步做才有意义**，
   否则它绿得毫无信息量 —— 而绿的假验证比没有验证更坏，因为它会让人以为验过了。
+
+**T3 —— 计划给的测试助手取错了消息（计划错了，而且坑了三处）。**
+
+- **现象**：`test/loop-options.test.ts` 三条用例挂掉，`lastResult` 永远是 `undefined`。
+- **为什么计划错了**：助手写的是 `messages.at(-1)`，但 `runTurn` 在 `break` **之前**
+  还会 `push` 一条 assistant 消息（`core/loop.ts:130-139`，没有文本时 `content` 是空数组）。
+  于是"上一轮工具拿回了什么"根本不在最后一条上 —— 前后差一步。
+- **改成了什么**：`[...messages].reverse().find((m) => m.role === 'tool')`。
+  **同一份助手在 Task 10 与 Task 11 的测试里各抄了一遍，已一并改成这个写法**
+  （计划里那两处才是真正的雷：那里断言的是"父级拿到的子代理结论"，取错消息就什么都验不到）。
+- **影响**：这是本轮最值得记的一条 —— **它不只让 Task 3 红，还让后面两处照抄的助手带着同一个
+  盲点**。写计划时同一段代码抄三遍，错就错三遍；执行时先红的那一处救了后面两处。
+
+**T3 —— `maxHops` 的脚本太短（计划错了）**：计划给的是 `script: [callTool('Read')]` 配
+`maxHops: 2`，但脚本只有一条时，第 2 跳会落到"没有脚本了 → `done/end_turn`"的兜底，
+于是 loop 自己收手、根本撞不到上限。改成两条 `callTool('Read')`（断言 `toBe('max_hops')` 未动）。
+**计划里那句注释（"每一轮都要工具，永远不自己收手"）是对的，脚本没跟上注释。**
+
+**T3 —— 计数又是 10 而实际 9**（同 T1，已改）。
+
+**T2 的连带发现 —— `as any` 让 typecheck 漏掉了两处（计划错了 + 一条教训）。**
+
+- **现象**：Task 2 把 `agent.spawn` 转正之后，`test/dispatch.test.ts` 里其实有**三处**把它当
+  "未实现的事件"在测。Task 2 的清单只提了会**编译失败**的那一处（`{}` 入参），另外两处
+  因为写了 `as any` 而照常编译 —— 于是 `pnpm typecheck` 全绿，而这两条测试**在运行时红着**，
+  一路带到 T3 的全套跑才露头（459 passed / 2 failed）。
+- **为什么计划错了**：写计划时只 grep 了"谁编译不过"，没问"谁在**假设**这个事件没有实现"。
+- **改成了什么**：两条改点名仍然未实现的 `config.set`，顺手**去掉 `as any`**
+  （`config.set` 的入参是 `Record<string, unknown>`，`{}` 天然合法），让它重新受类型保护；
+  另在"裸 dispatcher 也能 dispatch 通知事件"那条里补上 `agent.spawn` 的断言 ——
+  它现在是这一族的新成员，这条性质正是本轮新引入的。注释里的 "27 个未实现" 同步改成 24。
+- **影响**：零功能影响，但教训值钱：**`as any` 是"编译期审查失效"的开关**。
+  凡是靠 `as any` 才编译得过的地方，都等于把这道闸关掉了 —— 被转正的事件正好会藏在那儿。
 
