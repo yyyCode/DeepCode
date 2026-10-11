@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -6,6 +6,7 @@ import type { ResolvedHookGroup } from '../contract/classic';
 import type { On, Plugin } from '../contract/plugin';
 import { validatePlugin, type PluginManifest, type PluginReader } from '../contract/plugin-manifest';
 import { registerHooks } from './classic-hooks';
+import { subdirectories } from './walkdir';
 
 /**
  * 插件目录的发现与装载。
@@ -116,7 +117,7 @@ export async function discoverPlugins(deps: DiscoverDeps): Promise<Discovery> {
   const claimed = new Map<string, PluginOrigin>();
 
   for (const { origin, dir } of roots) {
-    for (const name of await subdirectories(dir, warn)) {
+    for (const name of await subdirectories(dir, '插件目录', warn)) {
       const pluginDir = join(dir, name);
       const validated = await validatePlugin(`插件目录 ${pluginDir}`, dirReader(pluginDir));
 
@@ -179,25 +180,6 @@ export async function discoverPlugins(deps: DiscoverDeps): Promise<Discovery> {
     loaded: loaded.sort(byName),
     skipped: skipped.sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0)),
   };
-}
-
-/** 目录不存在 = 没有插件（常态，不吭声）；在但读不了 = 这一层这次一个都不装，且要吼。 */
-async function subdirectories(dir: string, warn: (line: string) => void): Promise<readonly string[]> {
-  try {
-    // 显式写 `encoding: 'utf8'`：`readdir` 带 `withFileTypes` 时名字的类型跟着编码走，
-    // 不写就落到 Buffer 那支重载上，`entry.name` 变成 NonSharedBuffer。
-    const entries = await readdir(dir, { withFileTypes: true, encoding: 'utf8' });
-    return entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return [];
-    warn(
-      `插件目录 ${dir} 读不了（${error instanceof Error ? error.message : String(error)}）—— 这一层的插件这次一个都不装。`,
-    );
-    return [];
-  }
 }
 
 export type InstallDeps = {

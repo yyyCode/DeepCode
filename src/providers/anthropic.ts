@@ -20,7 +20,12 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
 
   return {
     name: 'anthropic',
-    async *stream({ system, messages, tools, signal }) {
+    // `req.model` 是模型分层的唯一落点。别名（haiku/sonnet/opus）**原样透传**，
+    // 不翻译、不映射 —— 我们不知道用户配的端点认不认它们，猜错还不如让端点自己说。
+    // 出错的提示语也要用**真正发出去的那个** id，否则报的是"模型 claude-opus-5-5 不存在"，
+    // 而真正发出去的是 haiku，用户照着提示去查会查错地方。
+    async *stream({ system, messages, tools, signal, model }) {
+      const effectiveModel = model ?? config.model;
       const response = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
@@ -29,7 +34,7 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: config.model,
+          model: effectiveModel,
           max_tokens: config.maxTokens ?? 8192,
           system,
           messages: toAnthropicMessages(messages),
@@ -40,7 +45,7 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
       });
 
       if (!response.ok) {
-        throw new Error(await describeHttpFailure('anthropic', response, config.model));
+        throw new Error(await describeHttpFailure('anthropic', response, effectiveModel));
       }
       if (!response.body) throw new Error('anthropic: 响应没有 body');
 

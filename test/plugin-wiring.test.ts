@@ -28,6 +28,9 @@ function bundle(overrides: Partial<Parameters<typeof cliPlugins>[0]> = {}) {
     palette: createPalette(),
     policy: POLICY,
     home: '/home/u',
+    agents: [],
+    skills: [],
+    baseSystemPrompt: '基础提示',
     ...overrides,
   });
 }

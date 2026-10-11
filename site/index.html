@@ -68,9 +68,9 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>439</b><span>用例全绿 · 26 个文件</span></li>
+    <li><b>523</b><span>用例全绿 · 36 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
-    <li><b>12/39</b><span>事件已实现（如实标注）</span></li>
+    <li><b>15/39</b><span>事件已实现（如实标注）</span></li>
   </ul>
 </section>
 
@@ -177,9 +177,10 @@
 
     <article class="card">
       <h3>内建工具不是特例</h3>
-      <p><code>Read</code> / <code>Write</code> / <code>Edit</code> / <code>Bash</code> / <code>Glob</code> /
-        <code>Grep</code> 与将来的第三方插件走同一条接口。模型看得见的工具清单来自注册面上
-        <code>tool.call</code> 的 matcher 取值。</p>
+      <p>模型看得见的工具一共<strong>八个</strong>：<code>Read</code> / <code>Write</code> / <code>Edit</code> /
+        <code>Bash</code> / <code>Glob</code> / <code>Grep</code> 六个内建，加上第一方插件提供的
+        <code>Task</code>（派子代理）与 <code>Skill</code>（加载技能）—— 它们走<strong>同一条</strong>接口。
+        清单来自注册面上 <code>tool.call</code> 的 matcher 取值。</p>
       <p class="card__cost">内核里没有一张硬编码的工具表 —— 藏掉一个工具，是让它的 matcher 不再应答。</p>
     </article>
 
@@ -298,7 +299,7 @@
 
 规则里的路径按绝对路径匹配（~ 会展开成主目录）；相对路径不会命中。
 更严的永远赢：deny > ask > allow，与规则写在哪一层、写成什么顺序无关。</pre>
-  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「12/39」），
+  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「15/39」），
     但规则按名字生效 —— 工具真出现的那天，它也会从模型眼前消失。</p>
 </section>
 
@@ -332,7 +333,7 @@
   </table>
 
   <div class="callout">
-    <p><strong>39 个事件已声明，12 个已实现。</strong>其余 27 个在类型里躺着，
+    <p><strong>39 个事件已声明，15 个已实现。</strong>其余 24 个在类型里躺着，
       用到时会抛 <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
   </div>
 </section>
@@ -342,8 +343,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>439</b>
-      <p>用例，26 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>523</b>
+      <p>用例，36 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -394,8 +395,10 @@
         <strong>第三方插件只能拧紧不能拧松</strong>：放行判定一律被丢弃，座位强制在最内层。</p>
     </li>
     <li>
-      <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P4 组合面</h3></div>
-      <p>目标：<code>agents/*.md</code> 子代理能被 <code>description</code> 正确路由，且工具白名单生效。</p>
+      <div class="road__head"><span class="pill">进行中</span><h3>P4 组合面</h3></div>
+      <p>目标：<code>agents/*.md</code> 子代理能被 <code>description</code> 正确路由，且工具白名单生效。
+        <strong>P4a 已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具、名册发现与
+        <code>agent.offer</code> 进系统提示都已在分支上跑通；P4 整体未完。</p>
     </li>
     <li>
       <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P5 内建与分发</h3></div>

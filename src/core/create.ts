@@ -38,8 +38,20 @@ export type BuiltEngine = {
 export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine> {
   const registry = new Registry();
   let engine: EngineInterface | undefined;
+  let dispatchFn: DispatchFn | undefined;
 
-  const coreNouns = createCoreNouns(deps, registry);
+  const coreNouns = createCoreNouns(deps, registry, {
+    // 两个都延迟取：它们要到下面折叠完成之后才存在。`$` 尤其要紧 ——
+    // 子代理要在**折叠后的** $ 上跑，引擎自己的 hook 那时才都挂上去了。
+    engine: () => {
+      if (!engine) throw new Error('$ 尚未构建完成');
+      return engine;
+    },
+    dispatch: () => {
+      if (!dispatchFn) throw new Error('dispatch 尚未构建完成');
+      return dispatchFn;
+    },
+  });
 
   const coreImpls: CoreImpls = {
     // 折叠的最内层：内核名词。插件的 engine.create hook 会在这个结果之上叠加。
@@ -65,6 +77,16 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     // 生命周期通知事件（session.*、turn.*）不在这里 —— 它们的兜底实现在
     // dispatch 的链尾，理由见 events.ts 的 NOTIFICATION_EVENTS。
 
+    // 没人报名册就是空清单。**内核不认识任何 agent/skill 文件** ——
+    // 发现是 CLI 侧的事（cli/agents.ts、cli/skills.ts），与"内核没有硬编码的工具表"同一条。
+    // 链尾无人应答 = 能力方向的 fail-closed：没有就是没有，不给个假清单。
+    'agent.offer': () => ({ agents: [], skills: [] }) as const,
+
+    // ⚠️ 这条**不是** fail-closed —— 它是变换缝的默认值：没人要改，就原文通过。
+    // 在这儿 deny 会让一个没被任何插件碰过的技能彻底不可用。
+    // 别把它"统一"成上面那条的形状，两者问的不是同一个问题（设计 §10.3）。
+    'skill.prompt': (e) => ({ text: String(e.text) }),
+
     'tool.describe': (e) => {
       throw new Error(`no description registered for tool: ${String(e.tool)}`);
     },
@@ -80,6 +102,7 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     logger: coreNouns.logger,
     signal: deps.signal,
   });
+  dispatchFn = dispatch;
 
   // 折叠：core 在最内层，插件按列表顺序、最外层在前。
   const folded = (await dispatch(

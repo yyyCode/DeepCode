@@ -42,6 +42,15 @@ export type StreamRequest = {
   readonly messages: readonly Message[];
   readonly tools: readonly ToolSpec[];
   readonly signal: AbortSignal;
+  /**
+   * 覆盖适配器配置里的 model。省略 = 用配置的那个（会话级那个，也就是父级）。
+   *
+   * 模型分层没有别的表达方式：今天 model 是**适配器建的时候**定死的，没有别的口子。
+   * 别名（`haiku` / `sonnet` / `opus`）**原样透传**，不翻译、不映射 ——
+   * 我们不知道用户配的端点认不认它们，`providers/http.ts` 的 `MODEL_HINT_RE`
+   * 已经会在模型 id 不存在时说一句人话，那已经是最好的处理方式。
+   */
+  readonly model?: string;
 };
 
 /**

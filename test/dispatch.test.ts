@@ -216,12 +216,15 @@ describe('链语义', () => {
 
   it('next.signal / origin / budget / is 都挂上了', async () => {
     const controller = new AbortController();
+    // 载体换成 tool.describe：tool.call 现在不上预算，next.budget.ms 是 Infinity，
+    // 钉不住"普通事件拿 10 秒"。这条断言管的是 budget 访问器挂没挂、值对不对，
+    // 与"哪个事件"无关，换个有预算的载体照旧成立。
     const h = createHarness({
-      coreImpls: { 'tool.call': () => ({ value: 'x' }) },
+      coreImpls: { 'tool.describe': () => ({ value: 'x' }) },
       signal: controller.signal,
     });
     let snapshot: any;
-    h.on('builtin', 'probe', CALL, async (_$, e, next) => {
+    h.on('builtin', 'probe', 'tool.describe', async (_$, e, next) => {
       snapshot = {
         signal: next.signal === controller.signal,
         event: next.event,
@@ -234,10 +237,10 @@ describe('链语义', () => {
       return next(e);
     });
 
-    await h.dispatch(CALL, args, CORE_ORIGIN);
+    await h.dispatch('tool.describe', { tool: 'Read' }, CORE_ORIGIN);
     expect(snapshot).toEqual({
       signal: true,
-      event: CALL,
+      event: 'tool.describe',
       plugin: 'probe',
       tier: 'builtin',
       ms: 10_000,
@@ -276,7 +279,7 @@ describe('链语义', () => {
 
   it('落到未实现的事件抛 NotImplementedError', async () => {
     const h = createHarness();
-    await expect(h.dispatch('agent.spawn', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
+    await expect(h.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });
@@ -379,15 +382,20 @@ describe('生命周期事件的内核 no-op', () => {
     // 一开口就崩。这条钉的是"保证写在 dispatch 链尾"，不依赖任何调用方记得补。
     const h = createHarness();
     await expect(h.dispatch('turn.start', { index: 0 }, CORE_ORIGIN)).resolves.toEqual({});
+    // P4a：`agent.spawn` 是这一族的新成员 —— 派子代理也只通知、不要答复（设计 §8）。
+    await expect(
+      h.dispatch('agent.spawn', { name: 'explorer', task: '看一眼' }, CORE_ORIGIN),
+    ).resolves.toEqual({});
   });
 
   it('真正未实现的事件仍然抛 NotImplementedError', async () => {
     // 上面那条的另一半：no-op 只针对生命周期事件，
-    // NotImplementedError 必须继续为那 27 个真未实现的事件保留意义。
+    // NotImplementedError 必须继续为那 24 个真未实现的事件保留意义
+    // （P4a 把 agent.offer / agent.spawn / skill.prompt 转正了，27 → 24）。
     const built = await realEngine();
-    await expect(
-      (built.dispatch as any)('agent.spawn', {}, CORE_ORIGIN),
-    ).rejects.toBeInstanceOf(NotImplementedError);
+    await expect(built.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
+      NotImplementedError,
+    );
   });
 });
 
@@ -428,11 +436,11 @@ describe('调试轨迹（DEEPCODE_DEBUG 打开后能看到的那条线）', () =
   it('链尾没人应答时那行带着错误，现场不丢', async () => {
     const h = createHarness();
 
-    await expect(h.dispatch('agent.spawn', {} as any, CORE_ORIGIN)).rejects.toBeInstanceOf(
+    await expect(h.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
 
-    expect(h.debugLines.join('\n')).toContain('agent.spawn');
+    expect(h.debugLines.join('\n')).toContain('config.set');
     expect(h.debugLines.join('\n')).toContain('✗');
   });
 });

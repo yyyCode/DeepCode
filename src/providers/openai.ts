@@ -31,7 +31,8 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
 
   return {
     name: 'openai',
-    async *stream({ system, messages, tools, signal }) {
+    async *stream({ system, messages, tools, signal, model }) {
+      const effectiveModel = model ?? config.model;
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -39,7 +40,7 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
           authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify({
-          model: config.model,
+          model: effectiveModel,
           max_tokens: config.maxTokens ?? 8192,
           messages: toOpenAIMessages(system, messages),
           ...(tools.length > 0 ? { tools: tools.map(toOpenAITool) } : {}),
@@ -49,7 +50,7 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
       });
 
       if (!response.ok) {
-        throw new Error(await describeHttpFailure('openai', response, config.model));
+        throw new Error(await describeHttpFailure('openai', response, effectiveModel));
       }
       if (!response.body) throw new Error('openai: 响应没有 body');
 
