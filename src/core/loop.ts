@@ -19,6 +19,20 @@ export type LoopContext = {
   dispatch: <N extends EventName>(event: N, args: Args<N>, origin: Origin) => Promise<Result<N>>;
   systemPrompt: string;
   turnIndex: number;
+  /**
+   * 允许调用的工具。**undefined = 不筛**（会话主循环就是这一支）。
+   *
+   * 子代理的白名单落在这里。它在**两个**地方被认：
+   * `describeTools` 管"看不见"、`runOneTool` 管"够不着" —— 少任何一个都是纸糊的，
+   * 因为"看不见"拦不住一个被点名调用的工具（P3 的 todo 插件栽过这一次）。
+   */
+  tools?: ReadonlySet<string>;
+  /** 覆盖 MAX_HOPS。子代理的 maxTurns 落在这里。 */
+  maxHops?: number;
+  /** 覆盖适配器配置里的 model。省略 = 用配置的那个（= 父级那个）。 */
+  model?: string;
+  /** 每一轮模型说的话（只在非空时调）。主循环不传 —— 它直接走 turn.step 就出去了。 */
+  onText?: (text: string) => void;
 };
 
 /**
@@ -32,9 +46,13 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
   await ctx.dispatch('turn.start', { index: ctx.turnIndex }, CORE_ORIGIN);
 
   const tools = await describeTools(ctx);
+  const maxHops = ctx.maxHops ?? MAX_HOPS;
   let stopReason = 'end_turn';
+  // 跑满 hop 就是撞墙了。不区分的话调用方分不清"模型说完了"与"到上限了" ——
+  // 子代理那一侧会把两种情况都当正常结束，然后拿一段被截断的话当结论。
+  let exhausted = true;
 
-  for (let hop = 0; hop < MAX_HOPS; hop++) {
+  for (let hop = 0; hop < maxHops; hop++) {
     const blocks: ContentBlock[] = [];
     const toolUses: Extract<ContentBlock, { type: 'tool_use' }>[] = [];
     let text = '';
@@ -56,6 +74,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
           messages,
           tools,
           signal: ctx.signal,
+          model: ctx.model,
         })) {
           if (event.type === 'text') {
             text += event.text;
@@ -112,8 +131,13 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
     if (text) assistantBlocks.push({ type: 'text', text });
     assistantBlocks.push(...blocks);
     messages.push({ role: 'assistant', content: assistantBlocks });
+    // 只在有话说时调：空话会把"上一轮的话"冲掉（子代理那边用的是覆盖式收集器）。
+    if (text) ctx.onText?.(text);
 
-    if (toolUses.length === 0) break;
+    if (toolUses.length === 0) {
+      exhausted = false;
+      break;
+    }
 
     // 工具仍然**串行**执行：并行 Bash 的交错输出对用户没有任何好处，不确定性倒是白送的。
     // 但结果**汇总成一条**消息 —— 一轮里模型要的几个工具是同一件事的几个面，
@@ -124,6 +148,9 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
     }
     messages.push({ role: 'tool', results });
   }
+
+  // 走到这儿说明要么跑满、要么模型自己收手（`exhausted = false`）。
+  if (exhausted) stopReason = 'max_hops';
 
   await ctx.dispatch(
     'turn.complete',
@@ -138,6 +165,16 @@ async function runOneTool(
   ctx: LoopContext,
   use: Extract<ContentBlock, { type: 'tool_use' }>,
 ): Promise<ToolResult> {
+  // 白名单的第二个落点，**在 tool.check 之前**：清单外的工具根本走不到权限链上。
+  // 只做"看不见"不够 —— 模型可以照样点名一个它没见过的工具，插件也可以替你应答它。
+  if (ctx.tools !== undefined && !ctx.tools.has(use.name)) {
+    return {
+      toolUseId: use.id,
+      content: `ERROR: 已拒绝 —— 工具 ${use.name} 不在本次的工具清单里（可用：${[...ctx.tools].join(', ')}）`,
+      isError: true,
+    };
+  }
+
   const check = await ctx.dispatch(
     'tool.check',
     { tool: use.name, input: use.input, toolUseId: use.id },
@@ -177,6 +214,12 @@ function sleep(ms: number): Promise<void> {
 async function describeTools(ctx: LoopContext): Promise<ToolSpec[]> {
   const specs: ToolSpec[] = [];
   for (const name of ctx.$.tool.list()) {
+    // 与下面的 `hidden` 同一条：**安静**略去，一条 debug。
+    // 这不是"没注册描述"（那是故障，要 warn），是"这个子代理不许用"。
+    if (ctx.tools !== undefined && !ctx.tools.has(name)) {
+      ctx.$.logger.debug(`工具 ${name} 不在本次的工具清单里，不进模型可见列表。`);
+      continue;
+    }
     try {
       const described = await ctx.dispatch('tool.describe', { tool: name }, CORE_ORIGIN);
       // 被权限规则整工具 deny 掉的：**安静**略去（一条 debug）。这不是"没注册描述"
