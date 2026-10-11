@@ -227,27 +227,49 @@ tr:last-child td { border-bottom: 0; }
 #roadmap td:first-child { white-space: nowrap; }
 
 /* ── 架构拓扑 ───────────────────────────────────────── */
-/* 三条横带 = 三件事（怎么执行 / 谁把关 / 记在哪）。用 HTML 画而不是 SVG：
-   文字是真文字（能选中、能搜、读屏认得），窄屏自己换行，还不用往页面里塞几何代码。 */
-.topo { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 1.9rem; text-align: left; }
-.topo__lane { background: #fff; padding: 1.05rem 1.2rem 1.15rem; }
-.topo__lane--safety { background: var(--warn-soft); }
-.topo__lane--memory { background: var(--accent-soft); }
-.topo__label { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.06em; color: var(--ink-3); margin: 0 0 0.75rem; }
-.topo__flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.45rem; }
-.topo__node {
-  display: flex; flex-direction: column; justify-content: center;
-  border: 1px solid var(--line-strong); background: #fff; border-radius: 8px;
-  padding: 0.42rem 0.72rem; font: 0.83rem/1.35 var(--mono); color: var(--ink);
+/* 三条带 = 三件事（怎么执行 / 谁把关 / 记在哪），带与带之间是**画出来的连线**，
+   不是「→」符号。用 SVG 是因为要真的把框和箭头摆到坐标上 —— 之前那版是
+   一行行文字加箭头字符，读起来还是文字。窄屏横向滚动，不缩成一团糊。 */
+.topo-wrap { overflow-x: auto; margin-top: 2rem; }
+.topo { display: block; width: 100%; min-width: 880px; height: auto; }
+
+.topo .band__bg { fill: var(--bg-soft); stroke: var(--line); stroke-width: 1; }
+.topo .band--safety .band__bg { fill: var(--warn-soft); }
+.topo .band--memory .band__bg { fill: var(--accent-soft); }
+
+.topo .bx { fill: #fff; stroke: var(--line-strong); stroke-width: 1.4; }
+.topo .bx--key { stroke: var(--accent); stroke-width: 1.8; }
+.topo .bx--warn { stroke: var(--warn); stroke-width: 1.6; }
+.topo .chip { fill: #fff; stroke: var(--line-strong); stroke-width: 1.2; }
+
+.topo .ln { fill: none; stroke: var(--line-strong); stroke-width: 1.6; }
+.topo .ln--warn { stroke: var(--warn); stroke-dasharray: 6 4; }
+.topo .ln--acc { stroke: var(--accent); stroke-dasharray: 6 4; }
+.topo .mk { fill: var(--line-strong); }
+.topo .mk--w { fill: var(--warn); }
+.topo .mk--a { fill: var(--accent); }
+
+.topo text { fill: var(--ink); }
+.topo .t-lab { font: 500 12px/1 var(--mono); fill: var(--ink-3); letter-spacing: 0.05em; }
+.topo .t-lab--key { fill: var(--accent); }
+.topo .t-lab--warn { fill: var(--warn); }
+.topo .t-lab--acc { fill: var(--accent); }
+.topo .t-name { font: 500 13.5px/1 var(--sans); text-anchor: middle; }
+.topo .t-code { font: 500 13px/1 var(--mono); text-anchor: middle; }
+.topo .t-sub { font: 400 11px/1 var(--sans); text-anchor: middle; fill: var(--ink-3); }
+.topo .t-note { font: 400 10.5px/1 var(--sans); fill: var(--ink-3); }
+.topo .t-note--warn { fill: var(--warn); }
+.topo .t-note--acc { fill: var(--accent); }
+.topo .chips text { font: 500 9.5px/1 var(--mono); text-anchor: middle; fill: var(--ink-2); }
+
+/* 图下面那两行实话：长句左对齐，不跟着版面居中。 */
+.topo-note { max-width: 78ch; margin: 1.1rem auto 0; }
+
+/* 窄屏上图是横向滚的 —— 与事实无关，所以只说一句怎么操作。 */
+.topo-hint { display: none; }
+@media (max-width: 900px) {
+  .topo-hint { display: block; margin: 0.7rem auto 0; text-align: center; font-size: 0.86rem; color: var(--ink-3); }
 }
-.topo__node em { font: 400 0.72rem/1.4 var(--sans); font-style: normal; color: var(--ink-3); margin-top: 0.12rem; }
-.topo__node--key { border-color: var(--accent); }
-.topo__node--key em { color: var(--accent); }
-.topo__node--warn { border-color: var(--warn); }
-.topo__node--warn em { color: var(--warn); }
-.topo__arrow { align-self: center; color: var(--line-strong); font-size: 0.95rem; }
-.topo__note { margin: 0.85rem 0 0; font-size: 0.88rem; color: var(--ink-2); max-width: 72ch; }
-.topo__note code { background: none; border: 0; padding: 0; }
 
 /* ── 收尾 ───────────────────────────────────────────── */
 .band--cta { padding-bottom: clamp(2.6rem, 6vw, 4.6rem); }

@@ -152,51 +152,130 @@
   <p class="section__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，按 tier 权威序串成一条链。
     一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。</p>
 
-  <div class="topo">
-    <div class="topo__lane">
-      <p class="topo__label">执行链路</p>
-      <div class="topo__flow">
-        <span class="topo__node">终端</span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node">提示词</span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node topo__node--key">engine.dispatch<em>每个调用点抛出一个事件</em></span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node topo__node--key">tier 链<em>prepend → user → append → builtin → core</em></span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node">工具 / 模型</span>
-      </div>
-      <p class="topo__note">一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。
-        <code>next(e)</code> 是 Koa 式续体，不是事件发射器 —— 链尾只有一处，没有第二个地方可以漏。</p>
-    </div>
+  <div class="topo-wrap">
+    <svg class="topo" viewBox="0 0 1024 580" role="img" aria-labelledby="topo-t topo-d">
+      <title id="topo-t">DeepCode 架构拓扑：执行链路、安全闸门、记忆与上下文</title>
+      <desc id="topo-d">终端进来的提示词交给 engine.dispatch —— 每个调用点抛出一个事件；插件把自己的
+        hook 注册成中间件，按 tier 权威序 prepend → user → append → builtin → core 串成一条链，
+        链的出口是工具与模型。工具调用必经安全闸门：tool.check 预览后停下等一行 y/N，再过 sandbox
+        的路径闸，才到真的 spawn 与写盘；tool.check 的 deny 回到链上。转录 JSONL、输入历史、遥测、
+        上下文压缩落在用户级目录，并经 --resume 绕回请求路径。</desc>
+      <defs>
+        <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+          <path class="mk" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+        <marker id="arw-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+          <path class="mk mk--w" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+        <marker id="arw-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+          <path class="mk mk--a" d="M0 0 L10 5 L0 10 z"/>
+        </marker>
+      </defs>
 
-    <div class="topo__lane topo__lane--safety">
-      <p class="topo__label">安全闸门（工具调用必经）</p>
-      <div class="topo__flow">
-        <span class="topo__node">工具调用</span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node topo__node--warn">tool.check<em>预览后停下等一行 y/N</em></span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node topo__node--warn">sandbox<em>Bash 的路径闸，可选</em></span>
-        <span class="topo__arrow">→</span>
-        <span class="topo__node">spawn / 写盘</span>
-      </div>
-      <p class="topo__note">非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 = <code>deny</code>。
-        闸门坐在<strong>链的下游</strong>，所以任何 <code>allow</code> 规则都绕不过它。</p>
-    </div>
+      <!-- ── 带一：执行链路 ───────────────────────────── -->
+      <g>
+        <rect class="band__bg" x="16" y="20" width="968" height="200" rx="14"/>
+        <text class="t-lab" x="34" y="44">执行链路 · 一次请求怎么走</text>
 
-    <div class="topo__lane topo__lane--memory">
-      <p class="topo__label">记忆与上下文</p>
-      <div class="topo__flow">
-        <span class="topo__node">系统提示<em>AGENTS.md × 5 层</em></span>
-        <span class="topo__node">转录 JSONL<em>用户级 · 0600 → --resume 接上</em></span>
-        <span class="topo__node">输入历史<em>~/.deepcode/history</em></span>
-        <span class="topo__node">上下文压缩<em>/compact，自动压缩默认关</em></span>
-      </div>
-      <p class="topo__note">指令五层里<strong>只有托管层能写</strong>；转录与历史都落在用户级目录，
-        不进项目目录 —— 免得跟着仓库一起被提交出去。</p>
-    </div>
+        <rect class="bx" x="40" y="64" width="150" height="72" rx="10"/>
+        <text class="t-name" x="115" y="94">终端</text>
+        <text class="t-sub" x="115" y="114">REPL / 一次性</text>
+
+        <rect class="bx" x="228" y="64" width="180" height="72" rx="10"/>
+        <text class="t-code" x="318" y="94">engine.dispatch</text>
+        <text class="t-sub" x="318" y="114">每个调用点抛出一个事件</text>
+
+        <rect class="bx bx--key" x="446" y="64" width="300" height="72" rx="10"/>
+        <text class="t-lab t-lab--key" x="458" y="82">tier 链 · 权威序</text>
+        <g class="chips">
+          <rect class="chip" x="458" y="88" width="49" height="30" rx="6"/>
+          <text x="482.5" y="107">prepend</text>
+          <rect class="chip" x="514" y="88" width="49" height="30" rx="6"/>
+          <text x="538.5" y="107">user</text>
+          <rect class="chip" x="570" y="88" width="49" height="30" rx="6"/>
+          <text x="594.5" y="107">append</text>
+          <rect class="chip" x="626" y="88" width="49" height="30" rx="6"/>
+          <text x="650.5" y="107">builtin</text>
+          <rect class="chip" x="682" y="88" width="49" height="30" rx="6"/>
+          <text x="706.5" y="107">core</text>
+        </g>
+        <text class="t-note" x="596" y="130" text-anchor="middle">hook 可 应答 / 改写 / 拒绝 / 委托下层</text>
+
+        <rect class="bx" x="784" y="64" width="176" height="72" rx="10"/>
+        <text class="t-code" x="872" y="94">provider</text>
+        <text class="t-sub" x="872" y="114">anthropic / openai</text>
+
+        <line class="ln" x1="190" y1="100" x2="223" y2="100" marker-end="url(#arw)"/>
+        <line class="ln" x1="408" y1="100" x2="441" y2="100" marker-end="url(#arw)"/>
+        <line class="ln" x1="746" y1="100" x2="779" y2="100" marker-end="url(#arw)"/>
+
+        <rect class="bx" x="784" y="156" width="176" height="52" rx="10"/>
+        <text class="t-sub" x="872" y="178">AGENTS.md × 5 层</text>
+        <text class="t-sub" x="872" y="196">拼进系统提示</text>
+        <line class="ln" x1="872" y1="156" x2="872" y2="141" marker-end="url(#arw)"/>
+      </g>
+
+      <!-- ── 带二：安全闸门 ───────────────────────────── -->
+      <g class="band--safety">
+        <rect class="band__bg" x="16" y="250" width="968" height="140" rx="14"/>
+        <text class="t-lab t-lab--warn" x="34" y="276">安全闸门 · 工具调用必经</text>
+        <text class="t-note t-note--warn" x="382" y="270">deny / ask —— 结果回到链上，模型重新决定</text>
+
+        <rect class="bx bx--warn" x="40" y="294" width="180" height="72" rx="10"/>
+        <text class="t-name" x="130" y="324">工具 ×8</text>
+        <text class="t-sub" x="130" y="344">6 内建 + Task / Skill</text>
+
+        <rect class="bx bx--warn" x="268" y="294" width="200" height="72" rx="10"/>
+        <text class="t-code" x="368" y="324">tool.check</text>
+        <text class="t-sub" x="368" y="344">预览后停下等一行 y/N</text>
+
+        <rect class="bx bx--warn" x="516" y="294" width="180" height="72" rx="10"/>
+        <text class="t-code" x="606" y="324">sandbox</text>
+        <text class="t-sub" x="606" y="344">Bash 的路径闸（可选）</text>
+
+        <rect class="bx bx--warn" x="744" y="294" width="200" height="72" rx="10"/>
+        <text class="t-name" x="844" y="324">spawn / 写盘</text>
+        <text class="t-sub" x="844" y="344">真进程 · 真文件</text>
+
+        <line class="ln" x1="220" y1="330" x2="263" y2="330" marker-end="url(#arw)"/>
+        <line class="ln" x1="468" y1="330" x2="511" y2="330" marker-end="url(#arw)"/>
+        <line class="ln" x1="696" y1="330" x2="739" y2="330" marker-end="url(#arw)"/>
+      </g>
+
+      <!-- ── 带三：记忆与上下文 ───────────────────────── -->
+      <g class="band--memory">
+        <rect class="band__bg" x="16" y="404" width="968" height="140" rx="14"/>
+        <text class="t-lab t-lab--acc" x="34" y="430">记忆与上下文 · 记在哪、怎么接上</text>
+
+        <rect class="bx" x="40" y="448" width="220" height="72" rx="10"/>
+        <text class="t-code" x="150" y="478">转录 JSONL</text>
+        <text class="t-sub" x="150" y="498">用户级 · 0600 → --resume</text>
+
+        <rect class="bx" x="280" y="448" width="180" height="72" rx="10"/>
+        <text class="t-name" x="370" y="478">输入历史</text>
+        <text class="t-sub" x="370" y="498">~/.deepcode/history</text>
+
+        <rect class="bx" x="480" y="448" width="200" height="72" rx="10"/>
+        <text class="t-name" x="580" y="478">遥测</text>
+        <text class="t-sub" x="580" y="498">默认关 · 零自由文本</text>
+
+        <rect class="bx" x="700" y="448" width="260" height="72" rx="10"/>
+        <text class="t-name" x="830" y="478">上下文压缩</text>
+        <text class="t-sub" x="830" y="498">/compact · 自动压缩默认关</text>
+      </g>
+
+      <!-- ── 三条连线：链尾 → 工具 / deny 回到链上 / 记忆绕回 ── -->
+      <path class="ln" d="M596 136 V232 H130 V289" marker-end="url(#arw)"/>
+      <path class="ln ln--warn" d="M368 294 V240 H700 V141" marker-end="url(#arw-w)"/>
+      <path class="ln ln--acc" d="M960 484 H1000 V100 H988" marker-end="url(#arw-a)"/>
+      <text class="t-note t-note--acc" x="1016" y="292" text-anchor="middle"
+            transform="rotate(-90 1016 292)">转录 → --resume 接回会话</text>
+    </svg>
   </div>
+  <p class="topo-hint">图比较宽 —— 左右滑动查看</p>
+  <p class="muted topo-note">非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 =
+    <code>deny</code>；闸门坐在<strong>链的下游</strong>，任何 <code>allow</code> 规则都绕不过它。
+    指令五层里只有托管层能写；转录与历史落在用户级目录，不进项目目录 —— 免得跟着仓库一起被提交上去。</p>
 
   <h3 class="h3-sample">目录分层（构建时）</h3>
 <pre class="term__body term__body--sample">src/
