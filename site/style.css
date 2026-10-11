@@ -194,7 +194,6 @@ section[id] { scroll-margin-top: 5.5rem; }
 .card p:last-child { margin-bottom: 0; }
 .card__cost { color: var(--ink-3) !important; font-size: 0.89rem !important; }
 .card__quote { color: var(--accent) !important; font-weight: 600; }
-.card--stat b { display: block; font: 600 2rem/1.1 var(--mono); letter-spacing: -0.03em; margin-bottom: 0.45rem; }
 .card--limit h3 { color: var(--ink); }
 .card--limit h3::before { content: "— "; color: var(--line-strong); }
 
@@ -204,33 +203,6 @@ th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px
 th { font: 500 0.79rem/1.5 var(--mono); color: var(--ink-3); letter-spacing: 0.02em; white-space: nowrap; }
 td { font-size: 0.94rem; color: var(--ink-2); }
 tr:last-child td { border-bottom: 0; }
-table.deps td:first-child { white-space: nowrap; }
-
-/* ── 纯 CSS 标签页（无 JS 时三个面板都摊开） ─────────── */
-.tabs { margin-top: 1.6rem; }
-.tabs > input { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; }
-.tabs__bar { display: flex; flex-wrap: wrap; gap: 0.3rem; border-bottom: 1px solid var(--line); }
-.tabs__bar label {
-  cursor: pointer; padding: 0.5rem 0.85rem; font-size: 0.92rem; color: var(--ink-3);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-}
-.tabs__bar label:hover { color: var(--ink); }
-.tabs__panel { display: none; padding-top: 1.4rem; }
-.tabs__panel p { max-width: 68ch; color: var(--ink-2); }
-.tabs__panel .big { font-size: 1.12rem; color: var(--ink); }
-
-#ptab-1:checked ~ .tabs__bar label[for="ptab-1"],
-#ptab-2:checked ~ .tabs__bar label[for="ptab-2"],
-#ptab-3:checked ~ .tabs__bar label[for="ptab-3"] { color: var(--ink); border-bottom-color: var(--accent); }
-#ptab-1:checked ~ #panel-1,
-#ptab-2:checked ~ #panel-2,
-#ptab-3:checked ~ #panel-3 { display: block; }
-
-/* 键盘走到这组 radio 上时，焦点环画在标签上 —— 真正被聚焦的 input 是视觉隐藏的，
-   不这么补一笔，用 Tab 的人会看不见自己停在哪儿。 */
-#ptab-1:focus-visible ~ .tabs__bar label[for="ptab-1"],
-#ptab-2:focus-visible ~ .tabs__bar label[for="ptab-2"],
-#ptab-3:focus-visible ~ .tabs__bar label[for="ptab-3"] { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .h3-sample { margin-top: 2.6rem; }
 
@@ -244,10 +216,6 @@ table.deps td:first-child { white-space: nowrap; }
 .callout--warn { border-left-color: var(--warn); background: var(--warn-soft); }
 .callout--warn strong { color: var(--warn); }
 
-.ticks { list-style: none; padding: 0; margin: 0.9rem 0; }
-.ticks li { padding-left: 1.1rem; position: relative; font-size: 0.94rem; color: var(--ink-2); }
-.ticks li::before { content: "·"; position: absolute; left: 0.35rem; color: var(--ink-3); }
-
 /* ── 架构：tier 链 ──────────────────────────────────── */
 .tiers { list-style: none; counter-reset: tier; padding: 0; margin: 1.8rem 0 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .tiers li { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; align-items: baseline; padding: 0.7rem 1.1rem; background: #fff; border-top: 1px solid var(--line); }
@@ -256,21 +224,10 @@ table.deps td:first-child { white-space: nowrap; }
 .tiers span { color: var(--ink-3); font-size: 0.92rem; }
 
 /* ── 路线图 ─────────────────────────────────────────── */
-.road { list-style: none; padding: 0; margin: 1.8rem 0 0; }
-.road li { position: relative; padding: 0 0 1.7rem 1.4rem; border-left: 2px solid var(--line-strong); }
-.road li:last-child { padding-bottom: 0; border-left-color: transparent; }
-.road--done { border-left-color: var(--accent) !important; }
-.road li::before {
-  content: ""; position: absolute; left: -0.42rem; top: 0.5rem; width: 0.62rem; height: 0.62rem;
-  border-radius: 50%; background: var(--line-strong); border: 2px solid var(--bg);
-}
-.road--done::before { background: var(--accent); }
-.road__head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.35rem; }
-.road p { color: var(--ink-2); font-size: 0.95rem; max-width: 72ch; margin: 0; }
-.pill { font: 500 0.74rem/1 var(--mono); padding: 0.3rem 0.5rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
-.pill--todo { background: var(--surface); color: var(--ink-3); }
-/* 进行中：琥珀（与 ⚠️ 那几处实话同一个色），一眼分得开"做完了"与"正在做" */
-.pill--doing { background: var(--warn-soft); color: var(--warn); }
+/* 七个阶段全部完成 —— 用一张表，不用时间轴：一条时间轴上七个点全是同一个颜色，
+   除了占地方之外没多说什么。 */
+#roadmap table { margin-top: 1.6rem; }
+#roadmap td:first-child { white-space: nowrap; }
 
 /* ── 收尾 ───────────────────────────────────────────── */
 .band--cta { padding-bottom: clamp(2.6rem, 6vw, 4.6rem); }
