@@ -3398,8 +3398,12 @@ git commit -m "feat(cli): subagents 插件 —— Task 与 Skill 两个工具，
 
 **Files:**
 - Create: `src/cli/offer.ts`
-- Modify: `src/cli/plugins.ts`、`src/cli/main.ts`、`test/plugin-wiring.test.ts`
+- Modify: `src/cli/plugins.ts`、`src/cli/main.ts`、`test/plugin-wiring.test.ts`、`test/cli.test.ts`
 - Test: `test/offer.test.ts`、`test/skill-tool.test.ts`
+
+> `test/cli.test.ts` 不在下面的 `git add` 里是**写漏了**：它有三处（约 `:112`/`:149`/`:180`）自己
+> 构造 `CliPluginDeps`，`agents`/`skills`/`baseSystemPrompt` 变成必填之后就过不了 `typecheck`。
+> 三处各补 `agents: []`、`skills: []`、`baseSystemPrompt: '基础提示'`，测试逻辑不动。
 
 - [ ] **Step 1: 写 `src/cli/offer.ts`**
 
@@ -3557,7 +3561,10 @@ import { renderOffer } from './offer';
   // 结果是两张**已经解析好**的名册，以参数进 `cliPlugins`（设计 §4.1）。
   // 只有判为 `loaded` 的插件贡献名册 —— 被 deny 的、项目级没 enable 的、清单坏掉的，
   // 它们的 agent 也不该出现。
-  const warnLine = (line: string): void => process.stderr.write(`${line}\n`);
+  // 块体而不是表达式体：显式 `: void` 下表达式体的返回值（`write` 的 boolean）过不了 TS2322。
+  const warnLine = (line: string): void => {
+    process.stderr.write(`${line}\n`);
+  };
   const pluginDirs = found.loaded.map((plugin) => ({ name: plugin.name, dir: plugin.dir }));
   const agents = await discoverAgents({ root, home, plugins: pluginDirs, warn: warnLine });
   const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
@@ -3781,7 +3788,7 @@ describe('C3-15：Skill 工具', () => {
       CORE_ORIGIN,
     );
     expect(result).toEqual({
-      deny: '没有叫 不存在的 技能。可选的：design-notes',
+      deny: '没有叫 不存在 的技能。可选的：design-notes',
     });
   });
 });
@@ -3845,7 +3852,7 @@ Expected: 全绿
 - [ ] **Step 10: 提交**
 
 ```bash
-git add src/cli/offer.ts src/cli/plugins.ts src/cli/main.ts test/offer.test.ts test/skill-tool.test.ts test/plugin-wiring.test.ts
+git add src/cli/offer.ts src/cli/plugins.ts src/cli/main.ts test/offer.test.ts test/skill-tool.test.ts test/plugin-wiring.test.ts test/cli.test.ts
 git commit -m "feat(cli): 接线 —— 名册发现、agent.offer 拼进 system prompt、subagents 进第一方" -m "Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ```
 
@@ -4221,3 +4228,31 @@ git commit --allow-empty -m "checkpoint: P4a C3 通过（技能与收口）" -m 
   **反向验证的价值恰恰在这儿** —— 它不验"断言对不对"，它验"断言是被谁满足的"。
   一条断言在正确实现下必然为真，不足以说明它承重；得把它赖以成立的那条实现抽掉，
   看它会不会倒。**这正是"任一条没红就修断言"这条规矩存在的全部理由。**
+
+**T11 —— 接线，两处计划外的文件与一处计划里的错字符串。**
+
+- **做成了什么**：`src/cli/offer.ts`（`renderOffer`）、`main.ts` 的名册发现与
+  `agent.offer` 拼装、`cliPlugins` 三个新入参、`subagents` 进第一方。
+  全套 **523 passed / 36 files**（514 + 9，34 + 2），`typecheck` 与 `lint`（边界）全绿。
+- **反向验证**（Step 8 两条，都按预期红了，没有一条需要"修断言"）：
+  1. `coreImpls['skill.prompt']` → `() => ({ text: '' })`：**C3-15「拿回正文」与
+     C3-16「没人应答时是原文」红**；附带把 C3-16「有插件应答时用改写后的正文」也带红了
+     （清空同样抹掉了注释者的追加行）—— 多红一条不算问题。C3-14 与 C3-15「点名不存在」**该绿还绿**。
+  2. 从 `PASS_THROUGH_TOOLS` 删掉 `'Skill'`：**C3-15 红**（正文变成
+     `ERROR: 已拒绝 —— 未知工具 Skill…`），C3-16 走同一条 `runTurn` 也红。
+     **C3-15「点名不存在」正确地保持绿** —— 那条直接派 `tool.call`、绕开 `tool.check`，
+     本来就不该受这次变异影响。**这一条"该绿的没红"比上面那些红更能说明断言切得准。**
+- **计划外的两处改动**（都已折回计划本文）：
+  1. **多出一个必需改的文件**：`test/cli.test.ts` 自己构造 `CliPluginDeps` 三处，
+     `agents`/`skills`/`baseSystemPrompt` 变必填后过不了 `typecheck`。计划的任务头文件表与
+     `git add` 都漏了它 —— 漏掉就会留下一个过不了 `typecheck` 的提交。
+  2. **计划里的字符串写错了**：C3-15「点名不存在」的期望值原文是
+     `没有叫 不存在的 技能…`（多一个 `的`），而 `subagents.ts` 发的是
+     `没有叫 ${name} 的技能…`。行为（deny + 列出可选）是对的，**错的只是钉住的那串字**。
+- **一处有意偏差（设计 §12 的文件表）**：§12 把这个字符串拼装放在 `main.ts`。
+  实际抽成了纯模块 `src/cli/offer.ts` —— `main.ts` 一 import 就会跑，写在里面只能靠起子进程测，
+  而它是一段纯文本拼接，不值得为它起进程。一条单测钉住格式。**这是偏差，不是遗漏。**
+- **教训（第五种"计划错"）**：这一轮的错都**不在逻辑上，在文本上** —— 该 `git add` 的文件名单、
+  一句期望字符串、一段过不了 `tsc` 的示例代码。**逻辑错能靠反向验证逮住，文本错不能**：
+  写错的期望值会被实现者"顺手改成对的"（因为改完就绿了），于是它**永远不会红**，
+  也就永远不会有人回头看计划里原本写的是什么。**代价是多出一个没有人知道它被改过的计划。**
