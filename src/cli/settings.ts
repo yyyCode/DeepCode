@@ -34,6 +34,11 @@ const EMPTY_PLUGINS: PluginsLayer = { enable: [], deny: [] };
  * 少了 `user`：用户级目录本来就自动装载，写 enable 是没用的。
  * 少了 `policy`：托管策略写 enable 会变成"组织替你打开一个插件" ——
  * 托管策略只该能收紧，不该能替你打开东西（设计 §3）。
+ *
+ * ⚠️ **落点（`~/.deepcode/installed/`）是唯一的例外**：那一层只认用户层的 enable，
+ * 走的是 `ResolvedPolicy.plugins.enableByUser`，不经这个常量（P4c 设计 §0 决策 3）。
+ * 所以 user 层的 enable 名字**会被读进来**，只是不进这里合并出的那个名单 ——
+ * 看起来像 bug，不是 bug。
  */
 export const PLUGIN_ENABLE_SOURCES = ['project', 'local', 'flag'] as const;
 
@@ -98,8 +103,16 @@ export type ResolvedPolicy = {
    *
    * `enable` 只来自 project / local / flag；`deny` 来自五层并集 ——
    * 它只能关掉东西，永远不可能放宽，于是"谁写的"对结果毫无影响。
+   *
+   * `enableByUser` 是**唯一**认用户层的一处，而它只管落点
+   * `~/.deepcode/installed/`（设计 §0 决策 3）。这个不对称不是疏漏：
+   * 把落点并进上面那个名单，别人仓库里的 settings.json 就能按名字点亮你全局装的东西。
    */
-  readonly plugins: { readonly enable: readonly PluginRule[]; readonly deny: readonly PluginRule[] };
+  readonly plugins: {
+    readonly enable: readonly PluginRule[];
+    readonly enableByUser: readonly string[];
+    readonly deny: readonly PluginRule[];
+  };
   /**
    * 沙箱。规则与权限规则**同一套**（`contract/policy.ts`），只是判定落在 `process` 名词里。
    */
@@ -233,6 +246,11 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
           withSource(source, pluginsBySource.get(source)?.enable ?? []),
         ),
       ),
+      // 用户层**不经** PLUGIN_ENABLE_SOURCES，直接取那一层读到的名字。
+      // 它只喂落点，不会让 ~/.deepcode/plugins/ 里的东西被启用 —— 上面那个 flatMap
+      // 只看 PLUGIN_ENABLE_SOURCES，所以这条路径改不了那里的行为。
+      // 去重是因为它是给 discoverPlugins 的 includes 用的：重复项无害，但显示会难看。
+      enableByUser: [...new Set(pluginsBySource.get('user')?.enable ?? [])],
       deny: dedupe(
         SETTINGS_SOURCES.flatMap((source) =>
           withSource(source, pluginsBySource.get(source)?.deny ?? []),
@@ -437,13 +455,24 @@ function readPlugins(
         );
         continue;
       }
-      if (key === 'enable' && !PLUGIN_ENABLE_SOURCES.includes(layer.source as never)) {
+      // ⚠️ 托管层照旧丢掉，user 层**必须收下** —— 两条路从这一轮起不一样了。
+      // user 层的 enable 是落点唯一的开关（设计 §0 决策 3），所以这个名字得落到本层的
+      // `enable` 里，好让 `enableByUser` 取得到它。它仍然进不了**合并后**的
+      // `plugins.enable`：那一步只走 PLUGIN_ENABLE_SOURCES（settings.ts:230-241）。
+      // 改之前这里是一句"不认识就 continue"，于是"收下"这件事在代码里根本不存在 ——
+      // 直接加 enableByUser 会**静默得到空数组**，而且测试也发现不了。
+      if (key === 'enable' && layer.source === 'policy') {
         warn(
-          layer.source === 'user'
-            ? `${label(layer.source)} ${where} 这条不生效 —— plugins.enable 不认 user 层（用户级插件本来就自动装载）。`
-            : `${label(layer.source)} ${where} 这条不生效 —— plugins.enable 不认托管层（托管策略只该能收紧，不该替你打开一个插件）。`,
+          `${label(layer.source)} ${where} 这条不生效 —— plugins.enable 不认托管层（托管策略只该能收紧，不该替你打开一个插件）。`,
         );
         continue;
+      }
+      if (key === 'enable' && layer.source === 'user') {
+        warn(
+          `${label(layer.source)} ${where} 的用户级这一条对自动装载目录不生效 —— ` +
+            `plugins.enable 不认 user 层的 ~/.deepcode/plugins/（用户级插件本来就自动装载）；` +
+            `它唯一管用的是落点 ~/.deepcode/installed/：那里的插件只认这一层。`,
+        );
       }
       out[key].push(name);
     }

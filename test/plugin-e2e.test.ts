@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, readFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import { CORE_ORIGIN } from '../src/contract/next';
 import { confirmPlugin } from '../src/builtins/confirm';
 import { coreTools } from '../src/builtins/tools';
 import { createEngine } from '../src/core/create';
-import { discoverPlugins, installPlugins } from '../src/cli/plugin-dir';
+import { discoverPlugins, loadPlugins } from '../src/cli/plugin-dir';
 import { scriptedProvider } from './harness';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -43,7 +43,7 @@ async function walking(dir: string): Promise<readonly string[]> {
 async function install(world: { home: string; root: string }, projectDir: string) {
   const found = await discoverPlugins({ ...world, enabled: [], warn: () => {} });
   expect(found.skipped).toEqual([]);
-  return await installPlugins(found.loaded, {
+  return await loadPlugins(found.loaded, {
     projectDir,
     session: { id: 's1', transcriptPath: undefined },
     env: process.env,
@@ -174,7 +174,7 @@ describe('「不改引擎」的字面证明', () => {
     const hits: string[] = [];
     for (const file of await walking(join(REPO, 'src'))) {
       const text = await readFile(file, 'utf8');
-      if (/secret-guard|TodoWrite/.test(text)) hits.push(relative(REPO, file));
+      if (/secret-guard|TodoWrite|hookify/.test(text)) hits.push(relative(REPO, file));
     }
     expect(hits).toEqual([]);
   });
@@ -230,5 +230,99 @@ describe('出口标准三：classic 钩子的 exit 2 真的拦得住', () => {
       CORE_ORIGIN,
     );
     expect(result.rule).toBe('fail-closed: 没有 hook 应答 tool.check');
+  });
+});
+
+describe('hookify：一份规则文件就是一个 hook，真链路走一遍', () => {
+  const KEY = 'AKIAIOSFODNN7EXAMPLE';
+
+  const RULE = `---
+name: no-aws-keys
+tool: Write|Edit
+field: content
+operator: matches
+pattern: AKIA[0-9A-Z]{16}
+decision: deny
+message: 文件里出现了形似 AWS access key 的东西
+---
+
+要写就先把 key 换成占位符。
+`;
+
+  /** 装好 hookify，规则文件按需放进 `<root>/.deepcode/`。 */
+  async function engine(rules: Record<string, string>) {
+    const world = await worldWith('hookify');
+    if (Object.keys(rules).length > 0) {
+      await mkdir(join(world.root, '.deepcode'), { recursive: true });
+      for (const [name, text] of Object.entries(rules)) {
+        await writeFile(join(world.root, '.deepcode', name), text);
+      }
+    }
+    const installed = await install(world, world.root);
+    expect(installed.map((p) => p.name)).toEqual(['hookify']);
+    const { dispatch } = await createEngine({
+      plugins: installed,
+      thirdParty: ['hookify'],
+      signal: () => new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: world.root, root: world.root },
+      env: {},
+    });
+    return dispatch;
+  }
+
+  function write(dispatch: Awaited<ReturnType<typeof engine>>, content: string) {
+    return dispatch(
+      'tool.check',
+      { tool: 'Write', input: { file_path: 'a.ts', content }, toolUseId: 't1' },
+      CORE_ORIGIN,
+    );
+  }
+
+  it('真规则文件拦下真 Write —— 整条链：hooks.json → 脚本 → 规则文件 → deny', async () => {
+    const dispatch = await engine({ 'hookify.no-keys.local.md': RULE });
+    const result = await write(dispatch, `const k = "${KEY}";\n`);
+    expect(result.decision).toBe('deny');
+    expect(result.rule).toContain('hookify');
+    expect(result.rule).toContain('no-aws-keys');
+    expect(result.rule).toContain('占位符');
+  });
+
+  it('**没有规则文件时同样的 Write 能过** —— 防"hookify 一装上就什么都不让写"', async () => {
+    const dispatch = await engine({});
+    // 钩子一个字不说，判定交回下层（这里没有 confirm，落在链尾的 fail-closed）。
+    expect(await write(dispatch, `const k = "${KEY}";\n`)).toEqual({
+      decision: 'deny',
+      rule: 'fail-closed: 没有 hook 应答 tool.check',
+    });
+  });
+
+  it('规则里的 tool 决定它管不管这次调用 —— Bash 不在 Write|Edit 里', async () => {
+    const dispatch = await engine({ 'hookify.no-keys.local.md': RULE });
+    // 钩子**跑了**（hooks.json 不写 matcher，对所有工具生效），是脚本按 tool_name 分流的。
+    const result = await dispatch(
+      'tool.check',
+      { tool: 'Bash', input: { command: `echo ${KEY}` }, toolUseId: 't1' },
+      CORE_ORIGIN,
+    );
+    expect(result.rule).toBe('fail-closed: 没有 hook 应答 tool.check');
+  });
+
+  it('规则文件写坏了 → deny（fail-closed，不是静默放行）', async () => {
+    const dispatch = await engine({ 'hookify.bad.local.md': '这一行不是 frontmatter\n' });
+    const result = await write(dispatch, '随便什么内容');
+    expect(result.decision).toBe('deny');
+    // 理由要说清是哪个文件 —— 否则用户面对"全都不让写了"根本不知道去改哪个。
+    expect(result.rule).toContain('hookify');
+    expect(result.rule).toContain('hookify.bad.local.md');
+  });
+
+  it('decision: allow 是规则文件的错误 → deny，且点名 allow', async () => {
+    const allow = RULE.replace('decision: deny', 'decision: allow');
+    const dispatch = await engine({ 'hookify.bad.local.md': allow });
+    const result = await write(dispatch, '随便什么内容');
+    expect(result.decision).toBe('deny');
+    expect(result.rule).toContain('allow');
   });
 });

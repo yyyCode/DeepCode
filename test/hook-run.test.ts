@@ -81,6 +81,29 @@ describe('classify：三个有定义的结果 + 其余一律失败', () => {
     expect(classify(result(code)).kind).toBe('fail');
   });
 
+  it('非零退出时 **stderr 要进理由** —— 那是用户唯一能拿到的线索', () => {
+    // 一条 fail-closed 的钩子会把动作全停掉。这时候它写的那句话是用户唯一知道
+    // "该去改什么"的途径；只说"退出码 1"等于把线索丢了。exit 2 那条分支本来就是这么做的。
+    expect(classify(result(1, { stderr: 'hookify: 规则文件写坏了，缺 name\n' }))).toEqual({
+      kind: 'fail',
+      reason: expect.stringContaining('缺 name'),
+    });
+  });
+
+  it('非零退出的理由里也留着"只有 0 与 2 是有定义的结果"这句（方向要写清）', () => {
+    expect(classify(result(1, { stderr: 'x' }))).toEqual({
+      kind: 'fail',
+      reason: expect.stringMatching(/^钩子以退出码 1 结束（只有 0 与 2 是有定义的结果）：x$/),
+    });
+  });
+
+  it('非零退出但没给 stderr 时，照样给得出一条理由（不留一个空冒号）', () => {
+    expect(classify(result(1))).toEqual({
+      kind: 'fail',
+      reason: '钩子以退出码 1 结束（只有 0 与 2 是有定义的结果）',
+    });
+  });
+
   it('起不来 / 超时 = fail，且原因是那个 failure', () => {
     expect(classify(result(-1, { failure: '超过 1 秒没结束，已杀掉' }))).toEqual({
       kind: 'fail',

@@ -11,19 +11,26 @@ import { subdirectories } from './walkdir';
 /**
  * 插件目录的发现与装载。
  *
+ * 注意"装载"与"安装"是两件事：这个文件只做**装载**（把已经在目录里的搬进内存）。
+ * 把文件从 marketplace 拷进落点的是 `plugin-install.ts` —— 安装（P4c）。
+ *
  * **两段，不是一个函数**，这是这个文件最要紧的结构：
  * - `discoverPlugins` 读清单（**不执行任何代码**）
- * - `installPlugins` import 入口（执行代码）
+ * - `loadPlugins` **装载**（import 入口模块，代码从这里开始跑）
+ *
+ * ⚠️ 目录有**三个来源**，不是两个：项目级、用户级，以及 `plugin add` 装进来的落点。
+ * 三者的闸门不一样：项目级要 `plugins.enable`、用户级自动装载、落点要**用户级的**
+ * `plugins.enable`（`enabledInstalled`）。前两者的语义自 P3 起一个字没改。
  *
  * `deepcode plugin list` 与 `validate` 只做前者。列个清单不该执行别人的代码 ——
  * 这条分界线让"看一眼"这个动作在安全上是平凡的。
  *
- * ⚠️ 而 `installPlugins` 里的那一行 `import` 就是"装一个插件 = 信任它"的全部。
+ * ⚠️ 而 `loadPlugins` 里的那一行 `import` 就是"装一个插件 = 信任它"的全部。
  * 准入闸门管的是**链上权威**（谁能放宽权限），不是"这段代码能不能跑" ——
  * 把插件目录放进去，就是让它以你的身份跑。参考实现也是这个语义（设计 §4.6）。
  */
 
-export type PluginOrigin = 'user' | 'project';
+export type PluginOrigin = 'user' | 'project' | 'installed';
 
 export type DiscoveredPlugin = {
   readonly name: string;
@@ -59,10 +66,42 @@ export type DiscoverDeps = {
    * 与"这个仓库要求我装什么"是两件事（设计 §3）。
    */
   readonly enabled: readonly string[];
+  /**
+   * 装进来的那一层（落点）要哪几个名字启用。**只认用户层**，理由见设计 §0 决策 3：
+   * 把落点并进同一个名单，别人仓库里的 settings.json 就能按名字点亮你全局装着的插件。
+   *
+   * 可选而不是必填，两个理由：默认值 fail-closed（不给 = 一个都不开），
+   * 以及既有十几处 `{ ...world, enabled: [] }` 的调用点不用全改。
+   */
+  readonly enabledInstalled?: readonly string[];
   readonly warn?: (line: string) => void;
 };
 
+/**
+ * 用户自己放插件的目录。项目级与用户级共用这个相对路径。
+ */
 const USER_DIR = ['.deepcode', 'plugins'] as const;
+
+/**
+ * 落点：`plugin add` 装进来的地方。
+ *
+ * 它与 `USER_DIR` 只差一个词，但语义完全不同 —— **不参与自动装载**：
+ * 这个目录里的插件要**用户级**设置显式 `plugins.enable` 才跑（设计 §0 决策 2）。
+ * 常量名与 origin 名相同是特意选的：读代码时两个词指同一件事，不用在脑子里做映射。
+ */
+export const INSTALLED_DIR = ['.deepcode', 'installed'] as const;
+
+/**
+ * 落盘的暂存目录。
+ *
+ * **它必须是落点的兄弟节点**（同在 `~/.deepcode/` 下），不能放进落点里 ——
+ * `subdirectories()`（`walkdir.ts:38-49`）的过滤条件**只有 `entry.isDirectory()`，
+ * 没有任何名字规则**：不排点开头、不排 `.tmp`、什么都不排。所以落点里的任何临时目录
+ * 在拷贝窗口内都会被 `plugin list` 当成一个坏插件扫出来。
+ * 选这儿还因为它与落点**同一个文件系统**（都在 `~/.deepcode/` 下），
+ * 于是 `rename` 是真原子动作；换成系统临时目录就退化成跨设备的拷贝，那还不如不原子。
+ */
+export const STAGING_DIR = ['.deepcode', '.installed-staging'] as const;
 
 /**
  * 把一个插件目录包成 `PluginReader`。
@@ -97,20 +136,29 @@ export function dirReader(dir: string): PluginReader {
 
 export async function discoverPlugins(deps: DiscoverDeps): Promise<Discovery> {
   const warn = deps.warn ?? (() => {});
+  const enabledInstalled = deps.enabledInstalled ?? [];
   const projectDir = join(deps.root, ...USER_DIR);
   const userDir = join(deps.home, ...USER_DIR);
+  const installedDir = join(deps.home, ...INSTALLED_DIR);
 
-  // 项目级排前面：同名时用户级那份被丢掉。**项目级的赢**，因为"这个仓库要求用什么"，
-  // 比"我全局装过什么"更具体 —— 与设置层的 project > user 同一个方向。
-  const roots: readonly { origin: PluginOrigin; dir: string }[] =
-    resolve(projectDir) === resolve(userDir)
+  // 顺序：project > user > installed。既有两级的相对顺序与语义一个字不改；
+  // 中介最多的那个来源排最后 —— 同名冲突时，更**直接**的那个赢
+  // （下面 `claimed` 那张表在做这件事，语义照旧）。
+  //
+  // 落点与前两者不会撞路径：`INSTALLED_DIR` 与 `USER_DIR` 是两个目录名，
+  // 所以这里不需要去重。
+  const roots: readonly { origin: PluginOrigin; dir: string }[] = [
+    ...(resolve(projectDir) === resolve(userDir)
       ? // home 兜底成 root 时两个目录是同一个（main.ts 的 home 默认值）。那种情况下
         // 按用户级算：它本来就是"我自己装的那个目录"，没有"这个仓库要求"可言。
-        [{ origin: 'user', dir: userDir }]
+        [{ origin: 'user', dir: userDir } as const]
       : [
-          { origin: 'project', dir: projectDir },
-          { origin: 'user', dir: userDir },
-        ];
+          { origin: 'project', dir: projectDir } as const,
+          { origin: 'user', dir: userDir } as const,
+        ]),
+    // 落点永远单独一个来源。它跟谁都不共目录，闸门也是另一份名单。
+    { origin: 'installed', dir: installedDir },
+  ];
 
   const loaded: DiscoveredPlugin[] = [];
   const skipped: SkippedPlugin[] = [];
@@ -139,12 +187,18 @@ export async function discoverPlugins(deps: DiscoverDeps): Promise<Discovery> {
       }
 
       const manifest = validated.manifest;
-      if (origin === 'project' && !deps.enabled.includes(manifest.name)) {
+      // user 级不受任何名单管；其余两级各有一份：项目级那份来自五层合并的
+      // `plugins.enable`，落点那份只认**用户层**设置（设计 §0 决策 3）。
+      const enabledNames = origin === 'installed' ? enabledInstalled : deps.enabled;
+      if (origin !== 'user' && !enabledNames.includes(manifest.name)) {
         skipped.push({
           dir: pluginDir,
           origin,
           name: manifest.name,
-          reason: `项目级插件要显式启用：在 .deepcode/settings.json 里写 plugins.enable: ["${manifest.name}"]`,
+          reason:
+            origin === 'project'
+              ? `项目级插件要显式启用：在 .deepcode/settings.json 里写 plugins.enable: ["${manifest.name}"]`
+              : `装进来的插件只能由用户级设置启用：在 ~/.deepcode/settings.json 里写 plugins.enable: ["${manifest.name}"]（项目级设置里写同一个名字不算数）`,
         });
         continue;
       }
@@ -196,7 +250,7 @@ export type InstallDeps = {
  * 合流的意义不只是方便：两者共用**一个插件名、一个 `register`**，于是也共用
  * `uses` 检查与"剥掉 allow"那两道闸（设计 §5.0）。
  */
-export async function installPlugins(
+export async function loadPlugins(
   discovered: readonly DiscoveredPlugin[],
   deps: InstallDeps,
 ): Promise<readonly Plugin[]> {

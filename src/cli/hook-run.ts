@@ -191,7 +191,16 @@ export function classify(result: HookRun): HookVerdict {
     return { kind: 'block', reason: reason === '' ? '钩子以退出码 2 拦下，但没有给出理由' : reason };
   }
   if (result.exitCode !== 0) {
-    return { kind: 'fail', reason: `钩子以退出码 ${result.exitCode} 结束（只有 0 与 2 是有定义的结果）` };
+    // stderr **要带上**。钩子用非零退出码表达"我坏了"时，它写的那句话是用户唯一能拿到的
+    // 线索 —— 只说"退出码 1"会让一个 fail-closed 的钩子变成绊脚索：动作全停了，
+    // 却没人告诉你该去改哪个文件。exit 2 那条分支本来就是这么做的，这里照办。
+    const said = result.stderr.trim();
+    return {
+      kind: 'fail',
+      reason:
+        `钩子以退出码 ${result.exitCode} 结束（只有 0 与 2 是有定义的结果）` +
+        (said === '' ? '' : `：${said}`),
+    };
   }
 
   // exit 0：stdout 可能是纯文本，也可能是带判定的 JSON。读不出来就当它没意见 ——

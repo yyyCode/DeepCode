@@ -1,0 +1,21 @@
+{
+  "name": "deepcode",
+  "description": "DeepCode 仓库自带的插件",
+  "plugins": [
+    {
+      "name": "secret-guard",
+      "description": "写文件之前扫一眼内容里有没有密钥形状的东西 —— 一个只会拧紧的插件",
+      "source": "./plugins/secret-guard"
+    },
+    {
+      "name": "todo",
+      "description": "加一个 TodoWrite 工具 —— 演示一个不改引擎的新能力",
+      "source": "./plugins/todo"
+    },
+    {
+      "name": "hookify",
+      "description": "把 .deepcode/hookify.*.local.md 里的声明式规则编译成 PreToolUse 判定 —— 一个不改引擎的插件",
+      "source": "./plugins/hookify"
+    }
+  ]
+}

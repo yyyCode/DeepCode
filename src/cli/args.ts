@@ -16,6 +16,11 @@ export type StartupAction =
   | { kind: 'plugin'; sub: 'help' }
   | { kind: 'plugin'; sub: 'list' }
   | { kind: 'plugin'; sub: 'validate'; dir: string }
+  | { kind: 'plugin'; sub: 'add'; name: string; from: string }
+  | { kind: 'plugin'; sub: 'remove'; name: string }
+  | { kind: 'config'; sub: 'help' }
+  | { kind: 'config'; sub: 'list' }
+  | { kind: 'config'; sub: 'set'; key: string; value: string }
   | { kind: 'prompt'; text: string; resume: ResumeTarget; settings: string | undefined };
 
 /** `-V` 而不是 `-v`：后者在太多工具里是 verbose，别去抢那个字母。 */
@@ -28,16 +33,21 @@ const RESUME = '--resume';
 /** 同样只认等号形态：它指向一个文件路径，裸写没法跟提示词区分开。 */
 const SETTINGS = '--settings';
 
+/** 与 `--settings=` 同一条理由：它指向一个目录，裸写没法跟位置参数区分开。 */
+const FROM = '--from';
+
 export function parseArgs(argv: readonly string[]): StartupAction {
   // help 优先于 version，两者都优先于 resume 与提示词。
   if (argv.some((arg) => HELP_FLAGS.includes(arg))) return { kind: 'help' };
   if (argv.some((arg) => VERSION_FLAGS.includes(arg))) return { kind: 'version' };
 
-  // 子命令：**第一个非开关 token 恰好是 `plugin`，且第二个是 validate/list** 才进子命令模式。
-  // 其余一律照旧当提示词 —— `deepcode plugin 系统怎么写` 是句正经提问，
+  // 子命令：**第一个非开关 token 恰好是 `plugin` / `config`，且第二个是个认识的动词**
+  // 才进子命令模式。其余一律照旧当提示词 —— `deepcode plugin 系统怎么写` 是句正经提问，
   // 把"plugin"抢成保留字会让它变成一条报错。
   const plugin = parsePluginCommand(argv);
   if (plugin !== undefined) return plugin;
+  const config = parseConfigCommand(argv);
+  if (config !== undefined) return config;
 
   let resume: ResumeTarget = { kind: 'none' };
   let settings: string | undefined;
@@ -95,6 +105,51 @@ function parsePluginCommand(argv: readonly string[]): StartupAction | undefined 
     const dir = argv[first + 2];
     return dir === undefined ? { kind: 'plugin', sub: 'help' } : { kind: 'plugin', sub: 'validate', dir };
   }
+  if (sub === 'add') {
+    // `--from` 只认等号形态（`--from=<目录>`），先例是 `--resume=` 与 `--settings=`。
+    // 它**可以出现在任意位置**：`from` 整条 argv 里找，名字则取子命令之后**第一个非开关 token**
+    // —— 这一步不能写成 `argv[first + 2]`：`--from=…` 以 `-` 开头，它排在名字前面时
+    // 会把那个位置占了，于是名字被读成 `--from=…` 而被判非法。
+    const name = argv.slice(first + 2).find((arg) => !arg.startsWith('-'));
+    const from = argv.find((arg) => arg.startsWith(`${FROM}=`))?.slice(FROM.length + 1).trim();
+    if (name === undefined || from === undefined || from === '') {
+      // 少了名字或 `--from` 就打说明 —— 与 `validate` 少了目录同一种处置。
+      // 说明里写着这两个参数怎么写，所以这不是一条死胡同。
+      return { kind: 'plugin', sub: 'help' };
+    }
+    return { kind: 'plugin', sub: 'add', name, from };
+  }
+  if (sub === 'remove') {
+    const name = argv[first + 2];
+    if (name === undefined || name.startsWith('-')) return { kind: 'plugin', sub: 'help' };
+    return { kind: 'plugin', sub: 'remove', name };
+  }
+  return undefined;
+}
+
+/**
+ * 认出 `config` / `config list` / `config set <键> <值>`。
+ *
+ * 与 `parsePluginCommand` **同一条**回落规则：动词不认识 → `undefined`（回落到提示词，
+ * 不是死胡同），参数不够 → `{ sub: 'help' }`（打说明，说明里写着该怎么写）。
+ * 光一个 `config` 与 `plugin` 一样算"参数不够"。
+ *
+ * 值只取子命令之后**第一个非开关 token** —— 免得一个走错的 `--flag` 被当成值写进配置文件。
+ */
+function parseConfigCommand(argv: readonly string[]): StartupAction | undefined {
+  const first = argv.findIndex((arg) => !arg.startsWith('-'));
+  if (first === -1 || argv[first] !== 'config') return undefined;
+
+  const sub = argv[first + 1];
+  if (sub === undefined) return { kind: 'config', sub: 'help' };
+  if (sub === 'list') return { kind: 'config', sub: 'list' };
+  if (sub === 'set') {
+    const rest = argv.slice(first + 2).filter((arg) => !arg.startsWith('-'));
+    const key = rest[0];
+    const value = rest[1];
+    if (key === undefined || value === undefined) return { kind: 'config', sub: 'help' };
+    return { kind: 'config', sub: 'set', key, value };
+  }
   return undefined;
 }
 
@@ -123,6 +178,10 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
   DEEPCODE_PROVIDER                          provider：anthropic / openai（默认 anthropic）
   DEEPCODE_DEBUG=1                           打印调试轨迹
 
+  deepcode config list              看每个配置项生效的值与它来自哪一层
+  deepcode config set model <名字>   改用户级配置里的 model（**只能改这一项**）
+                                     apiKey / baseUrl 要自己开文件改；权限设置不在这里
+
 会话落盘
   ~/.deepcode/projects/<工作目录>/sessions/<id>.jsonl
   转录里有代码内容，删掉文件就等于删掉那次会话。
@@ -130,9 +189,11 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 插件
   用户级 ~/.deepcode/plugins/<名字>/plugin.json        自动装载
   项目级 <工作目录>/.deepcode/plugins/<名字>/plugin.json  要在设置里 plugins.enable 之后才装
-  deepcode plugin list             列出装上的与跳过的，各带理由
+  落点   ~/.deepcode/installed/<名字>/                 plugin add 装在这儿，只有用户级设置能启用
+  deepcode plugin list             列出装上的 / 装进来的 / 跳过的，各带理由
   deepcode plugin validate <目录>  只校验一份清单，不执行任何代码
-  deepcode --help                  这份说明
+  deepcode plugin add <名字> --from=<目录>  从一份本地索引装进来（装了不等于启用）
+  deepcode plugin remove <名字>    从落点删掉
   第三方插件只能拧紧不能拧松：它的判定要么拦下、要么往下交，放行一律忽略。
 
 权限：

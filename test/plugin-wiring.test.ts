@@ -16,7 +16,7 @@ const POLICY: ResolvedPolicy = {
   personalRules: [],
   sandbox: EMPTY_SANDBOX,
   compact: DEFAULT_COMPACT,
-  plugins: { enable: [], deny: [] },
+  plugins: { enable: [], enableByUser: [], deny: [] },
 };
 
 const THIRD: Plugin = { name: 'todo', uses: [], register: () => {} };
@@ -28,6 +28,7 @@ function bundle(overrides: Partial<Parameters<typeof cliPlugins>[0]> = {}) {
     messages: [],
     root: process.cwd(),
     palette: createPalette(),
+    env: {},
     policy: POLICY,
     home: '/home/u',
     agents: [],
@@ -115,6 +116,7 @@ describe('/permissions 里看得见插件名单', () => {
         ...POLICY,
         plugins: {
           enable: [{ name: 'todo', source: 'project' }],
+          enableByUser: [],
           deny: [{ name: 'evil', source: 'policy' }],
         },
       },

@@ -21,13 +21,17 @@ export type PermissionsCommandDeps = {
 export function createPermissionsCommand(deps: PermissionsCommandDeps): Plugin {
   return {
     name: 'permissions-command',
-    uses: ['command.run', 'ui'],
+    uses: ['command.run', 'command.describe', 'ui'],
 
     register(on) {
       on('command.run', { name: 'permissions' }, ($) => {
         $.ui.log(renderPermissions(deps.policy, deps.palette));
         return { handled: true };
       });
+
+      on('command.describe', { name: 'permissions' }, () => ({
+        description: '看当前生效的权限来源与规则',
+      }));
     },
   };
 }

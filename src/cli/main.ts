@@ -12,16 +12,19 @@ import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
 import { createSessionChanges } from './changes';
+// 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
+import type { CommandDescription } from './commands';
 import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
 import { resolvePolicy } from './settings';
-import { discoverPlugins, installPlugins } from './plugin-dir';
+import { discoverPlugins, loadPlugins } from './plugin-dir';
 import { discoverAgents } from './agents';
 import { discoverSkills } from './skills';
 import { renderOffer } from './offer';
 import { runPluginCommand } from './plugin-command';
+import { runConfigCommand } from './config-cli';
 import {
   createPersister,
   createTranscript,
@@ -101,6 +104,24 @@ async function main(): Promise<void> {
       home,
       root,
       enabled: pluginPolicy.plugins.enable.map((rule) => rule.name),
+      // 落点只认**用户层**的设置（设计 §0 决策 3）—— 与下面 discoverPlugins 的
+      // `enabledInstalled` 是同一份名单，两个入口必须一致。
+      enabledByUser: pluginPolicy.plugins.enableByUser,
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
+    return;
+  }
+
+  // `deepcode config list / set`：同样在"读配置、要 key"**之前**。
+  // 它读配置是为了看/改配置本身，没有理由先要一把 key —— 而"我现在配的是什么"
+  // 恰恰是配错了 key 的人最想敲的一句话。
+  if (action.kind === 'config') {
+    process.exitCode = await runConfigCommand({
+      action,
+      home,
+      root,
+      env: process.env,
       out: (line) => process.stdout.write(`${line}\n`),
       err: (line) => process.stderr.write(`${line}\n`),
     });
@@ -206,9 +227,11 @@ async function main(): Promise<void> {
     home,
     root,
     enabled: policy.plugins.enable.map((rule) => rule.name),
+    // 落点只认用户层的名单 —— 与上面那行**不是同一个东西**，别合并（设计 §0 决策 3）。
+    enabledInstalled: policy.plugins.enableByUser,
     warn: (line) => process.stderr.write(`${line}\n`),
   });
-  const thirdParty = await installPlugins(found.loaded, {
+  const thirdParty = await loadPlugins(found.loaded, {
     projectDir: root,
     session: { id: sessionId, transcriptPath: transcript?.path },
     env: process.env,
@@ -232,13 +255,22 @@ async function main(): Promise<void> {
   // 与 core/nouns 里那两个 `refs` 同一种写法。
   let compactor: Compactor | undefined;
 
+  // 同一个道理：`/help` 要派发 `command.describe` 才打得出每条命令的一句话，
+  // 而插件拿不到 dispatch（`contract/engine.ts:59-64`）。CLI 有 `dispatch`，
+  // 但那是 `createEngine` 的返回值 —— 所以又是一个延迟取的位置。
+  let commandDescriber: ((name: string) => Promise<CommandDescription>) | undefined;
+
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
+  // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
+  // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
+  const engineEnv = debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env;
   const bundle = cliPlugins({
     render,
     changes,
     messages,
     root,
     palette,
+    env: engineEnv,
     policy,
     home,
     agents,
@@ -250,6 +282,7 @@ async function main(): Promise<void> {
     compact: async () => {
       await compactor?.run('manual');
     },
+    describeCommand: async (name) => await commandDescriber?.(name) ?? { kind: 'missing' },
   });
   const { $, dispatch } = await createEngine({
     // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
@@ -261,7 +294,7 @@ async function main(): Promise<void> {
     provider: providerAdapter,
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: sessionId, cwd: root, root },
-    env: debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env,
+    env: engineEnv,
     // 沙箱：五层设置里读出来的规则 + `~` 展开用的 home。省略 = 没有闸。
     sandbox: { config: policy.sandbox, home },
     signal: () => turns.current(),
@@ -279,6 +312,24 @@ async function main(): Promise<void> {
     warn: (line) => render.notice(line),
     signal: () => turns.current(),
   });
+
+  // 有了 `dispatch`，`/help` 那个延迟取的位置也就填得上了。
+  commandDescriber = async (name) => {
+    try {
+      const described = await dispatch('command.describe', { name }, CORE_ORIGIN);
+      return 'hidden' in described
+        ? { kind: 'hidden' }
+        : {
+            kind: 'described',
+            description: described.description,
+            ...(described.usage === undefined ? {} : { usage: described.usage }),
+          };
+    } catch {
+      // core 那条 impl **抛** —— "没注册描述"是故障不是"没描述"（与 tool.describe 同形）。
+      // 在这里译成一个正常返回值，好让 `/help` 能一边列名字一边提醒一声。
+      return { kind: 'missing' };
+    }
+  };
 
   const instructions = await loadInstructions(root, home);
   // 能派什么、能加载什么，报给模型（设计 §7）。模型看到的是一行 description，不是文件。

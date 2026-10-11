@@ -3,7 +3,7 @@ import type { Next } from './next';
 import type { Tier } from './tier';
 
 // ─────────────────────────────────────────────────────────────
-// 第一族：已实现链的事件（P4b 之后 16 个）
+// 第一族：已实现链的事件（P4c-2 之后 19 个）
 // ─────────────────────────────────────────────────────────────
 
 export type EventArgs = {
@@ -34,11 +34,24 @@ export type EventArgs = {
    *
    * classic 钩子的 stdin 里有 `tool_use_id`，而 loop 手里本来就有 `use.id` ——
    * 多传一个字段比"桥接层自己去猜 / 去额外配一次对"便宜得多。
-   * 这是**契约变宽**，不是新事件：39 声明 / 16 实现那两项计数都不变。
+   * 这是**契约变宽**，不是新事件：39 声明 / 19 实现那两项计数都不变。
    */
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   'tool.describe': { readonly tool: string };
   'command.run': { readonly name: string; readonly args: readonly string[] };
+  /**
+   * 一条命令描述自己。**与 `tool.describe` 同形**，补上 `command.run` 缺的那一半
+   * （`tool.call` 有 `tool.describe` 作伴，`command.run` 一直没有）。
+   *
+   * 消费方是 `/help`（调用点见 `src/cli/commands.ts`）。⚠️ 它住在 `cli/` 而不是
+   * `builtins/` 里 —— 插件拿不到 `dispatch`（`$` 是名词的集合，见 contract/engine.ts:59-64），
+   * 所以够不着这个事件的插件得由 CLI 把 dispatcher 注入进去。这是本片对设计 §0.9 的
+   * 一处偏差，理由与代价记在那份设计的 §9。
+   */
+  'command.describe': { readonly name: string };
+  /** 摊开当前**生效**的连接配置（`/config` 与 `deepcode config list` 的底座）。 */
+  'config.describe': Record<string, never>;
+  'config.set': { readonly key: string; readonly value: string };
 
   // ── P4a 转正的三个（原先在 UnimplementedEvent 那族里）──
 
@@ -89,6 +102,29 @@ export type EventResult = {
   'tool.check': { readonly decision: 'allow' | 'ask' | 'deny'; readonly rule?: string };
   'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
   'command.run': { readonly handled?: boolean };
+  /**
+   * 一条命令的自我描述。
+   *
+   * `hidden: true` 与 `tool.describe` 那条含义一样：**主动不出现在清单里**，
+   * 而不是"没注册描述"—— 后者是故障，消费方要 warn 并退回裸名字。
+   */
+  'command.describe':
+    | { readonly description: string; readonly usage?: string }
+    | { readonly hidden: true };
+  /**
+   * 生效配置的清单。
+   *
+   * 链尾兜底是**空清单**（不是抛）：这是能力方向的 fail-closed —— 没有就是没有，
+   * 不给一份看着像真的的假清单。与 `agent.offer` 那条同一条。
+   */
+  'config.describe': { readonly entries: readonly ConfigEntry[] };
+  /**
+   * 改一个配置项。与 `tool.check` 同形：**拒绝方向**的 fail-closed，
+   * 链尾无人应答 = `ok: false`，不能让一条命令因为没人应答就静默成功。
+   */
+  'config.set':
+    | { readonly ok: true; readonly path: string }
+    | { readonly ok: false; readonly error: string };
   'agent.offer': {
     // `tools` 是**我们多加的**（参考实现的 offer 只有 name + description）：
     // 白名单是承重的东西，让用户与模型都看得见比藏起来好。
@@ -102,6 +138,21 @@ export type EventResult = {
   'agent.spawn': Record<string, never>;
   'skill.prompt': { readonly text: string };
   'session.compact': Record<string, never>;
+};
+
+/**
+ * 一条生效配置。
+ *
+ * ⚠️ **就地定义一份，不从 `src/cli/config.ts` import** —— `contract/` 是叶子，
+ * 一个 import 都不许有（那条边界由 `pnpm lint` 强制）。`cli/config.ts` 里也有一份同形的，
+ * 两份不会悄悄走岔：`config-command` 那条 hook 的返回类型就是 `readonly ConfigEntry[]`，
+ * `cli` 那份少一个字段会当场 typecheck 红。
+ */
+export type ConfigEntry = {
+  readonly key: string;
+  readonly value: string;
+  readonly source: 'env' | 'user' | 'project' | 'default';
+  readonly writable: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -157,9 +208,6 @@ export type UnimplementedEvent =
   | 'prompt.context'
   | 'prompt.compose'
   | 'prompt.attachment'
-  | 'command.describe'
-  | 'config.set'
-  | 'config.describe'
   | 'attribution.text'
   | 'session.receive'
   | 'session.attach'

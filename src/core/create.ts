@@ -19,7 +19,7 @@ export type CreateEngineDeps = CoreNounsDeps & {
    */
   seating?: Readonly<Record<string, Tier>>;
   /**
-   * 第三方插件的名字。**名单由调用方给**（生产里是 `cliPlugins` 从 `installPlugins`
+   * 第三方插件的名字。**名单由调用方给**（生产里是 `cliPlugins` 从 `loadPlugins`
    * 的结果推出来的），不是插件自述的 —— 与座位同一条道理：插件自己说了不算。
    *
    * 列进来的插件：座位强制 `append`、`on` 走 `makeThirdPartyOn`（剥 allow / 查 uses / 拒挂 $）。
@@ -90,6 +90,23 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
     'tool.describe': (e) => {
       throw new Error(`no description registered for tool: ${String(e.tool)}`);
     },
+
+    // 与上面那条同形，同一条分寸：**没注册描述是故障，不是"没描述"** ——
+    // 消费方（/help）逐条兜底，缺了就退回裸名字并 warn。
+    // 有意不返回 `{description: ''}`：那会让"忘了写 describe"这件事彻底静默。
+    'command.describe': (e) => {
+      throw new Error(`no description registered for command: ${String(e.name)}`);
+    },
+
+    // 没人应答 = 空清单。**能力方向的 fail-closed：没有就是没有，不给个假清单**
+    // —— 与上面 agent.offer 那条同一条。
+    'config.describe': () => ({ entries: [] }) as const,
+
+    // 这一条反过来：**拒绝方向的** fail-closed。一条命令不能因为没人应答就静默成功 ——
+    // 与 `tool.check` 链尾那条同形。（config.describe 空清单是"没什么可看"，
+    // config.set 静默成功是"改了但你不知道改没改"，两者不该长成一个样子。）
+    'config.set': () =>
+      ({ ok: false, error: 'fail-closed: 没有 hook 应答 config.set' }) as const,
   };
 
   const { dispatch } = createDispatcher({

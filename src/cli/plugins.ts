@@ -10,9 +10,10 @@ import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin
 import { createSecDefaultPlugin } from '../builtins/sec-default';
 import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
-import { createSessionCommands } from './commands';
+import { createSessionCommands, type CommandDescription } from './commands';
 import { createAgentsMdPlugin } from './agents-md';
 import { createPermissionsCommand } from './permissions-command';
+import { createConfigCommand } from './config-command';
 import { createSubagentsPlugin } from './subagents';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
@@ -27,6 +28,14 @@ export type CliPluginDeps = {
   readonly messages: Message[];
   readonly root: string;
   readonly palette: Palette;
+  /**
+   * 生效环境变量的快照（`main.ts` 算好的那一份，与 `createEngine` 收到的是同一个）。
+   * `config-command` 靠它报每个配置项的**来源**。
+   *
+   * 不在这里自己读 `process.env`：那样测试就没法钉"环境变量盖过文件"这条规则，
+   * 而且 CI 上残留的一个 `DEEPCODE_MODEL` 会让断言时红时绿。
+   */
+  readonly env: Record<string, string | undefined>;
   /** 已解析好的权限设置快照。/permissions 从它读，两个插件从它分规则。 */
   readonly policy: ResolvedPolicy;
   /** 规则里 `~` 展开用的主目录（在 settings.ts 解析时就用掉了）。 */
@@ -54,6 +63,12 @@ export type CliPluginDeps = {
    * `refs` 同一种写法。不给 = 没有 `/compact` 这条命令。
    */
   readonly compact?: () => Promise<void>;
+  /**
+   * 问一条命令它自己是什么（`/help` 用）。**同样是延迟取的回调** —— 它要派发
+   * `command.describe`，而 `dispatch` 要到 `createEngine` 之后才拿得到。
+   * 不给 = `/help` 照列名字，只是每行没有那句话。
+   */
+  readonly describeCommand?: (name: string) => Promise<CommandDescription>;
 };
 
 export type CliPluginBundle = {
@@ -104,16 +119,21 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     confirmPlugin,
     commandsPlugin,
     streamPlugin(deps.render),
-    // /diff、/clear 要碰渲染会话语状态，所以住在 cli/ 而不是 builtins/（见 cli/commands.ts）。
+    // /diff、/clear、/help 要碰渲染、会话状态或 dispatch，所以住在 cli/ 而不是 builtins/
+    // （见 cli/commands.ts 顶部那段）。
     createSessionCommands({
       changes: deps.changes,
       messages: deps.messages,
       root: deps.root,
       palette: deps.palette,
       ...(deps.compact === undefined ? {} : { compact: deps.compact }),
+      ...(deps.describeCommand === undefined ? {} : { describeCommand: deps.describeCommand }),
     }),
     // /permissions 同理。
     createPermissionsCommand({ policy: deps.policy, palette: deps.palette }),
+    // /config，连带 config.describe / config.set 两个事件的应答者。
+    // 座位不用特殊给（默认 builtin 就够）：它不裁决任何动作，只是读/写配置文件。
+    createConfigCommand({ home: deps.home, root: deps.root, env: deps.env }),
   ];
 
   // 第一方名字**从这份清单推**，不另抄一份名单：抄一份的话，往上面加一个插件
