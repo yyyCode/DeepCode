@@ -172,7 +172,10 @@ describe('用量落到 turn.complete 上', () => {
 
   /** 跑一轮，把 `turn.complete` 的参数收下来。 */
   async function run(events: readonly StreamEvent[], system = '提示', text = '干活') {
-    const h = createHarness({ engine: ENGINE });
+    // `turn.stop` 是 loop 收手那一刻派的事件（P4d 新增）。手搭的 harness 是另一条
+    // dispatcher 的路，拿不到 createEngine 的 coreImpls —— 漏了它的表现是这一轮
+    // 走到最后抛 NotImplementedError，与断言本身无关。
+    const h = createHarness({ engine: ENGINE, coreImpls: { 'turn.stop': () => ({}) as const } });
     const seen: {
       stopReason: string;
       inputTokens: number;
@@ -226,7 +229,7 @@ describe('用量落到 turn.complete 上', () => {
   });
 
   it('`onUsage` 收到同一份数据（自动压缩的触发信号从这儿走）', async () => {
-    const h = createHarness({ engine: ENGINE });
+    const h = createHarness({ engine: ENGINE, coreImpls: { 'turn.stop': () => ({}) as const } });
     h.on('builtin', 'spy', 'turn.complete', () => ({}));
     const got: unknown[] = [];
     const provider: ModelProvider = {

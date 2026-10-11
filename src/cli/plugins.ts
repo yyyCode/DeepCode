@@ -12,8 +12,10 @@ import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands, type CommandDescription } from './commands';
 import { createAgentsMdPlugin } from './agents-md';
+import { createInstructionsPlugin } from '../builtins/instructions';
 import { createPermissionsCommand } from './permissions-command';
 import { createConfigCommand } from './config-command';
+import { createTelemetryPlugin } from './telemetry';
 import { createSubagentsPlugin } from './subagents';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
@@ -40,6 +42,16 @@ export type CliPluginDeps = {
   readonly policy: ResolvedPolicy;
   /** 规则里 `~` 展开用的主目录（在 settings.ts 解析时就用掉了）。 */
   readonly home: string;
+  /** 本次会话的 id。遥测给每一行盖上它，好把同一场会话的行串起来。 */
+  readonly sessionId: string;
+  /**
+   * 一条给人看的警告。遥测的记不进 / 写不进都从这儿出去 ——
+   * 与 `main.ts` 里那个 `warnLine` 是同一个。
+   *
+   * ⚠️ 遥测的告警**只有一个出口**：这条协议里没有任何一条会被静默丢掉
+   * （除了"开关关着"，而那不是丢弃，是没在记）。写坏的行会在这里说一声。
+   */
+  readonly warn: (line: string) => void;
   /** **已解析**的 agent 名册。发现是异步的、在 main.ts 里做完（设计 §4.1）。 */
   readonly agents: readonly AgentSpec[];
   /** **已解析**的技能名册。 */
@@ -108,6 +120,9 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 而它要在 `next(e)` 回来之后**拿到 Read 的结果**才能追加。晚一步就是个空动作。
     // （与上面 session-changes 那条顺序约束同一个道理。）
     createAgentsMdPlugin({ root: deps.root }),
+    // 指令文件（AGENTS.md / CLAUDE.md）从 `prompt.section` 来 —— 摘掉这一行，
+    // 它们就不再进系统提示。
+    createInstructionsPlugin({ root: deps.root, home: deps.home }),
     ...coreTools,
     // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
     // 名字自动进下面的第一方名单（`names`），于是 deny 名单点它也没用。
@@ -134,6 +149,15 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // /config，连带 config.describe / config.set 两个事件的应答者。
     // 座位不用特殊给（默认 builtin 就够）：它不裁决任何动作，只是读/写配置文件。
     createConfigCommand({ home: deps.home, root: deps.root, env: deps.env }),
+    // 遥测。座位同样不用特殊给：它是个**读者**，六个事件上每条 hook 都 `return next(e)`，
+    // 一个字节的裁决都不改（`cli/telemetry.ts` 里那三条不变量）。关着的时候
+    // 一个系统调用都不发 —— 这条由 sink 保证，`/telemetry` 负责把它说给人听。
+    createTelemetryPlugin({
+      home: deps.home,
+      policy: deps.policy.telemetry,
+      sessionId: deps.sessionId,
+      warn: deps.warn,
+    }),
   ];
 
   // 第一方名字**从这份清单推**，不另抄一份名单：抄一份的话，往上面加一个插件

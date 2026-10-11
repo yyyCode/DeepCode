@@ -18,7 +18,12 @@ import { runTurn } from '../src/core/loop';
 import type { CoreImpls } from '../src/core/dispatch';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Renderer } from '../src/cli/render';
-import { DEFAULT_COMPACT, EMPTY_SANDBOX, type ResolvedPolicy } from '../src/cli/settings';
+import {
+  DEFAULT_COMPACT,
+  DEFAULT_TELEMETRY,
+  EMPTY_SANDBOX,
+  type ResolvedPolicy,
+} from '../src/cli/settings';
 import type { EventHook, Plugin } from '../src/contract/plugin';
 import type { Rule } from '../src/contract/policy';
 import type { EngineInterface } from '../src/contract/engine';
@@ -51,6 +56,7 @@ const NO_POLICY: ResolvedPolicy = {
   personalRules: [],
   sandbox: EMPTY_SANDBOX,
   compact: DEFAULT_COMPACT,
+  telemetry: DEFAULT_TELEMETRY,
   plugins: NO_PLUGIN_POLICY,
 };
 /** 真实清单里的 confirm 会问 `$.ui.ask`，不给 engine 桩的话整条链会炸。 */
@@ -122,6 +128,10 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       env: {},
       policy: NO_POLICY,
       home: process.cwd(),
+      // 遥测那两条外设。这里**关着**（NO_POLICY 的 telemetry 是默认值），
+      // 所以它一个系统调用都不会发 —— 这些用例一个字都不该因为这个插件变。
+      sessionId: 's1',
+      warn: () => {},
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',
@@ -163,6 +173,10 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       env: {},
       policy: NO_POLICY,
       home: process.cwd(),
+      // 遥测那两条外设。这里**关着**（NO_POLICY 的 telemetry 是默认值），
+      // 所以它一个系统调用都不会发 —— 这些用例一个字都不该因为这个插件变。
+      sessionId: 's1',
+      warn: () => {},
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',
@@ -198,6 +212,10 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
       env: {},
       policy,
       home: process.cwd(),
+      // 遥测那两条外设。这里**关着**（NO_POLICY 的 telemetry 是默认值），
+      // 所以它一个系统调用都不会发 —— 这些用例一个字都不该因为这个插件变。
+      sessionId: 's1',
+      warn: () => {},
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',
@@ -270,6 +288,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
         personalRules: [{ raw: 'Bash', tool: 'Bash', decision: 'allow' }],
         sandbox: EMPTY_SANDBOX,
         compact: DEFAULT_COMPACT,
+        telemetry: DEFAULT_TELEMETRY,
         plugins: NO_PLUGIN_POLICY,
       },
       NOOP_UI,
@@ -586,6 +605,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       ],
       sandbox: EMPTY_SANDBOX,
       compact: DEFAULT_COMPACT,
+      telemetry: DEFAULT_TELEMETRY,
       plugins: NO_PLUGIN_POLICY,
     };
   }
@@ -621,6 +641,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       personalRules: [],
       sandbox: EMPTY_SANDBOX,
       compact: DEFAULT_COMPACT,
+      telemetry: DEFAULT_TELEMETRY,
       plugins: NO_PLUGIN_POLICY,
     };
     seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');

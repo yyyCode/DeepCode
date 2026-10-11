@@ -3,7 +3,7 @@ import type { Next } from './next';
 import type { Tier } from './tier';
 
 // ─────────────────────────────────────────────────────────────
-// 第一族：已实现链的事件（P4c-2 之后 19 个）
+// 第一族：已实现链的事件（P4d 之后 22 个）
 // ─────────────────────────────────────────────────────────────
 
 export type EventArgs = {
@@ -16,8 +16,26 @@ export type EventArgs = {
   'session.start': { readonly sessionId: string; readonly cwd: string; readonly root: string };
   'session.end': { readonly reason: 'exit' | 'interrupt' | 'error' };
   'prompt.submit': { readonly text: string };
+  /**
+   * 系统提示的一个**节**。P4d 从声明-only 转正。
+   *
+   * 每个 hook 的形状是 `const inner = await next(e); return {sections: [...inner.sections, mine]}`，
+   * 于是**内层在前**；而同一 tier 内"先注册的在外层"，所以同一 tier 内的节序是注册顺序的**倒序**。
+   * 跨 tier 则按 tier 序。今天只有一个贡献者（`builtins/instructions.ts`），这条规则写下来是给下一个看的。
+   */
+  'prompt.section': Record<string, never>;
   'turn.start': { readonly index: number };
   'turn.step': { readonly delta: string };
+  /**
+   * 模型不再要工具、本 turn 准备收手的那一刻。P4d 新增，是 classic `Stop` 的着陆点。
+   *
+   * ⚠️ **缝，不是闸**：链尾无人应答 = 照常收手。返回非空 `block` = 不让收手，
+   * 那段文本作为**一条新的 user 消息**推进去，本 turn 接着转。
+   *
+   * `lastMessage` 是模型这一轮说过的最后一段文本（可能为空串）。没有它，"不让收手"
+   * 就没有触发条件 —— 一条 Stop 规则只能无条件地拦，那是绊脚石不是规则。
+   */
+  'turn.stop': { readonly stopHookActive: boolean; readonly lastMessage: string };
   'turn.complete': {
     readonly stopReason: string;
     readonly inputTokens: number;
@@ -34,9 +52,28 @@ export type EventArgs = {
    *
    * classic 钩子的 stdin 里有 `tool_use_id`，而 loop 手里本来就有 `use.id` ——
    * 多传一个字段比"桥接层自己去猜 / 去额外配一次对"便宜得多。
-   * 这是**契约变宽**，不是新事件：39 声明 / 19 实现那两项计数都不变。
+   * 这是**契约变宽**，不是新事件：声明的条数与实现的条数都不变。
    */
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
+  /**
+   * 一次工具调用**跑完之后**。P4d 新增，是 classic `PostToolUse` 的着陆点。
+   *
+   * ⚠️ **这是缝，不是闸**：链尾无人应答 = 什么都不加（默认实现在 coreImpls 里）。
+   * 它唯一的用处是钩子能往对话里补一段 —— 在这儿 deny 表达不出来（工具已经跑完了），
+   * 所以别把它"统一"成 `tool.check` 那条 fail-closed 的形状。
+   *
+   * 只在工具**真的跑了**之后派：白名单外、权限 deny、用户拒了 `ask`、`tool.call` 返回 deny
+   * —— 这四种情况下工具没执行过，给它们派一个"工具结果"事件是假账。
+   */
+  'tool.result': {
+    readonly tool: string;
+    readonly input: unknown;
+    readonly toolUseId: string;
+    /** `false` = 工具自己报了错（沿用 `content.startsWith('ERROR:')` 这条既有约定）。 */
+    readonly ok: boolean;
+    /** 模型将看到的那段正文（并进 context **之前**的原样）。 */
+    readonly output: string;
+  };
   'tool.describe': { readonly tool: string };
   'command.run': { readonly name: string; readonly args: readonly string[] };
   /**
@@ -94,12 +131,28 @@ export type EventResult = {
   'plugin.register': { readonly allow: true } | { readonly refuse: string };
   'session.start': Record<string, never>;
   'session.end': Record<string, never>;
-  'prompt.submit': { readonly handled?: boolean };
+  /**
+   * `context` 是 P4d 加的：钩子能在这一行进模型**之前**补一段。
+   * 它是**契约变宽**，不是新事件 —— 与 P3 给 `tool.check` 加 `toolUseId` 同形。
+   *
+   * `handled` 在一次性模式（`deepcode "..."`）里没有意义（那里没有可以"继续"的交互循环），
+   * CLI 只采纳 `context` —— 见设计 §8 偏差 9。
+   */
+  'prompt.submit': { readonly handled?: boolean; readonly context?: string };
+  /**
+   * 各个贡献者报上来的节。链尾兜底是**空清单** —— 能力方向的 fail-closed：
+   * 没有就是没有，不给一段假文本（与 `agent.offer` 那条同一条）。
+   */
+  'prompt.section': { readonly sections: readonly PromptSection[] };
   'turn.start': Record<string, never>;
   'turn.step': Record<string, never>;
+  /** 不让收手时给模型的那些话。链尾无人应答 = 照常收手（缝）。 */
+  'turn.stop': { readonly block?: string };
   'turn.complete': Record<string, never>;
   'tool.call': { readonly value: unknown } | { readonly deny: string };
   'tool.check': { readonly decision: 'allow' | 'ask' | 'deny'; readonly rule?: string };
+  /** 钩子想补进那条工具结果的话。链尾无人应答 = 什么都不加（缝）。 */
+  'tool.result': { readonly context?: string };
   'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
   'command.run': { readonly handled?: boolean };
   /**
@@ -148,6 +201,9 @@ export type EventResult = {
  * 两份不会悄悄走岔：`config-command` 那条 hook 的返回类型就是 `readonly ConfigEntry[]`，
  * `cli` 那份少一个字段会当场 typecheck 红。
  */
+/** 系统提示里的一段。`name` 只给人看（调试、将来的排序），拼接不用它。 */
+export type PromptSection = { readonly name: string; readonly text: string };
+
 export type ConfigEntry = {
   readonly key: string;
   readonly value: string;
@@ -204,7 +260,6 @@ export type UnimplementedEvent =
   | 'prompt.fill'
   | 'prompt.suggest'
   | 'prompt.edit'
-  | 'prompt.section'
   | 'prompt.context'
   | 'prompt.compose'
   | 'prompt.attachment'

@@ -68,9 +68,9 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>738</b><span>用例全绿 · 44 个文件</span></li>
+    <li><b>891</b><span>用例全绿 · 52 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
-    <li><b>16/39</b><span>事件已实现（如实标注）</span></li>
+    <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
   </ul>
 </section>
 
@@ -299,7 +299,7 @@
 
 规则里的路径按绝对路径匹配（~ 会展开成主目录）；相对路径不会命中。
 更严的永远赢：deny > ask > allow，与规则写在哪一层、写成什么顺序无关。</pre>
-  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「16/39」），
+  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「22/41」），
     但规则按名字生效 —— 工具真出现的那天，它也会从模型眼前消失。</p>
 </section>
 
@@ -333,7 +333,7 @@
   </table>
 
   <div class="callout">
-    <p><strong>39 个事件已声明，19 个已实现。</strong>其余 20 个在类型里躺着，
+    <p><strong>41 个事件已声明，22 个已实现。</strong>其余 19 个在类型里躺着，
       用到时会抛 <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
   </div>
 </section>
@@ -343,8 +343,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>738</b>
-      <p>用例，44 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>891</b>
+      <p>用例，52 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -395,17 +395,19 @@
         能真正阻断工具调用（<code>plugins/secret-guard</code> 拦下了往仓库里写密钥）。
         <strong>第三方插件只能拧紧不能拧松</strong>：放行判定一律被丢弃，座位强制在最内层。
         仓库里还有第三个：<code>plugins/hookify</code> 把 <code>.deepcode/hookify.*.local.md</code>
-        里的<strong>声明式规则</strong>编译成 <code>PreToolUse</code> 判定 —— 加的不是一个工具，
-        是<strong>一套语法</strong>。</p>
+        里的<strong>声明式规则</strong>编译成判定，四个事件可写（省略 <code>event</code> 就是
+        <code>PreToolUse</code>）—— 加的不是一个工具，是<strong>一套语法</strong>。</p>
     </li>
     <li>
-      <div class="road__head"><span class="pill">进行中</span><h3>P4 组合面</h3></div>
-      <p><strong>P4a / P4b / P4e 已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具与
+      <div class="road__head"><span class="pill">已完成</span><h3>P4 组合面</h3></div>
+      <p><strong>五片都已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具与
         <code>agent.offer</code> 进系统提示；会话压缩、<code>Bash</code> 沙箱、嵌套 <code>AGENTS.md</code>；
-        CI 与两个检查器。<strong>P4c 两片也都已落地</strong>：marketplace 与安装 —— 装 ≠ 启用，
-        只有用户级设置能开闸；以及 <code>plugins/hookify</code>（声明式规则 → <code>PreToolUse</code> 判定）
-        与 <code>config list</code> / <code>config set</code>。
-        P4 还剩 P4d（多 surface 与可观测）。</p>
+        marketplace 与安装 —— 装 ≠ 启用，只有用户级设置能开闸；<code>plugins/hookify</code>
+        与 <code>config list</code> / <code>config set</code>；以及 P4d 的文本通道与可观测 ——
+        <code>tool.result</code> / <code>turn.stop</code> / <code>prompt.*</code> 四个钩子点，
+        classic 桥从 3 个事件扩到 6 个，遥测把六个事件各记一行到用户级
+        <code>~/.deepcode/telemetry.jsonl</code>（零自由文本，默认关，只有用户层能开）。
+        P4d 的「多 surface」一节<strong>有意未做</strong>（零消费者，见设计 §9）。</p>
     </li>
     <li>
       <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P5 内建与分发</h3></div>
@@ -470,13 +472,17 @@
     </article>
 
     <article class="card card--limit">
-      <h3>hookify 的规则写坏了，工具会全停</h3>
-      <p>规则词汇只有 <code>deny</code> / <code>ask</code>（写 <code>allow</code> 是<strong>错误</strong>，
-        会当场点名 —— 插件返回的放行判定在这个框架里一律被丢弃）。而任何说不清的规则文件
-        —— 缺字段、算子写错、正则编译不过、钩子进程崩了 —— 一律非零退出，非零就是 <code>deny</code>。</p>
-      <p class="card__cost">于是一个写坏的规则文件会让 <code>Write</code> / <code>Edit</code> /
-        <code>Bash</code> <strong>全部被拒绝</strong>，直到修好它。我们接受这个代价 ——
-        一个读不懂自己规则的守卫，比一个假装没事的守卫危险。</p>
+      <h3>hookify 的规则写坏了，工具会全停（只在 PreToolUse 上）</h3>
+      <p>规则词汇逐事件不同，且只有兑现得了的词才许写：<code>PreToolUse</code> 上是
+        <code>deny</code> / <code>ask</code>，另外三个事件（<code>PostToolUse</code> /
+        <code>UserPromptSubmit</code> / <code>Stop</code>）上没有可拦的动作。写 <code>allow</code>
+        是<strong>错误</strong>，会当场点名 —— 插件返回的放行判定在这个框架里一律被丢弃。
+        而任何说不清的规则文件 —— 缺字段、算子写错、正则编译不过、钩子进程崩了 ——
+        一律非零退出。</p>
+      <p class="card__cost">于是 <code>PreToolUse</code> 上的非零就是 <code>deny</code>：
+        一个写坏的规则文件会让 <code>Write</code> / <code>Edit</code> / <code>Bash</code>
+        <strong>全部被拒绝</strong>，直到修好它。另外三个事件上只是一句 <code>notice</code>。
+        我们接受这个代价 —— 一个读不懂自己规则的守卫，比一个假装没事的守卫危险。</p>
     </article>
 
     <article class="card card--limit">

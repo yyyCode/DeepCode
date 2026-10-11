@@ -338,3 +338,75 @@ describe('压缩块', () => {
     expect(warnings.join('\n')).not.toContain('不认识的顶层键');
   });
 });
+
+describe('遥测开关', () => {
+  const block = (json: unknown): string => JSON.stringify({ telemetry: json });
+
+  it('谁都没写 → 关，且 why 说得清是"没有哪一层说要开"', async () => {
+    const { policy } = await load({});
+    expect(policy.telemetry).toEqual({ enabled: false, why: '默认关（没有哪一层说要开）' });
+  });
+
+  it('用户层 true → 开', async () => {
+    const { policy } = await load({ [USER]: block({ enabled: true }) });
+    expect(policy.telemetry).toEqual({ enabled: true, why: '用户层开了' });
+  });
+
+  it('**托管层能一句话把它关掉**，压过用户层的 true', async () => {
+    const { policy } = await load({
+      [USER]: block({ enabled: true }),
+      [MANAGED]: block({ enabled: false }),
+    });
+    expect(policy.telemetry.enabled).toBe(false);
+    expect(policy.telemetry.why).toContain('托管层');
+  });
+
+  it('托管层写 true 也开不起来 —— 它管不了你开不开', async () => {
+    const { policy } = await load({ [MANAGED]: block({ enabled: true }) });
+    expect(policy.telemetry).toEqual({ enabled: false, why: '默认关（没有哪一层说要开）' });
+  });
+
+  it.each([
+    ['project', PROJECT],
+    ['local', LOCAL],
+    ['flag', FLAG],
+  ])('%s 层写 true → 丢掉 + 出声（别人仓库的一份文件不该替你按下开关）', async (_name, path) => {
+    const { policy, warnings } = await load(
+      { [path]: block({ enabled: true }) },
+      { settingsPath: '/tmp/flag.json' },
+    );
+    expect(policy.telemetry.enabled).toBe(false);
+    expect(warnings.join('\n')).toContain('只有用户层能开遥测');
+  });
+
+  it('telemetry 不是对象 → 整块忽略 + 出声', async () => {
+    const { policy, warnings } = await load({ [USER]: block(true) });
+    expect(policy.telemetry.enabled).toBe(false);
+    expect(warnings.join('\n')).toContain('telemetry 块整块忽略');
+  });
+
+  it('enabled 不是布尔 → 按没写处理 + 出声（不是整块忽略这一层）', async () => {
+    const { policy, warnings } = await load({ [USER]: block({ enabled: 'true' }) });
+    expect(policy.telemetry.enabled).toBe(false);
+    expect(warnings.join('\n')).toContain('telemetry.enabled 不是布尔值');
+  });
+
+  it('类型写错时不该连坐成"你这一层不算数" —— 那两句话说的是两件事', async () => {
+    // project 层写了 `enabled: "yes"`，警告里只该有"类型不对"这一句：
+    // 说成"只有用户层能开"会让人以为把值写对了就能生效。
+    const { warnings } = await load({ [PROJECT]: block({ enabled: 'yes' }) });
+    expect(warnings.join('\n')).toContain('不是布尔值');
+    expect(warnings.join('\n')).not.toContain('只有用户层能开遥测');
+  });
+
+  it('不认识的子键只警告，开关照常生效', async () => {
+    const { policy, warnings } = await load({ [USER]: block({ enabled: true, endpoint: 'x' }) });
+    expect(policy.telemetry.enabled).toBe(true);
+    expect(warnings.join('\n')).toContain('不认识的子键');
+  });
+
+  it('`telemetry` 不再被当成不认识的顶层键', async () => {
+    const { warnings } = await load({ [USER]: block({ enabled: true }) });
+    expect(warnings.join('\n')).not.toContain('不认识的顶层键');
+  });
+});

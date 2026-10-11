@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "description": "用一份声明式规则文件写 hook —— 一个不改引擎的插件",
   "author": "DeepCode",
-  "uses": ["tool.check"],
+  "uses": ["tool.check", "tool.result", "prompt.submit", "turn.stop"],
   "hooks": "./hooks/hooks.json"
 }

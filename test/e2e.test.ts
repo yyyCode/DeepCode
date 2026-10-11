@@ -66,6 +66,12 @@ function buildWorld(
       'tool.describe': () => {
         throw new Error('no description');
       },
+      // 这两条是 P4d 的两道缝的链尾默认值，必须与 create.ts 里那两条逐字一致 ——
+      // 手搭的桩是另一条 dispatcher 的路，链尾兜底够不着它（见 dispatch.test.ts 里
+      // 那条"两条路"的用例）。漏了的表现是 loop 走到收手时抛 NotImplementedError，
+      // 而不是某条断言红。
+      'tool.result': () => ({}) as const,
+      'turn.stop': () => ({}) as const,
     },
   });
 

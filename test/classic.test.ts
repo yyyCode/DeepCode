@@ -22,24 +22,33 @@ describe('classic 事件目录', () => {
     expect(isClassicEvent('pretooluse')).toBe(false);
   });
 
-  it('桥接的恰好三个，且都真的在事件目录里', () => {
+  it('桥接的恰好六个，且都真的在事件目录里', () => {
     const bridged = Object.keys(BRIDGED_EVENTS);
-    expect(bridged.sort()).toEqual(['PreToolUse', 'SessionEnd', 'SessionStart']);
+    expect(bridged.sort()).toEqual([
+      'PostToolUse',
+      'PreToolUse',
+      'SessionEnd',
+      'SessionStart',
+      'Stop',
+      'UserPromptSubmit',
+    ]);
     for (const event of bridged) expect(isClassicEvent(event)).toBe(true);
   });
 
   it('桥接的目标全是我们已有的事件', () => {
     expect(BRIDGED_EVENTS.PreToolUse).toBe('tool.check');
+    expect(BRIDGED_EVENTS.PostToolUse).toBe('tool.result');
+    expect(BRIDGED_EVENTS.UserPromptSubmit).toBe('prompt.submit');
+    expect(BRIDGED_EVENTS.Stop).toBe('turn.stop');
     expect(BRIDGED_EVENTS.SessionStart).toBe('session.start');
     expect(BRIDGED_EVENTS.SessionEnd).toBe('session.end');
   });
 
-  it('未桥接的 30 个事件认得出是 classic、但认得出没桥接', () => {
+  it('未桥接的 27 个事件认得出是 classic、但认得出没桥接', () => {
     const unbridged = CLASSIC_EVENTS.filter((event) => !isBridged(event));
-    expect(unbridged.length).toBe(30);
-    expect(unbridged).toContain('PostToolUse');
-    expect(unbridged).toContain('Stop');
-    expect(isBridged('PostToolUse')).toBe(false);
+    expect(unbridged.length).toBe(27);
+    expect(unbridged).toContain('PostToolUseFailure');
+    expect(isBridged('PostToolUseFailure')).toBe(false);
   });
 });
 

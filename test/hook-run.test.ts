@@ -62,8 +62,11 @@ describe('classify：三个有定义的结果 + 其余一律失败', () => {
     expect(classify(result(0, { stdout: '随便说点什么' }))).toEqual({ kind: 'silent' });
   });
 
-  it('exit 0 + JSON 但没有判定 = silent', () => {
-    expect(classify(result(0, { stdout: '{"additionalContext":"x"}' }))).toEqual({ kind: 'silent' });
+  it('exit 0 + JSON 但没有判定 = silent（这段话走 context，见下面那组）', () => {
+    expect(classify(result(0, { stdout: '{"additionalContext":"x"}' }))).toEqual({
+      kind: 'silent',
+      context: 'x',
+    });
   });
 
   it('exit 2 = block，理由是 stderr', () => {
@@ -114,6 +117,62 @@ describe('classify：三个有定义的结果 + 其余一律失败', () => {
   it('判定值不是三个里头的任何一个 = fail（不是"当没说"）', () => {
     const say = result(0, { stdout: '{"hookSpecificOutput":{"permissionDecision":"maybe"}}' });
     expect(classify(say).kind).toBe('fail');
+  });
+});
+
+describe('classify：additionalContext 是判定之外的另一个通道', () => {
+  it('只有 additionalContext：没判定，但有话说', () => {
+    const say = result(0, { stdout: '{"hookSpecificOutput":{"additionalContext":"注意分行"}}' });
+    expect(classify(say)).toEqual({ kind: 'silent', context: '注意分行' });
+  });
+
+  it('判定与上下文可以同时出现，两样都读出来', () => {
+    const say = result(0, {
+      stdout:
+        '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"有密钥","additionalContext":"这次是 .env"}}',
+    });
+    expect(classify(say)).toEqual({
+      kind: 'say',
+      decision: 'deny',
+      reason: '有密钥',
+      context: '这次是 .env',
+    });
+  });
+
+  it('判定值读不出来时，那段能说的文本**照样留着** —— 不该被同一个钩子的另一个错连坐', () => {
+    const say = result(0, {
+      stdout: '{"hookSpecificOutput":{"permissionDecision":"maybe","additionalContext":"顺带一说"}}',
+    });
+    expect(classify(say)).toEqual({
+      kind: 'fail',
+      reason: expect.stringContaining('maybe'),
+      context: '顺带一说',
+    });
+  });
+
+  it.each([
+    ['数字', '42'],
+    ['对象', '{}'],
+    ['null', 'null'],
+    ['空串', '""'],
+    ['纯空白', '"   \\n  "'],
+  ])('additionalContext 是%s时，当没有', (_label, raw) => {
+    expect(classify(result(0, { stdout: `{"additionalContext":${raw}}` }))).toEqual({
+      kind: 'silent',
+      context: undefined,
+    });
+  });
+
+  it('裸放在顶层也读得到 —— 与 permissionDecision 同一套读法', () => {
+    const say = result(0, { stdout: '{"additionalContext":"顶层的"}' });
+    expect(classify(say)).toEqual({ kind: 'silent', context: '顶层的' });
+  });
+
+  it('exit 2 走 stderr，stdout 根本不解析 —— 那条路上没有上下文', () => {
+    // 这不是遗漏，是形状：退出码 2 的表达方式是 stderr，stdout 在该分支上没人读。
+    // 一个钩子想在这条路上说话，就把它写进 stderr。
+    const say = result(2, { stdout: '{"additionalContext":"看了也白看"}', stderr: '不许写 .env' });
+    expect(classify(say)).toEqual({ kind: 'block', reason: '不许写 .env' });
   });
 });
 

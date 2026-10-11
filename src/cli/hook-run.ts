@@ -31,9 +31,23 @@ export type HookContext = {
   readonly env: NodeJS.ProcessEnv;
 };
 
+/**
+ * 一条钩子跑完之后我们能读出来的东西。
+ *
+ * `context` 来自 `hookSpecificOutput.additionalContext`（或顶层同名）—— 那是参考实现里
+ * **通用**的那一个字段，而 `permissionDecision` 只是它的一种用法。判定是判定、上下文是上下文，
+ * 两者可以同时出现，也可以只有后者（PostToolUse / UserPromptSubmit 上就只有后者）。
+ *
+ * 它**只在解析过 stdout 的那几条路上出现**：`silent`（读出的 JSON 里没有判定）、
+ * `say`、以及"判定值读不出来"那条 `fail`。`exit 2` 与别的非零退出码走的是 stderr，
+ * stdout 根本不解析，所以那两条上它永远是 undefined（类型上仍留着，消费方不必分情况）。
+ *
+ * "判定值读不出来"时**照样带上** `context`：一段能说的文本不该因为同一个钩子的判定写错了
+ * 就一起丢掉。
+ */
 export type HookVerdict =
   /** 没意见。链交给下层。 */
-  | { readonly kind: 'silent' }
+  | { readonly kind: 'silent'; readonly context?: string }
   /**
    * 有意见。`allow` **也如实报出来** —— 抹平（第三方不许放行）发生在桥里
    * （`classic-hooks.ts`），不在这里。分类器只负责读，不负责定政策，
@@ -43,11 +57,12 @@ export type HookVerdict =
       readonly kind: 'say';
       readonly decision: 'allow' | 'ask' | 'deny';
       readonly reason: string | undefined;
+      readonly context?: string;
     }
   /** exit 2：拦住，理由给模型看。 */
-  | { readonly kind: 'block'; readonly reason: string }
+  | { readonly kind: 'block'; readonly reason: string; readonly context?: string }
   /** 其余一切（exit 1/3/…、超时、起不来、判定读不出来）：一律 deny。 */
-  | { readonly kind: 'fail'; readonly reason: string };
+  | { readonly kind: 'fail'; readonly reason: string; readonly context?: string };
 
 const DECISIONS: ReadonlySet<string> = new Set(['allow', 'ask', 'deny']);
 
@@ -217,15 +232,26 @@ export function classify(result: HookRun): HookVerdict {
   const inner = record.hookSpecificOutput;
   const holder =
     typeof inner === 'object' && inner !== null ? (inner as Record<string, unknown>) : record;
+  // 两个位置都认，与下面 `permissionDecision` 同一套读法：参考实现把它放在
+  // `hookSpecificOutput` 里，可它不是没有裸放在顶层的时候。多认一处是一个 `??` 的成本。
+  const rawContext = holder.additionalContext ?? record.additionalContext;
+  // 不是字符串、空的、纯空白 —— 一律当没有。理由与 reason 那条一样：一个空串进了对话
+  // 会变成一段看着像内容其实什么都没有的文本，而那是**并进用户的提示词**里的东西。
+  const context =
+    typeof rawContext === 'string' && rawContext.trim() !== '' ? rawContext : undefined;
   const decision = holder.permissionDecision ?? record.permissionDecision;
-  if (decision === undefined) return { kind: 'silent' };
+  if (decision === undefined) return { kind: 'silent', context };
 
   if (typeof decision !== 'string' || !DECISIONS.has(decision)) {
     // 说不认识的话 ≠ 没意见。读不出来就 deny —— 与"退出码只认 0 与 2"同一条方向。
-    return { kind: 'fail', reason: `钩子给的判定读不出来：${JSON.stringify(decision)}` };
+    return {
+      kind: 'fail',
+      reason: `钩子给的判定读不出来：${JSON.stringify(decision)}`,
+      context,
+    };
   }
 
   const rawReason = holder.permissionDecisionReason ?? record.permissionDecisionReason;
   const reason = typeof rawReason === 'string' && rawReason.trim() !== '' ? rawReason : undefined;
-  return { kind: 'say', decision: decision as 'allow' | 'ask' | 'deny', reason };
+  return { kind: 'say', decision: decision as 'allow' | 'ask' | 'deny', reason, context };
 }

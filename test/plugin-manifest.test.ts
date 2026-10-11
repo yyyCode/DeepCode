@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BRIDGED_EVENTS } from '../src/contract/classic';
 import {
   isSafeRelativePath,
   validatePlugin,
@@ -214,16 +215,34 @@ describe('W 级：装得上，但照这么写会不work', () => {
     expect(result.hooks.length).toBe(1);
   });
 
-  it('W3 未桥接的 30 个事件被点名，且不进归一结果', async () => {
+  it('W3 未桥接的 27 个事件被点名，且不进归一结果', async () => {
     const result = await run({
       'plugin.json': GOOD,
       './hooks/hooks.json': JSON.stringify({
-        PostToolUse: [{ hooks: [{ type: 'command', command: 'x' }] }],
+        // 用 PostToolUseFailure 而不是 PostToolUse：后者从 P4d 起是**桥接**的，
+        // 拿它当反例会让这条测试测到 W10（uses 里没声明）而不是 W3。
+        PostToolUseFailure: [{ hooks: [{ type: 'command', command: 'x' }] }],
       }),
     });
     expect(result.ok).toBe(true);
     expect(result.hooks).toEqual([]);
-    expect(result.problems.find((p) => p.code === 'W3')?.message).toContain('PostToolUse');
+    expect(result.problems.find((p) => p.code === 'W3')?.message).toContain('PostToolUseFailure');
+  });
+
+  it('W3 那句"只桥接了 …"**跟着桥接表走**，不是抄死的一份名单', async () => {
+    // 抄死的那一份在 P4d 加了三个事件之后会继续说"只桥接了三个"。这条断言要的是：
+    // 文案里出现的是表里的**全部六个**名字 —— 少一个都说明有人又抄了一份。
+    const result = await run({
+      'plugin.json': GOOD,
+      './hooks/hooks.json': JSON.stringify({
+        PostToolUseFailure: [{ hooks: [{ type: 'command', command: 'x' }] }],
+      }),
+    });
+    const message = result.problems.find((p) => p.code === 'W3')?.message ?? '';
+    for (const name of Object.keys(BRIDGED_EVENTS)) {
+      expect(message, `${name} 应当在 W3 的名单里`).toContain(name);
+    }
+    expect(Object.keys(BRIDGED_EVENTS)).toHaveLength(6);
   });
 
   it('W4 type: prompt 被跳过并点名', async () => {

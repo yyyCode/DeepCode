@@ -1,15 +1,15 @@
 /**
- * Classic hooks 的契约：事件名、`hooks.json` 的形状、以及我们**真正桥接**的那三个事件。
+ * Classic hooks 的契约：事件名、`hooks.json` 的形状、以及我们**真正桥接**的那六个事件。
  *
  * 三样东西放一个文件，是因为它们必须一起改：加一个桥接事件 = 白名单里加一条 + 映射表里加一条。
- * 白名单有 33 个而映射只有 3 个，这个不对称本身就是信息（设计 §5.1）—— 它是"参考实现有 33 个事件、
- * 我们只找到 3 个着陆点"的如实呈现，不是没做完。
+ * 白名单有 33 个而映射只有 6 个，这个不对称本身就是信息（设计 §5.1）—— 它是"参考实现有 33 个事件、
+ * 我们只找到 6 个着陆点"的如实呈现，不是没做完。
  */
 
 /**
  * classic hooks 的 33 个事件名。
  *
- * ⚠️ **这不是 33 个引擎事件。** 引擎事件目录在 `events.ts`（39 个声明 / 19 个实现）。
+ * ⚠️ **这不是 33 个引擎事件。** 引擎事件目录在 `events.ts`（41 个声明 / 22 个实现）。
  * classic 事件是**另一份目录**：它们从 `hooks.json` 里读进来，落到我们已有的钩子点上。
  * 为它们各造一个引擎事件是白造 —— 没人会 dispatch 一个叫 `classic.PreToolUse` 的东西。
  * 见设计 §11 偏差 1。
@@ -61,12 +61,17 @@ export function isClassicEvent(name: string): name is ClassicEvent {
 /**
  * 桥接表：classic 事件 → 我们已有的钩子点。
  *
- * 只有三个，因为**只有这三个已经有着陆点**。`PostToolUse` 要一个 `tool.result` 事件、
- * `Stop` 与 `UserPromptSubmit` 要一条能携带文本的通道 —— 都得动事件目录或 prompt 组装面，
- * 排在 P4（设计 §11 偏差 2）。
+ * 六个。P4d 之前只有三个，因为 `PostToolUse` 要一个 `tool.result` 事件、`Stop` 与
+ * `UserPromptSubmit` 要一条能携带文本的通道 —— P4d 把这三样都做出来了（设计 §4）。
+ *
+ * `PostToolUseFailure` 仍然不桥：它需要一份**失败专用**的载荷（参考实现里是 `error` 之类），
+ * 而那份形状我们没核实过。按已知的写会编出一个错的 stdin，"如实缺着"更便宜。
  */
 export const BRIDGED_EVENTS = {
   PreToolUse: 'tool.check',
+  PostToolUse: 'tool.result',
+  UserPromptSubmit: 'prompt.submit',
+  Stop: 'turn.stop',
   SessionStart: 'session.start',
   SessionEnd: 'session.end',
 } as const;
