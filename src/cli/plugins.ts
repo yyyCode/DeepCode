@@ -11,6 +11,7 @@ import { createSecDefaultPlugin } from '../builtins/sec-default';
 import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands } from './commands';
+import { createAgentsMdPlugin } from './agents-md';
 import { createPermissionsCommand } from './permissions-command';
 import { createSubagentsPlugin } from './subagents';
 import type { ResolvedPolicy } from './settings';
@@ -47,6 +48,12 @@ export type CliPluginDeps = {
   readonly discovered?: readonly Plugin[];
   /** 五层合并后的 `plugins.deny`。交给 plugin-guard，CLI 自己不判。 */
   readonly pluginDeny?: readonly PluginDenyRule[];
+  /**
+   * 压缩入口（`/compact` 用）。**延迟取的回调**：压缩器要到 `createEngine` 之后才建得出来
+   * （它需要 `dispatch`），而这张表是那之前装的 —— 与 `core/nouns/index.ts` 里那两个
+   * `refs` 同一种写法。不给 = 没有 `/compact` 这条命令。
+   */
+  readonly compact?: () => Promise<void>;
 };
 
 export type CliPluginBundle = {
@@ -82,6 +89,10 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 个人规则：policy 之外的四个来源。
     createPermissionsPlugin({ rules: deps.policy.personalRules }),
     createChangesPlugin(deps.changes),
+    // 嵌套目录约定。**必须在 coreTools 之前**：同 tier 内先装载者在外层，
+    // 而它要在 `next(e)` 回来之后**拿到 Read 的结果**才能追加。晚一步就是个空动作。
+    // （与上面 session-changes 那条顺序约束同一个道理。）
+    createAgentsMdPlugin({ root: deps.root }),
     ...coreTools,
     // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
     // 名字自动进下面的第一方名单（`names`），于是 deny 名单点它也没用。
@@ -99,6 +110,7 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       messages: deps.messages,
       root: deps.root,
       palette: deps.palette,
+      ...(deps.compact === undefined ? {} : { compact: deps.compact }),
     }),
     // /permissions 同理。
     createPermissionsCommand({ policy: deps.policy, palette: deps.palette }),

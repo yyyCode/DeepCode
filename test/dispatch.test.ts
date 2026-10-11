@@ -367,9 +367,10 @@ describe('生命周期事件的内核 no-op', () => {
     ['turn.start', { index: 0 }],
     ['turn.step', { delta: 'hi' }],
     ['turn.complete', { stopReason: 'end_turn', inputTokens: 0, outputTokens: 0 }],
+    ['session.compact', { trigger: 'manual', tokensBefore: 12_345 }],
   ];
 
-  it('五个生命周期事件都能 dispatch，且不抛', async () => {
+  it('六个生命周期事件都能 dispatch，且不抛', async () => {
     const built = await realEngine();
     for (const [event, args] of lifecycle) {
       await expect((built.dispatch as any)(event, args, CORE_ORIGIN)).resolves.toEqual({});
@@ -377,7 +378,7 @@ describe('生命周期事件的内核 no-op', () => {
   });
 
   it('没有内核实现的裸 dispatcher 也能 dispatch 通知事件', async () => {
-    // 上面那条走的是 createEngine，而它的 coreImpls 里曾经真的列着这五条 ——
+    // 上面那条走的是 createEngine，而它的 coreImpls 里曾经真的列着这六条 ——
     // 于是内核这条路全绿，另一条路（E2E 用的 harness，coreImpls 只给了 tool.*）
     // 一开口就崩。这条钉的是"保证写在 dispatch 链尾"，不依赖任何调用方记得补。
     const h = createHarness();
@@ -389,9 +390,10 @@ describe('生命周期事件的内核 no-op', () => {
   });
 
   it('真正未实现的事件仍然抛 NotImplementedError', async () => {
-    // 上面那条的另一半：no-op 只针对生命周期事件，
-    // NotImplementedError 必须继续为那 24 个真未实现的事件保留意义
-    // （P4a 把 agent.offer / agent.spawn / skill.prompt 转正了，27 → 24）。
+    // 上面那条的另一半：no-op 只针对通知事件，
+    // NotImplementedError 必须继续为那 23 个真未实现的事件保留意义
+    // （P4a 把 agent.offer / agent.spawn / skill.prompt 转正了，27 → 24；
+    //   P4b 把 session.compact 转正，24 → 23）。
     const built = await realEngine();
     await expect(built.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,

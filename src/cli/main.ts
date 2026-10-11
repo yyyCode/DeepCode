@@ -15,6 +15,7 @@ import { createSessionChanges } from './changes';
 import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
+import { createCompactor, type Compactor } from './compact';
 import { resolvePolicy } from './settings';
 import { discoverPlugins, installPlugins } from './plugin-dir';
 import { discoverAgents } from './agents';
@@ -226,6 +227,11 @@ async function main(): Promise<void> {
   const agents = await discoverAgents({ root, home, plugins: pluginDirs, warn: warnLine });
   const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
 
+  // 压缩器要到 `createEngine` **之后**才建得出来（它需要 `dispatch`），而 `/compact`
+  // 这条命令在 `cliPlugins` 里注册 —— 所以这里先留一个延迟取的位置，
+  // 与 core/nouns 里那两个 `refs` 同一种写法。
+  let compactor: Compactor | undefined;
+
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
   const bundle = cliPlugins({
     render,
@@ -241,6 +247,9 @@ async function main(): Promise<void> {
     baseSystemPrompt: SYSTEM_PROMPT,
     discovered: thirdParty,
     pluginDeny: policy.plugins.deny,
+    compact: async () => {
+      await compactor?.run('manual');
+    },
   });
   const { $, dispatch } = await createEngine({
     // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
@@ -253,10 +262,23 @@ async function main(): Promise<void> {
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: sessionId, cwd: root, root },
     env: debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env,
+    // 沙箱：五层设置里读出来的规则 + `~` 展开用的 home。省略 = 没有闸。
+    sandbox: { config: policy.sandbox, home },
     signal: () => turns.current(),
   });
 
   await dispatch('session.start', { sessionId: $.session.id(), cwd: root, root }, CORE_ORIGIN);
+
+  // 压缩器：它要 messages / provider / dispatch / persist —— 四样这时候都齐了。
+  compactor = createCompactor({
+    messages,
+    provider: providerAdapter,
+    dispatch,
+    persist,
+    config: policy.compact,
+    warn: (line) => render.notice(line),
+    signal: () => turns.current(),
+  });
 
   const instructions = await loadInstructions(root, home);
   // 能派什么、能加载什么，报给模型（设计 §7）。模型看到的是一行 description，不是文件。
@@ -290,7 +312,20 @@ async function main(): Promise<void> {
     // 撞上 hop 上限就是"这趟没做完"。与 error 一样是非零 —— 不能悄悄退 0。
     else if (reason === 'max_hops') process.exitCode = 1;
   } else {
-    await startRepl({ $, dispatch, render, rl, systemPrompt, turns, messages, persist });
+    await startRepl({
+      $,
+      dispatch,
+      render,
+      rl,
+      systemPrompt,
+      turns,
+      messages,
+      persist,
+      onUsage: (usage) => compactor?.note(usage),
+      afterTurn: async () => {
+        await compactor?.afterTurn();
+      },
+    });
   }
 
   await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);

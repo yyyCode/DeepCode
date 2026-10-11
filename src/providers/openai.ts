@@ -4,7 +4,9 @@ import type {
   ModelProvider,
   StreamEvent,
   ToolSpec,
+  Usage,
 } from '../contract/model-provider';
+import { toUsage } from '../contract/model-provider';
 import { describeHttpFailure } from './http';
 import { sseFrames } from './sse';
 
@@ -45,6 +47,12 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
           messages: toOpenAIMessages(system, messages),
           ...(tools.length > 0 ? { tools: tools.map(toOpenAITool) } : {}),
           stream: true,
+          // 用量只在**最后一帧**单独来，而且那一帧的 `choices` 是空数组 —— 不显式要，端点根本不发。
+          //
+          // ⚠️ 兼容风险：这是 OpenAI 后来的字段，严格的兼容端点可能不认它而回 400。
+          // 认不认由端点自己说：真被挡回来时那句报错里有原因（见 providers/http.ts），
+          // 那比"永远拿不到用量"清楚。
+          stream_options: { include_usage: true },
         }),
         signal,
       });
@@ -57,6 +65,8 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
       // tool_calls 是**分片**来的：index 相同的就是同一个调用，arguments 要一段段接起来。
       const pending = new Map<number, { id: string; name: string; args: string }>();
       let stopReason = 'end_turn';
+      let inputTokens: unknown;
+      let outputTokens: unknown;
 
       for await (const frame of sseFrames(response.body)) {
         const data = frame.data.trim();
@@ -78,6 +88,11 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
           const detail = parsed.error.message;
           throw new Error(`openai 流中错误帧: ${type}${detail ? ` — ${detail}` : ''}`);
         }
+
+        // 用量那一帧的 `choices` 是**空数组**。原来是 `if (!choice) continue;` 把它整个跳过的
+        // —— 加了 `stream_options.include_usage` 之后，那一帧就是唯一的用量来源。
+        inputTokens = parsed?.usage?.prompt_tokens ?? inputTokens;
+        outputTokens = parsed?.usage?.completion_tokens ?? outputTokens;
 
         const choice = parsed?.choices?.[0];
         if (!choice) continue;
@@ -113,9 +128,14 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
         } satisfies StreamEvent;
       }
 
-      yield { type: 'done', stopReason } satisfies StreamEvent;
+      yield doneEvent(stopReason, toUsage(inputTokens, outputTokens));
     },
   };
+}
+
+/** 没有用量就不带那个字段 —— 带上一个 `usage: undefined` 会让"端点报了"与"端点没报"长得一样。 */
+function doneEvent(stopReason: string, usage: Usage | undefined): StreamEvent {
+  return usage === undefined ? { type: 'done', stopReason } : { type: 'done', stopReason, usage };
 }
 
 /**

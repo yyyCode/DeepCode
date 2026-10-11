@@ -8,12 +8,14 @@ import { createSessionChanges } from '../src/cli/changes';
 import { createRenderer } from '../src/cli/render';
 import { createEngine } from '../src/core/create';
 import { scriptedProvider } from './harness';
-import type { ResolvedPolicy } from '../src/cli/settings';
+import { DEFAULT_COMPACT, EMPTY_SANDBOX, type ResolvedPolicy } from '../src/cli/settings';
 
 const POLICY: ResolvedPolicy = {
   sources: [],
   policyRules: [],
   personalRules: [],
+  sandbox: EMPTY_SANDBOX,
+  compact: DEFAULT_COMPACT,
   plugins: { enable: [], deny: [] },
 };
 

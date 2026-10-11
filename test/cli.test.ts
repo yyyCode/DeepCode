@@ -18,7 +18,7 @@ import { runTurn } from '../src/core/loop';
 import type { CoreImpls } from '../src/core/dispatch';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Renderer } from '../src/cli/render';
-import type { ResolvedPolicy } from '../src/cli/settings';
+import { DEFAULT_COMPACT, EMPTY_SANDBOX, type ResolvedPolicy } from '../src/cli/settings';
 import type { EventHook, Plugin } from '../src/contract/plugin';
 import type { Rule } from '../src/contract/policy';
 import type { EngineInterface } from '../src/contract/engine';
@@ -47,6 +47,8 @@ const NO_POLICY: ResolvedPolicy = {
   sources: [],
   policyRules: [],
   personalRules: [],
+  sandbox: EMPTY_SANDBOX,
+  compact: DEFAULT_COMPACT,
   plugins: NO_PLUGINS,
 };
 /** 真实清单里的 confirm 会问 `$.ui.ask`，不给 engine 桩的话整条链会炸。 */
@@ -261,6 +263,8 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
           { raw: 'Bash(git push:*)', tool: 'Bash', content: 'git push:*', decision: 'deny' },
         ],
         personalRules: [{ raw: 'Bash', tool: 'Bash', decision: 'allow' }],
+        sandbox: EMPTY_SANDBOX,
+        compact: DEFAULT_COMPACT,
         plugins: NO_PLUGINS,
       },
       NOOP_UI,
@@ -575,6 +579,8 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
         { raw: 'Read', tool: 'Read', decision: 'allow' },
         deny('Bash(git push:*)', 'Bash', 'git push:*'),
       ],
+      sandbox: EMPTY_SANDBOX,
+      compact: DEFAULT_COMPACT,
       plugins: NO_PLUGINS,
     };
   }
@@ -604,7 +610,14 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
     const lines: string[] = [];
     const engine = { ui: { log: (line: string) => lines.push(line) } } as unknown as EngineInterface;
     const h = createHarness({ engine });
-    const empty: ResolvedPolicy = { sources: [], policyRules: [], personalRules: [], plugins: NO_PLUGINS };
+    const empty: ResolvedPolicy = {
+      sources: [],
+      policyRules: [],
+      personalRules: [],
+      sandbox: EMPTY_SANDBOX,
+      compact: DEFAULT_COMPACT,
+      plugins: NO_PLUGINS,
+    };
     seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');
 
     await h.dispatch('command.run', { name: 'permissions', args: [] }, CORE_ORIGIN);

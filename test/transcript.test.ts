@@ -174,3 +174,40 @@ describe('transcript', () => {
     );
   });
 });
+
+describe('reseed：压缩把数组改短之后的逃生口', () => {
+  it('reseed 之后，新消息照样落盘', async () => {
+    const cwd = join(home, 'reseed-a');
+    const first: Message[] = [userMessage('一'), userMessage('二'), userMessage('三')];
+    const transcript = await seed(cwd, first);
+    const persist = createPersister(transcript, first.length, () => {});
+
+    // 假装压缩：内存里只剩一条，而盘上还是三条。
+    const memory: Message[] = [userMessage('摘要')];
+    await persist(memory);
+    expect((await readTranscript(transcript.path)).messages.length).toBe(3);
+
+    persist.reseed(memory.length);
+    memory.push(userMessage('四'));
+    await persist(memory);
+
+    const onDisk = (await readTranscript(transcript.path)).messages;
+    // 盘上**保留**被压掉的那三条（压缩不改历史文件），后面接着写新的 —— 不错位、不重复。
+    expect(onDisk.slice(0, 3)).toEqual(first);
+    expect(onDisk.slice(3)).toEqual([userMessage('四')]);
+  });
+
+  it('没有 reseed 的时候会**静默停止** —— 这条钉的是那个陷阱本身', async () => {
+    const cwd = join(home, 'reseed-b');
+    const first: Message[] = [userMessage('一'), userMessage('二'), userMessage('三')];
+    const transcript = await seed(cwd, first);
+    const persist = createPersister(transcript, first.length, () => {});
+
+    const memory: Message[] = [userMessage('摘要')];
+    await persist(memory);
+    memory.push(userMessage('四'));
+    await persist(memory); // 没有 reseed：2 <= 3，静默什么都不写
+
+    expect((await readTranscript(transcript.path)).messages.length).toBe(3);
+  });
+});

@@ -3,7 +3,7 @@ import type { Next } from './next';
 import type { Tier } from './tier';
 
 // ─────────────────────────────────────────────────────────────
-// 第一族：MVP 实际实现链的 12 个事件
+// 第一族：已实现链的事件（P4b 之后 16 个）
 // ─────────────────────────────────────────────────────────────
 
 export type EventArgs = {
@@ -22,6 +22,11 @@ export type EventArgs = {
     readonly stopReason: string;
     readonly inputTokens: number;
     readonly outputTokens: number;
+    /**
+     * `true` = 上面两个数是**字符 ÷ 4 估的**，不是端点报的。
+     * 省略 = 端点报的真数。（`outputTokens: 0` 配上这个标记是常态：估得出输入，估不出输出。）
+     */
+    readonly usageEstimated?: boolean;
   };
   'tool.call': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   /**
@@ -29,7 +34,7 @@ export type EventArgs = {
    *
    * classic 钩子的 stdin 里有 `tool_use_id`，而 loop 手里本来就有 `use.id` ——
    * 多传一个字段比"桥接层自己去猜 / 去额外配一次对"便宜得多。
-   * 这是**契约变宽**，不是新事件：39 声明 / 12 实现那两项计数都不变。
+   * 这是**契约变宽**，不是新事件：39 声明 / 16 实现那两项计数都不变。
    */
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   'tool.describe': { readonly tool: string };
@@ -55,6 +60,20 @@ export type EventArgs = {
    * 彻底不可用。详细理由见设计 §10.3。
    */
   'skill.prompt': { readonly name: string; readonly text: string };
+
+  // ── P4b 转正的一个 ──
+
+  /**
+   * 发生过一次上下文压缩。**纯通知**，与 `session.start` 同一族 —— 结果类型是空对象。
+   *
+   * 它**不返回压缩后的 messages**：压缩是 CLI 自己的事，把结果做成可变的东西会让它变成一个
+   * **权威**事件，而权威事件是要 fail-closed 的 —— 那正好与"摘要失败就干脆不压、宁可上下文
+   * 继续涨"的方向相反（设计 §3.4/§3.6）。
+   *
+   * 派发时机是**压缩之前**：`tokensBefore` 这个名字只有在改之前派才说得通，
+   * 而 `PreCompact` 该看到的本来就该是压缩前的状态。
+   */
+  'session.compact': { readonly trigger: 'manual' | 'auto'; readonly tokensBefore: number };
 };
 
 export type EventResult = {
@@ -82,6 +101,7 @@ export type EventResult = {
   };
   'agent.spawn': Record<string, never>;
   'skill.prompt': { readonly text: string };
+  'session.compact': Record<string, never>;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -142,7 +162,6 @@ export type UnimplementedEvent =
   | 'config.describe'
   | 'attribution.text'
   | 'session.receive'
-  | 'session.compact'
   | 'session.attach'
   | 'session.detach'
   | 'session.measure';
@@ -192,6 +211,10 @@ export const NOTIFICATION_EVENTS = [
   // P4a：派子代理也是"让插件看得见"这一类 —— 没有任何一条需要内核答复，
   // 链尾 `{}` 兜底正是它该有的语义。将来的 SubagentStart 桥、telemetry 挂这里。
   'agent.spawn',
+  // P4b：压缩也是"让插件看得见"这一类 —— 它没有任何一条需要内核答复。
+  // 靠链尾兜底而不是在 createEngine 的 coreImpls 里补一条：见本文件上面那段注释
+  // （"放在链尾意味着任何 dispatcher 都天然满足这条不变量，没有第二个地方可以漏"）。
+  'session.compact',
 ] as const;
 
 const NOTIFICATION_SET: ReadonlySet<string> = new Set(NOTIFICATION_EVENTS);

@@ -31,11 +31,35 @@ export type ToolSpec = {
   readonly inputSchema: unknown;
 };
 
+/**
+ * 一次调用的用量。**只在端点真报了的时候才带** —— 缺了就缺了，塞 0 是撒谎
+ * （`turn.complete` 的 `inputTokens` 曾经长期写死 0，压缩器拿到的信号一直是"上下文是空的"）。
+ */
+export type Usage = { readonly inputTokens: number; readonly outputTokens: number };
+
 /** provider 的流式输出。文本增量即时产出；工具调用在参数收齐后一次性产出。 */
 export type StreamEvent =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'tool_use'; readonly id: string; readonly name: string; readonly input: unknown }
-  | { readonly type: 'done'; readonly stopReason: string };
+  | { readonly type: 'done'; readonly stopReason: string; readonly usage?: Usage };
+
+/**
+ * 两家适配器共用的归一：`input` 是 anthropic 的 `input_tokens` / openai 的 `prompt_tokens`，
+ * 同理 `output`。
+ *
+ * **只有两个都是有限数才成一份 usage。** 缺一个就当整份没有 —— 报半个账比不报更坏：
+ * 消费端会拿它当"这一轮就这么点输入"去比阈值。
+ */
+export function toUsage(input: unknown, output: unknown): Usage | undefined {
+  const inputTokens = count(input);
+  const outputTokens = count(output);
+  if (inputTokens === undefined || outputTokens === undefined) return undefined;
+  return { inputTokens, outputTokens };
+}
+
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
 
 export type StreamRequest = {
   readonly system: string;

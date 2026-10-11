@@ -94,15 +94,31 @@ export async function createTranscript(deps: {
  *   但也不能一声不吭，否则用户以为会话存着呢 —— 所以 `onError`（局部 `complained`）
  *   **只喊一次**，避免每个 turn 都刷屏。
  */
+export type Persister = {
+  (messages: readonly Message[]): Promise<void>;
+  /**
+   * 把落盘游标重置到 `length`。
+   *
+   * ⚠️ **压缩把 `messages` 改短之后必须调。** 内部游标 `written` 记的是"已经落盘到第几条"，
+   * 而压缩是 CLI 原地把数组换短 —— 不重置的话：短于旧游标的期间落盘**静默停止**（不报错、
+   * 什么都没写），等数组再长过旧游标时 `slice(written)` 取到的是**错位的一批**。
+   * 这是 P4b 里唯一一处会静默损坏数据的地方（设计 §3.5）。
+   *
+   * 注意它重置的是**游标**，不是文件：已经落盘的历史一个字都不动，
+   * 所以 `--resume` 接回来的仍然是那份未压缩的完整对话。这是有意的。
+   */
+  reseed(length: number): void;
+};
+
 export function createPersister(
   transcript: Transcript | undefined,
   alreadySaved: number,
   onError?: (line: string) => void,
-): (messages: readonly Message[]) => Promise<void> {
+): Persister {
   let written = alreadySaved;
   let complained = false;
 
-  return async (messages: readonly Message[]): Promise<void> => {
+  const persist = async (messages: readonly Message[]): Promise<void> => {
     // 没有转录（比如创建就失败、降级继续跑）时是 no-op。
     if (transcript === undefined) return;
     if (messages.length <= written) return;
@@ -121,6 +137,14 @@ export function createPersister(
       }
     }
   };
+
+  // 用 `Object.assign` 而不是 `as Persister` 铸型：铸型会把"少写了 reseed"这件事一起瞒过去，
+  // 而少写 reseed 正是这一轮唯一一处会静默损坏数据的地方。
+  return Object.assign(persist, {
+    reseed: (length: number): void => {
+      written = length;
+    },
+  });
 }
 
 /**

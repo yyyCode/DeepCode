@@ -68,9 +68,9 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>523</b><span>用例全绿 · 36 个文件</span></li>
+    <li><b>592</b><span>用例全绿 · 39 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
-    <li><b>15/39</b><span>事件已实现（如实标注）</span></li>
+    <li><b>16/39</b><span>事件已实现（如实标注）</span></li>
   </ul>
 </section>
 
@@ -259,7 +259,7 @@
           <code>git push origin main; rm -rf ~</code>（开头就是 <code>git push&nbsp;</code>），
           但拦不住 <code>true &amp;&amp; git push origin main</code> —— 开头是 <code>true</code>，规则不命中。</p>
         <p>所以 <code>deny</code> 是给手滑与误操作加的一道闸，<strong>不是反对抗手段</strong>：写得出绕开写法的东西照样绕得过去。
-          真要封死得靠进程权限或沙箱，那排在后面的阶段。</p>
+          真要封死得靠进程权限或操作系统级的隔离 —— <code>Bash</code> 另有一道可选的路径闸，但它在同一个局限里。</p>
       </div>
       <p class="muted">路径规则按<strong>绝对路径</strong>匹配（<code>~</code> 会展开成主目录），相对路径不会命中。
         大小写按平台原样比较，不替文件系统做归一 —— 猜错的症状是一条防御规则悄悄不命中。</p>
@@ -299,7 +299,7 @@
 
 规则里的路径按绝对路径匹配（~ 会展开成主目录）；相对路径不会命中。
 更严的永远赢：deny > ask > allow，与规则写在哪一层、写成什么顺序无关。</pre>
-  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「15/39」），
+  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「16/39」），
     但规则按名字生效 —— 工具真出现的那天，它也会从模型眼前消失。</p>
 </section>
 
@@ -333,7 +333,7 @@
   </table>
 
   <div class="callout">
-    <p><strong>39 个事件已声明，15 个已实现。</strong>其余 24 个在类型里躺着，
+    <p><strong>39 个事件已声明，16 个已实现。</strong>其余 23 个在类型里躺着，
       用到时会抛 <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
   </div>
 </section>
@@ -344,7 +344,7 @@
   <div class="grid">
     <article class="card card--stat">
       <b>523</b>
-      <p>用例，36 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <p>用例，39 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -418,7 +418,17 @@
       <p><code>Read</code> / <code>Write</code> / <code>Edit</code> / <code>Glob</code> / <code>Grep</code> /
         <code>Bash</code> 能碰到你进程权限内的任何路径，不限工作目录。确认提示拦的是「要不要动手」，
         不是「动哪里」。</p>
-      <p class="card__cost">所以别在装着重要东西的机器上放它乱跑。沙箱化排在后面的阶段。</p>
+      <p class="card__cost">所以别在装着重要东西的机器上放它乱跑。<code>Bash</code> 另有一道可选的路径闸，
+        但它只做文本分析 —— 它加的是闸，不是墙。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3>沙箱不是 OS 隔离</h3>
+      <p><code>Bash</code> 命令会过一道路径闸，但它靠切分 token 判路径，不是解析 shell：
+        <code>x=/etc/passwd; rm $x</code>、<code>rm $(echo /etc/passwd)</code> 都绕得过去。
+        Windows 上没有 bubblewrap / sandbox-exec 的对应物，做真隔离等于写一段本机永远跑不到也测不了的代码。</p>
+      <p class="card__cost">它是给手滑加的一道闸，不是反对抗手段 —— 也正因如此，它<b>不是</b>可以放开权限的理由。
+        没有 <code>dangerouslyDisableSandbox</code> 那种逃生阀（那是个放行开关）。</p>
     </article>
 
     <article class="card card--limit">
