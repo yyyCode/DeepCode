@@ -96,10 +96,14 @@ function deps(index: string | undefined, world: World): MarketplaceDeps {
 }
 
 /** 一份带入口模块的清单：不给入口也没有钩子的话会多一条 W9，好用例就不干净了。 */
+// ⚠️ `uses` 必须把 tool 三件套凑齐。只写 describe + call 的话，M6 委托给
+// `validatePlugin` 时会从那边带回一条 **W7**（`plugin-manifest.ts:286`：
+// 「uses 里有 tool.call 却没有 tool.check」），好用例照样不干净 —— 这是写计划时
+// 漏掉的一处，执行时才炸出来。三件都要，这才是一份无警告的清单。
 const GOOD_MANIFEST = {
   name: 'todo',
   version: '0.1.0',
-  uses: ['tool.describe', 'tool.call'],
+  uses: ['tool.describe', 'tool.call', 'tool.check'],
   entry: './main.mjs',
 };
 const GOOD_FILES = {
@@ -129,7 +133,7 @@ describe('validateMarketplace', () => {
     expect(entry?.source).toBe('./plugins/todo');
     // 归一之后才有 version（清单里没写就是 0.0.0）、uses、paths —— 这是「不必再校验一次」的意思。
     expect(entry?.manifest.version).toBe('0.1.0');
-    expect(entry?.manifest.uses).toEqual(['tool.describe', 'tool.call']);
+    expect(entry?.manifest.uses).toEqual(['tool.describe', 'tool.call', 'tool.check']);
     expect(entry?.manifest.paths.entry).toEqual(['./main.mjs']);
   });
 
@@ -334,7 +338,8 @@ describe('validateMarketplace', () => {
 - [ ] **Step 2: 跑一遍，确认它红**
 
 Run: `pnpm exec vitest run test/marketplace.test.ts`
-Expected: FAIL —— `Failed to resolve import "../src/contract/marketplace" from "test/marketplace.test.ts"`。
+Expected: FAIL —— `Failed to load url ../src/contract/marketplace`（这是 vite 的措辞，
+与「解析不了这个 import」是同一个失败类别）。
 
 - [ ] **Step 3: 写实现**
 
@@ -564,7 +569,7 @@ export async function validateMarketplace(
 - [ ] **Step 4: 跑测试，确认全绿**
 
 Run: `pnpm exec vitest run test/marketplace.test.ts`
-Expected: PASS，`Tests  21 passed`。
+Expected: PASS，`Tests  22 passed`（计划初稿写 21，是自己数错了；实际 22）。
 
 - [ ] **Step 5: 依赖边界不能破**
 
@@ -1677,8 +1682,12 @@ Expected: PASS。
 
 - [ ] **Step 6: 手跑一遍真的，看 stderr 干不干净**
 
-这一步是**为了验一个假设**：`fs.cp` 在 Node 20 / 22 上会不会打 `ExperimentalWarning`。
-不打的话 Task 5 里那条断言就成立；打的话按 Task 5 的注处置。
+**这一步要看的第二件事，比第一件重要：** stderr 干不干净。
+
+`fs.cp` 直到 Node **22.3.0** 才转正，所以在这台机器上（22.19.0）不打警告，
+而在 CI 的 **20.x** job 上会打一条 `ExperimentalWarning` —— 本地绿、CI 红的经典陷阱。
+Task 5 里那条断言已经按这个事实写成了「滤掉已知噪音之后再要求干净」，
+这一步是现场确认它确实长那样（本机应该看不到那条警告，看到了更说明滤得对）。
 
 ```bash
 tmp=$(mktemp -d) && mkdir -p "$tmp/market/.deepcode-plugin" "$tmp/market/demo" \
@@ -1688,8 +1697,8 @@ tmp=$(mktemp -d) && mkdir -p "$tmp/market/.deepcode-plugin" "$tmp/market/demo" \
 ```
 
 Expected: 报告里含 `装到了 …/home/.deepcode/installed/demo` 与「它现在**不会跑**」，
-`exit=0`，**stderr 除了一条 W9（既没有入口也没有钩子）之外没有别的**。
-若冒出 `ExperimentalWarning`，记下来，Task 5 那条断言按注处理。
+`exit=0`，**stderr 除了一条 W9（既没有入口也没有钩子）之外没有别的**
+（本机 22.19.0 不该出现 `ExperimentalWarning`；出现了就把这条记进对照表）。
 
 - [ ] **Step 7: 提交**
 
@@ -1954,6 +1963,23 @@ describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）',
     return { code, stdout: result.stdout as string, stderr: result.stderr as string };
   }
 
+  /**
+   * 滤掉 Node 自己那两条与本次行为无关的输出。
+   *
+   * `fs.cp` 在 22.3.0 之前是实验性 API，第一次用到就打一条 `ExperimentalWarning`
+   * 外加一行 `Use \`node --trace-warnings ...\` to show where the warning was created`。
+   * 那不是这个项目的问题 —— 但它会出现在 stderr 里，而 CI 矩阵里有 20.x。
+   * 所以"stderr 干不干净"这件事得先减掉这段已知噪音再谈。
+   */
+  function noise(stderr: string): string {
+    return stderr
+      .split('\n')
+      .filter((line) => !line.includes('ExperimentalWarning'))
+      .filter((line) => !line.includes('--trace-warnings'))
+      .join('\n')
+      .trim();
+  }
+
   /** 每个用例自己的临时 HOME 与临时工作目录 —— `add` 会往 HOME 里写。 */
   function scene(): { base: string; home: string; root: string } {
     const base = mkdtempSync(join(tmpdir(), 'deepcode-market-'));
@@ -1974,10 +2000,12 @@ describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）',
       expect(added.code).toBe(0);
       // 装之前你能看见的全部。
       expect(added.stdout).toContain('node demo-hook.mjs');
-      // ⚠️ 若这条红了、且 stderr 里确实有 ExperimentalWarning：那不是失败，
-      // 是 `fs.cp` 在这个 Node 版本上会打实验性警告（功能不受影响）。
-      // 处置是删掉这条断言并在计划末尾记一笔，不是去改实现。
-      expect(added.stderr).not.toContain('ExperimentalWarning');
+      // ⚠️ **不能**写成 `expect(added.stderr).not.toContain('ExperimentalWarning')`。
+      // `fs.cp` 直到 Node 22.3.0 才转正，整条 20.x 上都会打那条实验性警告，
+      // 而 CI 矩阵里就有 20 —— 那么写会在本地绿、**只在 CI 红**，是最坏的一种失败。
+      // 改成：把已知噪音滤掉之后要求 stderr **干净**。20 与 22 上都成立，
+      // 而且仍然逮得住真正的杂音（下面没滤掉的东西一条都不许有）。
+      expect(noise(added.stderr)).toBe('');
 
       const landed = join(home, '.deepcode', 'installed', 'demo');
       expect(readFileSync(join(landed, 'plugin.json'), 'utf8')).toContain('demo');
@@ -2303,9 +2331,10 @@ git commit -m "docs(p4c): 落点与「装 ≠ 启用」写进 README / 项目简
 | 既有 `test/plugin-dir.test.ts` 的用例**一条不改**地继续绿（闸门从 `origin === 'project'` 改成 `origin !== 'user'` 时，既有两级的语义一个字不改） | |
 | `.deepcode-plugin/` 这个新点目录对 `pnpm typecheck` / `pnpm lint` / `pnpm test` **零影响**（三个检查器都不看它） | |
 | `readPlugins` 让 user 层的 enable 落进 `SourceInfo.plugins.enable` —— 预期**零可见变化**，因为 `SourceInfo.plugins` 没有消费者（`permissions-command.ts:78-79` 读的是 policy 级那个合并结果） | |
-| `fs.cp` 在 Node 20 / 22 上不打 `ExperimentalWarning`（若打了，Task 5 那条断言按注删掉并在这里记一笔） | |
+| ~~`fs.cp` 在 Node 20 / 22 上不打 `ExperimentalWarning`~~ —— **写计划时查证了，不成立**：`fs.cp` 直到 **22.3.0** 才转正，20.x 上会打。原计划那条断言会在本地绿、只在 CI 的 20.x job 上红。已改成「滤掉已知噪音后再要求 stderr 干净」（本机实测 Node 22.19.0 不打） | **已提前处置**（写计划阶段就改了，没等到 Task 5 执行） |
 | `installPlugins` → `loadPlugins` 只动约 10 处、**零行为变化**（`grep -rn installPlugins src/ test/` 无输出，且那三个测试文件与改名前一样绿） | |
 | **原子 `rename` 没有可观测的反例** —— 变异 7（把 `rename` 换成直接 `cp`）不会有测试红。这是本轮唯一一条断言不了的保证 | |
+| （计划缺陷，执行时才发现）Task 1 那份「干净清单」的 `uses` 只有 `describe` + `call`，经 M6 委托给 `validatePlugin` 后带回一条 **W7**（`plugin-manifest.ts:286`），好用例并不干净。实现是对的，错的**是计划里的固定件**。已把 `tool.check` 补进去，并把这条陷阱写在那段固定件旁边 | **执行时逮出，已修**（只动 `test/marketplace.test.ts`，`src/contract/marketplace.ts` 一个字没改） |
 
 ## 自查（写完计划后自己过一遍的那张表）
 
