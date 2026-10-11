@@ -361,7 +361,9 @@ function resolveHooks(
     if (!isBridged(event)) {
       warn(
         'W3',
-        `${event} 本版本不跑（只桥接了 PreToolUse / SessionStart / SessionEnd），这一节被跳过`,
+        // 名字**从桥接表推**，不抄一遍：抄的那一份在 P4d 加了三个事件之后会继续说"只桥接了三个"，
+        // 而这句话的用途正是告诉用户"你写的这个事件我们跑不跑"。见 W3 的测试。
+        `${event} 本版本不跑（只桥接了 ${Object.keys(BRIDGED_EVENTS).join(' / ')}），这一节被跳过`,
       );
       continue;
     }
