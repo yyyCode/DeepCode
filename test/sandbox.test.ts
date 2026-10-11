@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { candidatePaths, sandboxRule, type SandboxConfig } from '../src/contract/sandbox';
 import { parseRule, type Rule } from '../src/contract/policy';
+import { CORE_ORIGIN } from '../src/contract/next';
+import type { Plugin } from '../src/contract/plugin';
 import { checkSandbox } from '../src/core/nouns/sandbox';
+import { createEngine } from '../src/core/create';
+import { bashTool } from '../src/builtins/tools/bash';
+import { scriptedProvider } from './harness';
 
 /**
  * 候选提取只是**切分**，不是 shell 解析 —— 它不认识变量、命令替换、`cd &&`。
@@ -150,5 +159,121 @@ describe('checkSandbox：方向与理由', () => {
   it('多条候选里只有一条越界就整条拒', () => {
     const deny = [sandboxRule('/etc/**', 'deny', HOME)];
     expect(checkSandbox('cp /proj/a /etc/b', opts, config({ deny })).ok).toBe(false);
+  });
+});
+
+describe('落点与结构性权威（沙箱在权限链下游）', () => {
+  let dir: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'deepcode-sandbox-'));
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * 只有一件事的桩：`tool.check` 一律 allow，而且**不调 next** ——
+   * 于是它就是链尾，"上游放行"这件事被钉死。
+   *
+   * 这里刻意**不用** `createPermissionsPlugin`：它 `next(e)` 之后撞见内核
+   * `tool.check` 的兜底 deny，会照抄下游原样返回 deny（那是它的正确行为），
+   * 于是拿不到一个干净的 allow。这一条测的是**结构**（上游放行了也过不去），
+   * 不是一个干净上游是怎么来的。
+   */
+  const allowUpstream: Plugin = {
+    name: 'test-allow',
+    uses: ['tool.check'],
+    register(on) {
+      on('tool.check', () => ({ decision: 'allow' }) as const);
+    },
+  };
+
+  /** 起一个真引擎：真 `Bash` 工具 + 真沙箱。`allowUpstream` 决定测的是哪一条。 */
+  async function engine(over: { sandbox?: SandboxConfig; allowUpstream?: boolean } = {}) {
+    return createEngine({
+      plugins: [...(over.allowUpstream === true ? [allowUpstream] : []), bashTool],
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => 'n' },
+      sessionInfo: { id: 's1', cwd: dir, root: dir },
+      env: {},
+      ...(over.sandbox === undefined ? {} : { sandbox: { config: over.sandbox, home: dir } }),
+      signal: () => new AbortController().signal,
+    });
+  }
+
+  const out = () => join(dir, 'out.txt');
+  const writeOut = () => `echo hello > ${out()}`;
+  const wholeTree = (): SandboxConfig => ({
+    enabled: true,
+    deny: [sandboxRule(join(dir, '**'), 'deny', dir)],
+    allow: [],
+  });
+
+  it('没接沙箱时 `process` 名词照旧（闸不在，就不该有任何变化）', async () => {
+    const built = await engine({});
+    const result = await built.$.process.run('echo hi', {
+      cwd: dir,
+      timeoutMs: 10_000,
+      signal: new AbortController().signal,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe('hi');
+  });
+
+  it('C1-3 圈内命令**真的执行**：退出码与输出都对', async () => {
+    const built = await engine({ sandbox: { enabled: true, deny: [sandboxRule('/elsewhere/**', 'deny', dir)], allow: [] } });
+    const result = await built.$.process.run('echo hi', {
+      cwd: dir,
+      timeoutMs: 10_000,
+      signal: new AbortController().signal,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe('hi');
+  });
+
+  it('C1-4 副作用验证：被拒之后**文件根本不存在**', async () => {
+    const built = await engine({ sandbox: wholeTree() });
+    expect(existsSync(out())).toBe(false);
+
+    const result = await built.$.process.run(writeOut(), {
+      cwd: dir,
+      timeoutMs: 10_000,
+      signal: new AbortController().signal,
+    });
+
+    // 断言返回值只是第一层；真正的证据是**文件没被创建** —— 它比返回值难糊弄得太多。
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toContain('[沙箱拒绝]');
+    expect(existsSync(out())).toBe(false);
+  });
+
+  it('C1-5 结构性权威：上游明说 allow，沙箱照样拒', async () => {
+    const built = await engine({ sandbox: wholeTree(), allowUpstream: true });
+    const args = { tool: 'Bash', input: { command: writeOut() }, toolUseId: 'tu_1' };
+
+    // 权限链说得很清楚：allow。但那是**上游**。
+    expect(await built.dispatch('tool.check', args, CORE_ORIGIN)).toMatchObject({ decision: 'allow' });
+
+    const result = await built.dispatch('tool.call', args, CORE_ORIGIN);
+    expect(JSON.stringify(result)).toContain('沙箱拒绝');
+    expect(existsSync(out())).toBe(false);
+  });
+
+  it('C1-7 `enabled: false` 与"规则为空"两种情况下命令照常跑', async () => {
+    const off = await engine({
+      sandbox: { enabled: false, deny: [sandboxRule(join(dir, '**'), 'deny', dir)], allow: [] },
+    });
+    const empty = await engine({ sandbox: { enabled: true, deny: [], allow: [] } });
+
+    for (const built of [off, empty]) {
+      const result = await built.$.process.run(writeOut(), {
+        cwd: dir,
+        timeoutMs: 10_000,
+        signal: new AbortController().signal,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(out())).toBe(true);
+      await rm(out(), { force: true });
+    }
   });
 });

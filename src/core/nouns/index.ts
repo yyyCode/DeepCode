@@ -1,4 +1,5 @@
 import type { CoreEngineInterface, EngineInterface, ModelProvider } from '../../contract/engine';
+import type { SandboxConfig } from '../../contract/sandbox';
 import type { Registry } from '../registry';
 import type { DispatchFn } from '../dispatch';
 import { createAgentNoun } from './agent';
@@ -24,6 +25,11 @@ export type CoreNounsDeps = {
    * "会话保留，可以继续输入"。传工厂、每个 turn 现取一个，中断才等于"掐断这一次"。
    */
   signal: () => AbortSignal;
+  /**
+   * 沙箱。`{ config, home }` —— `home` 是给候选路径里的 `~` 展开用的。
+   * 省略 = 没有闸（既有测试与桩都是这个分支），生产里由 `cli/main.ts` 透传。
+   */
+  sandbox?: { readonly config: SandboxConfig; readonly home: string };
 };
 
 export type CoreNounsRefs = {
@@ -68,7 +74,8 @@ export function createCoreNouns(
     }),
     skill: createSkillNoun({ dispatch: refs.dispatch }),
     fs: createFsNoun(),
-    process: createProcessNoun(),
+    // 直接透传 deps：`CoreNounsDeps.sandbox` 的形状与 `ProcessDeps.sandbox` 完全一样。
+    process: createProcessNoun(deps),
     store: createStoreNoun(),
     clock: createClockNoun(),
     ui: createUiNoun(deps.ui),
