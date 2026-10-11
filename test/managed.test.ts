@@ -18,9 +18,20 @@ import { resolvePolicy, type ResolvedPolicy, type TextReader } from '../src/cli/
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const FIXTURES = join(HERE, 'fixtures', 'managed');
 
-const JSON_TEXT = await readFile(join(FIXTURES, 'policy.json'), 'utf8');
-const PLIST_TEXT = await readFile(join(FIXTURES, 'policy.plist.xml'), 'utf8');
-const REG_TEXT = await readFile(join(FIXTURES, 'policy.reg.txt'), 'utf8');
+/**
+ * 夹具读进来先归一成 LF。
+ *
+ * ⚠️ 这一行是被一次**真的红**逼出来的，不是防御性编程：仓库没有 `.gitattributes`，
+ * 而在 `core.autocrlf=true` 的 Windows 上，**下一次 git 碰这个文件**（切分支、checkout）
+ * 会把工作区那份写成 CRLF。于是下面那条 `PLIST_TEXT.replace('</dict>\n</plist>', …)`
+ * 匹配不上 —— 同一条断言在 Linux CI 上绿、在一份新的 Windows 克隆里红。
+ * 夹具的换行方式不该是判据的一部分：判据是"切了一半的 dict 要抛错"，与 CRLF 无关。
+ */
+const asLf = (text: string): string => text.replace(/\r\n/g, '\n');
+
+const JSON_TEXT = asLf(await readFile(join(FIXTURES, 'policy.json'), 'utf8'));
+const PLIST_TEXT = asLf(await readFile(join(FIXTURES, 'policy.plist.xml'), 'utf8'));
+const REG_TEXT = asLf(await readFile(join(FIXTURES, 'policy.reg.txt'), 'utf8'));
 
 /** 那条"同一份策略"长什么样 —— 三份夹具都得给出它。 */
 const POLICY = {
