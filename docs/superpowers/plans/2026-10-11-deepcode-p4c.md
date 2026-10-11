@@ -2294,8 +2294,13 @@ Expected: 全绿。记下文件数与用例数。
     没有一条是「断言摆设」
   - 手工过一遍：`plugin add` 的报告里**钩子命令原文真的在** ——
     Task 4 Step 6 手跑那一次的输出里能看到它
-- [ ] 推分支、开 PR：`git push -u origin p4c-marketplace`
-- [ ] 两个 Node 版本的 job 都绿（**只能在推上去之后才算数**）
+- [ ] 推分支、开 PR：`git push -u origin p4c-marketplace` —— **已做**，PR [#5](https://github.com/yyyCode/DeepCode/pull/5)
+- [ ] 两个 Node 版本的 job 都绿（**只能在推上去之后才算数**）—— **已验**：`check (node 20)` ✓ 29s、
+      `check (node 22)` ✓ 21s（run [38136817040](https://github.com/yyyCode/DeepCode/actions/runs/38136817040)）。
+      ⚠️ 这里正是那条**写计划阶段就处置掉的**坑的收口：`fs.cp` 在 20.x 上会打 `ExperimentalWarning`，
+      若照原计划硬断言 stderr 干净，这条 20.x job 会是红的、而本地（22.19.0）全绿 —— 现在两个 leg 都过，
+      证明「滤掉已知噪音再要求干净」那个改法是对的。（顺带：那次还撞上一次 push 的 `SSL_ERROR_SYSCALL`，
+      重试即通，与本轮代码无关。）
 
 ---
 
