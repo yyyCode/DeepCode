@@ -25,8 +25,28 @@ export type SessionCommandsDeps = {
   /**
    * 压缩。**给它才注册 `/compact`** —— 没给的时候这条命令不存在，`/help` 也不会列它，
    * 这比"命令在、点了没反应"诚实。
+   *
+   * 参数是 `/compact <说明>` 里那段说明（P7 §3.3）：用户指定"这次压掉前面、但要保住什么"。
    */
-  readonly compact?: () => Promise<void>;
+  readonly compact?: (instructions?: string) => Promise<void>;
+  /**
+   * `/context` 的几行（P7 §3.1）。**给它才注册这条命令**，与 `/compact` 同一条理由。
+   *
+   * 由 CLI 现算：它要看最近一次建出来的系统提示分节、会话消息、压缩阈值与上次实测用量
+   * —— 四样都在 CLI 手里，插件够不着。
+   */
+  readonly context?: () => readonly string[];
+  /**
+   * 落盘游标归零。`/clear` 之后**必须**调（P7 §3.6）。
+   *
+   * 落盘器内部记着"已经写到第几条"（`transcript.ts:113-148`）。数组被清空之后不重置
+   * 游标，新对话前 N 条就**一条都不写**：等数组再长过旧游标，`slice(N)` 从新数组的中段
+   * 开始写 —— 盘上变成"旧对话 + 新对话的一段尾巴"，`--resume` 接回来缺开头，而且一声不吭。
+   * 压缩那条路一直有 reseed（`compact.ts`），`/clear` 这条漏了。
+   *
+   * 省略 = 这个会话没有转录（`transcript === undefined` 的降级路径），游标本来也不存在。
+   */
+  readonly reseed?: (length: number) => void;
   /**
    * 问一条命令它自己是什么。**由 CLI 注入**，因为要派发 `command.describe` 而插件
    * 拿不到 dispatch（见上面那段）。
@@ -97,13 +117,30 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
         // REPL 手里那个还挂着旧历史，清了个寂寞。
         const cleared = deps.messages.length;
         deps.messages.length = 0;
-        $.ui.log(`已清空上下文（${cleared} 条消息）。磁盘上的转录保留，/diff 也还在。`);
+        // ⚠️ 清空之后必须把落盘游标归零（P7 §3.6）：不归零的话，新对话前 N 条消息
+        // **静默不落盘**，等数组再长过旧游标就从新数组的中段开始写 —— 盘上少一段，
+        // 没人知道。数组被改短就要 reseed，这条规矩压缩那边一直守着，这边漏了。
+        deps.reseed?.(0);
+        $.ui.log(
+          `已清空上下文（${cleared} 条消息）。磁盘上的转录保留（接下来的对话接着往同一条里写），/diff 也还在。`,
+        );
         return { handled: true };
       });
 
       if (deps.compact !== undefined) {
-        on('command.run', { name: 'compact' }, async () => {
-          await deps.compact?.();
+        on('command.run', { name: 'compact' }, async ($, e) => {
+          // `input.ts:135` 按空白切 args，所以中文说明会进来好几个词 —— 拼回去就是用户
+          // 敲的那句话。全空 = 只说 `/compact`，那就是没有额外要求。
+          const said = e.args.join(' ').trim();
+          await deps.compact?.(said === '' ? undefined : said);
+          return { handled: true };
+        });
+      }
+
+      if (deps.context !== undefined) {
+        on('command.run', { name: 'context' }, ($) => {
+          // 一行一条地打：渲染器是按行处理的，拼成一个大字符串会一团糟（与 /diff 同理）。
+          for (const line of deps.context?.() ?? []) $.ui.log(line);
           return { handled: true };
         });
       }
@@ -125,6 +162,12 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
       if (deps.compact !== undefined) {
         on('command.describe', { name: 'compact' }, () => ({
           description: '把上下文压缩一次（摘要失败就干脆不压）',
+          usage: '可带一句说明：/compact 保住 API 设计决策',
+        }));
+      }
+      if (deps.context !== undefined) {
+        on('command.describe', { name: 'context' }, () => ({
+          description: '看这一轮上下文都被什么占着（token 是估的）',
         }));
       }
 

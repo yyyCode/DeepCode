@@ -104,3 +104,35 @@ describe('嵌套目录约定', () => {
     expect(out).not.toContain('SUB 层约定');
   });
 });
+
+describe('P7 §3.4 压缩边界上重装（"记忆越压越糊"的那一半）', () => {
+  // `root` 要等 `beforeAll` 才落地，所以这里**每次现取**，不能在模块顶层建好。
+  const args = () => ({
+    tool: 'Read',
+    input: { file_path: join(root, 'sub', 'a.ts') },
+    toolUseId: 'tu_1',
+  });
+
+  const body = async (built: Awaited<ReturnType<typeof build>>): Promise<string> => {
+    const result = await built.dispatch('tool.call', args(), CORE_ORIGIN);
+    return 'value' in result ? String(result.value) : '';
+  };
+
+  it('压缩之后同一个文件**重新**附一遍：压缩丢的是对话，不是文件', async () => {
+    const built = await build();
+    expect(await body(built)).toContain('SUB 层约定');
+
+    // 压缩是**纯通知**（派在改之前）：它自己不改上下文，这里要的只是去重表被清掉。
+    await built.dispatch('session.compact', { trigger: 'auto', tokensBefore: 1_000 }, CORE_ORIGIN);
+
+    // 没有这一条：附过的文件**永远不会再附**，模型丢了约定还不知道自己丢了 ——
+    // 因为上面那段约定已经不在上下文里了（它跟着被压掉的消息一起没了）。
+    expect(await body(built)).toContain('SUB 层约定');
+  });
+
+  it('没压缩时去重照旧：表不是被"顺手删了"，是被事件清的', async () => {
+    const built = await build();
+    expect(await body(built)).toContain('SUB 层约定');
+    expect(await body(built)).not.toContain('SUB 层约定'); // C3-15 在同一个实例上仍然成立
+  });
+});

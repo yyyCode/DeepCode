@@ -191,6 +191,95 @@ describe('阈值与提醒', () => {
   });
 });
 
+describe('P7 干预面：/compact <说明> 进摘要那一轮', () => {
+  it('给了说明就拼进去，且摘要要求原样在前面', async () => {
+    const stub = summaryProvider();
+    await setup({ provider: stub.provider }).compact.run('manual', '保住 API 设计决策');
+    const ask = stub.requests[0]?.messages.at(-1);
+    const text = ask !== undefined && ask.role === 'user' ? ask.content : '';
+    expect(text.startsWith(SUMMARIZE_PROMPT)).toBe(true);
+    expect(text).toContain('保住 API 设计决策');
+  });
+
+  it('全空白当没给 —— 摘要请求与 P7 之前逐字节相同', async () => {
+    const stub = summaryProvider();
+    await setup({ provider: stub.provider }).compact.run('manual', '   ');
+    expect(stub.requests[0]?.messages.at(-1)).toEqual({ role: 'user', content: SUMMARIZE_PROMPT });
+  });
+});
+
+describe('P7 断电器：连试到上限就停手，不每轮烧钱刷屏', () => {
+  /** 每一轮的"仍超阈值"。断电器只管自动压缩，所以这几条都开 `auto`。 */
+  const AUTO: CompactConfig = { auto: true, atTokens: 100, keepTurns: 2 };
+
+  it('连续 3 次摘要失败 → 停手：第 4 轮不再调摘要，停手只说一次', async () => {
+    const stub = summaryProvider({ text: '   ' }); // 空摘要 = 失败
+    const { compact, warnings } = setup({ provider: stub.provider, config: AUTO });
+    for (let round = 0; round < 4; round++) {
+      compact.note({ inputTokens: 200, estimated: false });
+      await compact.afterTurn();
+    }
+    expect(stub.requests.length).toBe(3); // 第 4 轮已经停手
+    const said = warnings.join('\n');
+    expect(said).toContain('已停手');
+    expect(said).toContain('/compact'); // 报的是**可操作**的错，不是一句"没做成"
+  });
+
+  it('停手之后手动 /compact 还能再试一次（并且解停手）', async () => {
+    const stub = summaryProvider({ text: '   ' });
+    const { compact } = setup({ provider: stub.provider, config: AUTO });
+    for (let round = 0; round < 4; round++) {
+      compact.note({ inputTokens: 200, estimated: false });
+      await compact.afterTurn();
+    }
+    expect(await compact.run('manual')).toBe(false); // 摘要还是失败，但**真的又试了**
+    expect(stub.requests.length).toBe(4);
+  });
+
+  it('连压 3 次仍超阈值 → 抖动：第 4 次不再压', async () => {
+    const stub = summaryProvider();
+    // ⚠️ 这条测试**每轮都要让会话再长一轮**，不能对着同一个数组连压四次。
+    // 原因是压缩的形状决定的：压完之后待压的历史只剩**一条摘要**，第二次再压
+    // 它并不会更短，`C2-12c`（"压完反而更长就放弃"）先一步把第二次判成"没做成"，
+    // 于是走的根本是失败断路器那条路，抖动那条闸永远挨不着。
+    // 真实抖动长这样：会话一轮一轮地长、压缩每一次都真成了，可测量出来的用量
+    // **始终越线** —— 那说明超长的那部分在 `keepTurns` 保下来的尾巴里，删老消息删不掉它。
+    // 用量由 `note` 喂进来，所以这里每轮**照样报 200**就是在模拟"量了还是超"。
+    const { compact, messages, warnings } = setup({
+      provider: stub.provider,
+      config: { auto: true, atTokens: 100, keepTurns: 4 },
+      messages: turns(8),
+    });
+    const grown = (label: string): Message[] => [
+      { role: 'user', content: `新问题${label}：${FILLER}` },
+      { role: 'assistant', content: [{ type: 'text', text: `新回答${label}：${FILLER}` }] },
+    ];
+
+    for (let round = 0; round < 4; round++) {
+      messages.push(...grown(`${round}a`), ...grown(`${round}b`), ...grown(`${round}c`));
+      compact.note({ inputTokens: 200, estimated: false });
+      await compact.afterTurn();
+    }
+
+    expect(stub.requests.length).toBe(3); // 前三次真压了，第四次停手
+    expect(warnings.join('\n')).toContain('仍然超过阈值');
+  });
+
+  it('中途掉回阈值之下 → 计数归零，下一次撞上还能自动压', async () => {
+    const stub = summaryProvider();
+    const { compact } = setup({ provider: stub.provider, config: AUTO });
+    for (let round = 0; round < 2; round++) {
+      compact.note({ inputTokens: 200, estimated: false });
+      await compact.afterTurn();
+    }
+    compact.note({ inputTokens: 10, estimated: false }); // 掉下去了
+    await compact.afterTurn();
+    compact.note({ inputTokens: 200, estimated: false });
+    await compact.afterTurn();
+    expect(stub.requests.length).toBe(3);
+  });
+});
+
 describe('C2-11 游标：压缩之后继续落盘，不错位、不重复', () => {
   let home: string;
   beforeAll(async () => {

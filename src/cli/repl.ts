@@ -34,7 +34,12 @@ export type ReplDeps = {
    * 而管道那头没有人在等。
    */
   interactive?: boolean;
-  systemPrompt: string;
+  /**
+   * 系统提示。**一个工厂，不是一个字符串**（P7 §3.2）：每一轮都重算一遍，于是会话中改
+   * `AGENTS.md` / 加一条目录约定当场生效，压缩之后注入面也重新求值。代价与理由写在
+   * `cli/system-prompt.ts` 顶部。
+   */
+  systemPrompt: () => Promise<string>;
   /** 每个 turn 现取一个 signal，中断才会只掐断这一次。见 createTurnSignals。 */
   turns: TurnSignals;
   /**
@@ -87,6 +92,9 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
 
     const signal = deps.turns.begin();
     try {
+      // 系统提示**每轮重算**（P7 §3.2）。放在 try 里面：它要读盘（指令文件），
+      // 读不动也要走下面那一套收尾，不能把一个 turn 挂在半路。
+      const systemPrompt = await deps.systemPrompt();
       // 开始转 spinner：模型第一个增量（或本 turn 结束）到来时会被停掉。
       deps.render.thinking();
       await runTurn(
@@ -95,7 +103,7 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
           provider: { name: 'repl', stream: (req) => deps.$.model.stream(req) },
           signal,
           dispatch: deps.dispatch,
-          systemPrompt: deps.systemPrompt,
+          systemPrompt,
           turnIndex: turnIndex++,
           ...(deps.onUsage === undefined ? {} : { onUsage: deps.onUsage }),
         },

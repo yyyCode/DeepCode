@@ -24,11 +24,12 @@ import { applyManagedGateway, loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
+import { createPromptBuilder } from './system-prompt';
+import { contextReport } from './context-view';
 import { resolvePolicy } from './settings';
 import { discoverPlugins, loadPlugins } from './plugin-dir';
 import { discoverAgents } from './agents';
 import { discoverSkills } from './skills';
-import { renderOffer } from './offer';
 import { runPluginCommand } from './plugin-command';
 import { runConfigCommand } from './config-cli';
 import {
@@ -333,9 +334,21 @@ async function main(): Promise<void> {
     ...(paneMiss === undefined ? {} : { paneUnavailable: paneMiss }),
     discovered: thirdParty,
     pluginDeny: policy.plugins.deny,
-    compact: async () => {
-      await compactor?.run('manual');
+    compact: async (instructions) => {
+      await compactor?.run('manual', instructions);
     },
+    // 账本现算：系统提示那一节要**最近一次建出来的**那份（下面 `builder`），
+    // 压缩阈值与"上次实测"分别来自 `policy` 与压缩器 —— 四样都在 CLI 手里。
+    // ⚠️ `builder` 在**下面**建（它要 `dispatch`），而这个闭包只在有人敲 `/context`
+    // 时才跑，那时它早就有了（与 `compactor` 同一个生命周期）。
+    context: () =>
+      contextReport({
+        pieces: builder.last()?.pieces,
+        messages,
+        compact: policy.compact,
+        lastUsage: compactor?.usage(),
+      }),
+    reseed: (length) => persist.reseed(length),
     describeCommand: async (name) => await commandDescriber?.(name) ?? { kind: 'missing' },
   });
   const { $, dispatch } = await createEngine({
@@ -355,6 +368,10 @@ async function main(): Promise<void> {
   });
 
   await dispatch('session.start', { sessionId: $.session.id(), cwd: root, root }, CORE_ORIGIN);
+
+  // 系统提示的**每轮重算**（P7 §3.2）。理由与代价写在 `cli/system-prompt.ts` 顶部；
+  // 它要 `dispatch`，所以只能在这儿建 —— 与压缩器同一个道理。
+  const builder = createPromptBuilder({ base: SYSTEM_PROMPT, dispatch });
 
   // 压缩器：它要 messages / provider / dispatch / persist —— 四样这时候都齐了。
   compactor = createCompactor({
@@ -389,20 +406,9 @@ async function main(): Promise<void> {
     }
   };
 
-  // 指令文件（AGENTS.md / CLAUDE.md）从 `prompt.section` 来 —— 摘掉那个插件的注册，
-  // 它们就不再进提示。清单一节（renderOffer）**有意没走这条路**：它要的是 `agent.offer`
-  // 的结果，而插件拿不到 dispatch，把另一个事件的结果塞进 prompt.section 的 args
-  // 比留一处硬编码更坏（设计 §3.5）。
-  const sections = await dispatch('prompt.section', {}, CORE_ORIGIN);
-  const offer = await dispatch('agent.offer', {}, CORE_ORIGIN);
-  const systemPrompt = [
-    SYSTEM_PROMPT,
-    ...sections.sections.map((section) => section.text),
-    renderOffer(offer),
-  ]
-    .filter((part) => part !== '')
-    .join('\n\n');
-
+  // 系统提示不在这里拼了（P7 §3.2）：`builder` 每轮重算一次，理由与那两个使用点
+  // 见下面。这一段原来是三行拼接（base + `prompt.section` + 清单），搬进了
+  // `cli/system-prompt.ts` —— 拼法一个字没变，变的是**多久拼一次**。
   const oneShot = action.text;
 
   /**
@@ -446,7 +452,8 @@ async function main(): Promise<void> {
     render.thinking();
     try {
       reason = await runTurn(
-        { $, provider: providerAdapter, signal, dispatch, systemPrompt, turnIndex: 0 },
+        // 一次性模式也现算一份：它就是"这一轮"，没有第二轮的余地。
+        { $, provider: providerAdapter, signal, dispatch, systemPrompt: (await builder.build()).text, turnIndex: 0 },
         messages,
       );
     } finally {
@@ -469,7 +476,9 @@ async function main(): Promise<void> {
       lines,
       palette,
       interactive,
-      systemPrompt,
+      // 每一轮现算一次（P7 §3.2）：会话中改 `AGENTS.md` 当场生效，压缩之后注入面
+      // 也重新求值 —— 后者正是"压缩后重新装载约定"那条能成立的前提。
+      systemPrompt: async () => (await builder.build()).text,
       turns,
       messages,
       persist,
