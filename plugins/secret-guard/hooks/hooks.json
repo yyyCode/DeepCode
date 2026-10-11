@@ -1,0 +1,17 @@
+{
+  "description": "Write / Edit 之前跑一次扫描",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/scan.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

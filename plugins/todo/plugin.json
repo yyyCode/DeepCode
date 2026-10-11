@@ -1,0 +1,8 @@
+{
+  "name": "todo",
+  "version": "0.1.0",
+  "description": "加一个 TodoWrite 工具 —— 演示一个不改引擎的新能力",
+  "author": "DeepCode",
+  "uses": ["tool.describe", "tool.call", "tool.check"],
+  "entry": "./main.mjs"
+}
