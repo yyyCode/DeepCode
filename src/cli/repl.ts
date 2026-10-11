@@ -23,6 +23,14 @@ export type ReplDeps = {
   messages: Message[];
   /** 每个 turn 结束后把整个消息数组交给落盘器（它自己算增量）。 */
   persist: (messages: readonly Message[]) => Promise<void>;
+  /** 每一轮的用量（`turn.complete` 的同一条数据）。压缩的阈值判定吃它。 */
+  onUsage?: (usage: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly estimated: boolean;
+  }) => void;
+  /** 每个 turn 收尾时调一次（落盘之后）。跨过压缩阈值时的提醒与自动压缩都在这儿。 */
+  afterTurn?: () => Promise<void>;
 };
 
 /** 交互式 REPL。退出方式：/exit、Ctrl-D、Ctrl-C。 */
@@ -91,6 +99,7 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
           dispatch: deps.dispatch,
           systemPrompt: deps.systemPrompt,
           turnIndex: turnIndex++,
+          ...(deps.onUsage === undefined ? {} : { onUsage: deps.onUsage }),
         },
         messages,
       );
@@ -101,6 +110,8 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
       // 出错/被中断的那一轮也照样收尾。newline 只在这里调一次，别在外面再来一遍。
       deps.render.newline();
       await deps.persist(messages);
+      // 落盘之后再判压缩：压完要 `reseed` 游标，而游标是落盘器自己的状态。
+      await deps.afterTurn?.();
     }
   }
 
