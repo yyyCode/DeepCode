@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Plugin } from '../src/contract/plugin';
 import { CORE_ORIGIN } from '../src/contract/next';
@@ -60,6 +63,38 @@ describe('转盘：谁在链上、坐在哪', () => {
     // guard 收到了规则：它在注册面上是唯一一个带 plugin.register 的第一方插件。
     const guard = b.plugins[0];
     expect(guard?.uses).toContain('plugin.register');
+  });
+});
+
+describe('指令文件真的是从链上来的', () => {
+  it('装配清单里有一个 instructions，读到的 AGENTS.md 经 prompt.section 交出来', async () => {
+    // 这条测的是**装配**而不是插件本身（插件自己的用例在 prompt-section.test.ts）：
+    // 拔掉 cli/plugins.ts 里那一行，指令文件就不再进系统提示 —— 那正是 P4d 把这段
+    // 从 main.ts 的 loadInstructions 搬进事件的全部意义，也必须是可测的意义。
+    const root = await mkdtemp(join(tmpdir(), 'deepcode-wiring-'));
+    const home = await mkdtemp(join(tmpdir(), 'deepcode-wiring-home-'));
+    try {
+      await writeFile(join(root, 'AGENTS.md'), '这个项目只用 pnpm。', 'utf8');
+      const b = bundle({ root, home });
+      expect(b.plugins.map((plugin) => plugin.name)).toContain('instructions');
+
+      const { dispatch } = await createEngine({
+        plugins: b.plugins,
+        thirdParty: b.thirdParty,
+        seating: b.seating as never,
+        signal: () => new AbortController().signal,
+        provider: scriptedProvider([]),
+        ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+        sessionInfo: { id: 's1', cwd: root, root },
+        env: {},
+      });
+      const result = await dispatch('prompt.section', {}, CORE_ORIGIN);
+      const text = result.sections.map((section) => section.text).join('\n');
+      expect(text).toContain('这个项目只用 pnpm。');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
 

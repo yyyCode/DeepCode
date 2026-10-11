@@ -1297,3 +1297,28 @@ export type TelemetryPluginDeps = {
 ## 检查点实际结果
 
 （Task 15 Step 3 填。）
+
+### C1（Task 1–5）—— 2026-10-11
+
+- `pnpm typecheck` 绿；`pnpm lint` 绿（依赖边界 + 工作流硬化两条都过）。
+- `pnpm vitest run`（五个新文件 + `plugin-wiring`）：34 条全绿。
+- `pnpm test`：**49 文件 / 764 用例全绿**，`it.skip|describe.skip|it.todo` 为空。
+- 反向验证三条，每条都先 `grep` 确认变异落上：
+
+| # | 变异 | 结果 |
+| --- | --- | --- |
+| 1 | `withContext` 的 `if (extra === '__NEVER__')`（把 `=== ''` 改掉） | 红 2 条（`prompt-channel` 1、`prompt-submit` 1） |
+| 2 | `runOneTool` 开头插一次 `tool.result` 派发（等价于"挪到 tool.check 之前"） | 红 6 条（含全部四条"没跑的工具不派"） |
+| 3 | `MAX_STOP_BLOCKS` 分支的 `continue` → `break` | 红 3 条（多转一轮、`stopHookActive`、三次上限） |
+
+**计划外的两处动作**（记下来，因为它们不属于任何任务的"文件"清单）：
+
+1. `test/e2e.test.ts` 与 `test/loop-options.test.ts` 的手搭 `coreImpls` 需要补
+   `'turn.stop': () => ({})`（e2e 还要 `'tool.result'`）。理由：`createHarness` 走的是
+   另一条 dispatcher，链尾兜底够不着它 —— 这一点 `test/dispatch.test.ts` 里那条
+   "两条路"的用例早就写明了。漏掉的表现是 loop 走到收手时抛 `NotImplementedError`。
+2. `test/plugin-wiring.test.ts` 新增一条**装配级**用例：`cliPlugins` 的清单交给真引擎后，
+   `prompt.section` 交出来的文本里有临时目录那份 `AGENTS.md` 的正文。这条钉的是
+   "拔掉 `cli/plugins.ts` 里那一行，指令就不再进系统提示" —— 否则 Task 5 的意义
+   只能靠人肉端到端发现。
+

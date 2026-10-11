@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Message } from '../contract/model-provider';
 import { CORE_ORIGIN } from '../contract/next';
+import { withContext } from '../contract/prompt-channel';
 import { createEngine } from '../core/create';
 import { runTurn } from '../core/loop';
 import { createProvider } from '../providers';
@@ -34,17 +34,6 @@ import {
   type Transcript,
 } from './transcript';
 import { createTurnSignals } from './turns';
-
-/** 项目指令文件。MVP 只看两层：项目与用户。嵌套懒加载是 P4 的事。 */
-async function loadInstructions(root: string, home: string): Promise<string> {
-  const parts: string[] = [];
-  for (const file of [join(root, 'AGENTS.md'), join(root, 'CLAUDE.md'), join(home, '.deepcode', 'AGENTS.md')]) {
-    if (existsSync(file)) {
-      parts.push(`Contents of ${file}:\n\n${await readFile(file, 'utf8')}`);
-    }
-  }
-  return parts.join('\n\n');
-}
 
 /**
  * `--resume` 找不到会话时的说明。刻意把"找的是哪个目录"写进去并列出能接的 ——
@@ -331,10 +320,17 @@ async function main(): Promise<void> {
     }
   };
 
-  const instructions = await loadInstructions(root, home);
-  // 能派什么、能加载什么，报给模型（设计 §7）。模型看到的是一行 description，不是文件。
+  // 指令文件（AGENTS.md / CLAUDE.md）从 `prompt.section` 来 —— 摘掉那个插件的注册，
+  // 它们就不再进提示。清单一节（renderOffer）**有意没走这条路**：它要的是 `agent.offer`
+  // 的结果，而插件拿不到 dispatch，把另一个事件的结果塞进 prompt.section 的 args
+  // 比留一处硬编码更坏（设计 §3.5）。
+  const sections = await dispatch('prompt.section', {}, CORE_ORIGIN);
   const offer = await dispatch('agent.offer', {}, CORE_ORIGIN);
-  const systemPrompt = [SYSTEM_PROMPT, instructions ?? '', renderOffer(offer)]
+  const systemPrompt = [
+    SYSTEM_PROMPT,
+    ...sections.sections.map((section) => section.text),
+    renderOffer(offer),
+  ]
     .filter((part) => part !== '')
     .join('\n\n');
 
@@ -342,7 +338,11 @@ async function main(): Promise<void> {
 
   if (oneShot) {
     // 一次性模式：`deepcode "改一下 X"`
-    messages.push({ role: 'user', content: oneShot });
+    // 只采纳 `context`，**忽略 `handled`**：那个字段的语义是"这一行输入被吃掉了，
+    // 别送给模型"，而一次性模式没有可以"继续"的交互循环 —— 把它当真会得到一个
+    // 静默什么都没做、退出码 0 的调用（设计 §8 偏差 9）。
+    const submitted = await dispatch('prompt.submit', { text: oneShot }, CORE_ORIGIN);
+    messages.push({ role: 'user', content: withContext(oneShot, submitted.context) });
     const signal = turns.begin();
     let reason = 'end_turn';
     render.thinking();

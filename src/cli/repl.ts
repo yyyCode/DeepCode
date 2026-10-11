@@ -3,6 +3,7 @@ import type { Message } from '../contract/model-provider';
 import type { EngineInterface } from '../contract/engine';
 import type { DispatchFn } from '../core/dispatch';
 import { CORE_ORIGIN } from '../contract/next';
+import { withContext } from '../contract/prompt-channel';
 import { runTurn } from '../core/loop';
 import type { Renderer } from './render';
 import type { TurnSignals } from './turns';
@@ -85,7 +86,10 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
     const submitted = await deps.dispatch('prompt.submit', { text: trimmed }, CORE_ORIGIN);
     if (submitted.handled) continue;
 
-    messages.push({ role: 'user', content: trimmed });
+    // 拼进**用户那条消息**，不是另插一条：两条连续的 user 消息是某些端点会拒的形状，
+    // 我们没有理由为了一句补充说明去踩这个坑。代价是转录里也含这段 —— 这是对的，
+    // 模型当时看到的就是这个。
+    messages.push({ role: 'user', content: withContext(trimmed, submitted.context) });
 
     const signal = deps.turns.begin();
     try {

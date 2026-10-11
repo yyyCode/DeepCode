@@ -12,6 +12,7 @@ import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands, type CommandDescription } from './commands';
 import { createAgentsMdPlugin } from './agents-md';
+import { createInstructionsPlugin } from '../builtins/instructions';
 import { createPermissionsCommand } from './permissions-command';
 import { createConfigCommand } from './config-command';
 import { createSubagentsPlugin } from './subagents';
@@ -108,6 +109,9 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 而它要在 `next(e)` 回来之后**拿到 Read 的结果**才能追加。晚一步就是个空动作。
     // （与上面 session-changes 那条顺序约束同一个道理。）
     createAgentsMdPlugin({ root: deps.root }),
+    // 指令文件（AGENTS.md / CLAUDE.md）从 `prompt.section` 来 —— 摘掉这一行，
+    // 它们就不再进系统提示。
+    createInstructionsPlugin({ root: deps.root, home: deps.home }),
     ...coreTools,
     // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
     // 名字自动进下面的第一方名单（`names`），于是 deny 名单点它也没用。
