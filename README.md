@@ -336,6 +336,36 @@ deepcode plugin validate <目录>      # 只校验一份清单，不执行任何
 只桥了 3 个 classic 事件（`PreToolUse` / `SessionStart` / `SessionEnd`），
 `type: "prompt"` 型钩子与正则 matcher 不支持，`commands/agents/skills/mcpServers` 只校验不加载。
 
+## 子代理与技能
+
+组合面加了两样东西：`Task` 派子代理、`Skill` 加载技能正文。两个都是**第一方插件**
+（[`src/cli/subagents.ts`](src/cli/subagents.ts)）注册的工具，**不是内建工具** ——
+模型看得见的工具因此从六个内建工具的 `Read` / `Write` / `Edit` / `Bash` / `Glob` / `Grep`
+变成**八个**。
+
+它们的名册来自两处约定目录，与插件目录并列（`.deepcode/` 下）：
+
+| 类型 | 项目级 | 用户级 | 插件级 |
+| --- | --- | --- | --- |
+| 子代理 | `.deepcode/agents/<name>.md` | `~/.deepcode/agents/<name>.md` | `<plugin>/agents/<name>.md` |
+| 技能 | `.deepcode/skills/<name>/SKILL.md` | `~/.deepcode/skills/<name>/SKILL.md` | `<plugin>/skills/<name>/SKILL.md` |
+
+- 文件开头是一段 frontmatter，正文是**系统提示词**（agent）或**知识正文**（技能）。
+  agent 认 `name` / `description` / `model` / `tools` / `disallowedTools` / `maxTurns`；
+  不认识的字段会**出声忽略**，不会让整个文件作废 —— 一份用着别的字段的 agent 少几个特性照装，
+  而不是一个字都读不了。
+- **`description` 是路由的全部依据** —— 模型看到的只有这一行，不是文件。没有它就永远选不中，
+  这样的文件会被跳过并给出警告。
+- agent 的 `tools` 省略 = **继承会话的全部工具**；给出 = 白名单。
+  「全权」指的是工具面，**不是免确认**：子代理写文件照样弹 `y/N`。
+- 子代理**看不到**当前对话，`prompt` 就是它的全部上下文；它最后一段话作为工具结果回到父级。
+- 嵌套靠白名单：`tools` 里有 `Task` 才能再派，外加 3 层的硬上限。
+  一次失控的递归要花真钱，所以上限是保险丝，不是策略。
+- **项目级的 agent 与技能不需要显式启用**（与插件不同）：它们是文本，和这个仓库的 README、
+  源码同级，而 `Read` 本来就是无闸的。
+- 技能只加载正文。它旁边的 `references/`、`scripts/` 由模型自己用 `Read` / `Bash` 取 ——
+  这一层我们一行代码都不写。
+
 ## 安全
 
 MVP 的安全底线是 `tool.check` 事件上的最小确认：
@@ -370,7 +400,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   它下面的孙进程可能继续残留（没有进程组）。
 - **没有 TUI、没有语法高亮**：现在有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，
   也不走 `ui.render` 事件（那一层排到 P3）。
-- **39 个事件里实现了 12 个**：其余 27 个已声明、未实现，用到时会抛 `NotImplementedError`。
+- **39 个事件里实现了 15 个**：其余 24 个已声明、未实现，用到时会抛 `NotImplementedError`。
 - **非 TTY 下 REPL 收不到输入**：`echo '/diff' | deepcode` 这种喂法**无效**。readline 在
   `createInterface` 之后就开始读，而 `main()` 到 `startRepl` 挂上第一个监听之间还隔着好几个
   `await`（找或建会话转录、建引擎、`session.start`、读指令文件）—— 管道里的那几行就在这段
@@ -386,7 +416,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，26 个文件 439 个用例
+pnpm test        # 测试，36 个文件 523 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
