@@ -652,6 +652,54 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
       rmSync(home, { recursive: true, force: true });
     }
   }, 60_000);
+
+  it('⚠️ 真跑一遍 bin：/tools 端到端应答（P9 §3.3 的接线，少一条 deps 就只剩「未知命令」）', () => {
+    // 与上面那条 `/context` 同一条理由：`toolListing` 也是**可选** deps，
+    // 少传一个 typecheck 照绿，而敲 `/tools` 只会得到一句「未知命令」。
+    // 这一轮同样不发请求（`/tools` 自己不走 turn），假 key 只是为了走到建引擎那一步。
+    const home = mkdtempSync(join(tmpdir(), 'deepcode-tools-'));
+    try {
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        USERPROFILE: home,
+        HOME: home,
+        ANTHROPIC_API_KEY: 'sk-ant-fake-for-tools-test',
+      };
+      for (const name of [
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_MODEL',
+        'ANTHROPIC_BASE_URL',
+        'DEEPCODE_MODEL',
+        'DEEPCODE_DEBUG',
+        'DEEPCODE_PROVIDER',
+      ]) {
+        delete env[name];
+      }
+
+      const stdout = execFileSync(
+        process.execPath,
+        [resolve(process.cwd(), 'bin', 'deepcode.mjs')],
+        { cwd: process.cwd(), env, input: '/tools\n/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
+      );
+
+      // ⚠️ 真会话里是**八个**：六个内建 + 子代理插件给的 `Task` / `Skill`。
+      // 写死这个数是有意的 —— 它把"模型能用哪些"与"哪个插件给的"两件事一起钉住了，
+      // 多一个少一个都会红（`/tools` 的个数本来就是个该被人看见的数）。
+      expect(stdout).toContain('模型这一轮能用的工具（8 个）：');
+      // 来源是**插件名**，不是工具名 —— 写反了八个会一起错（`tool-read` vs `Read`）。
+      expect(stdout).toContain('Read　来自 tool-read');
+      expect(stdout).toContain('Bash　来自 tool-bash');
+      expect(stdout).toContain('Task　来自 subagents');
+      // 一个都看不见时那一段不出现（六个内建都注册了 describe）。
+      expect(stdout).not.toContain('不进模型可见清单的');
+      expect(stdout).not.toContain('未知命令');
+
+      // 而且账本那一行也在：这一轮还没发过请求时，它照实说（P9 §3.2）。
+      expect(stdout).toContain('工具清单　这一轮还没发过请求。');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe('cli 命令：/diff 与 /clear', () => {

@@ -1,12 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { Message } from '../contract/model-provider';
+import type { Message, ToolSpec } from '../contract/model-provider';
 import type { TurnReason } from '../contract/turn';
 import { CORE_ORIGIN } from '../contract/next';
 import { withContext } from '../contract/prompt-channel';
 import { createEngine } from '../core/create';
 import { runTurn } from '../core/loop';
+import { listTools } from '../core/tool-list';
 import { createProvider } from '../providers';
 import { cliPlugins } from './plugins';
 import { builtinMods, describeMods, loadMods, paneUnavailable } from './mods';
@@ -288,6 +289,12 @@ async function main(): Promise<void> {
   // 但那是 `createEngine` 的返回值 —— 所以又是一个延迟取的位置。
   let commandDescriber: ((name: string) => Promise<CommandDescription>) | undefined;
 
+  // ⚠️ 模型这一轮**真的带出去**的那份工具清单（P9 §3.2）。由 `runTurn` 的 `onTools` 报回来，
+  // 不是 `/context` 现算的 —— 账本报的必须与真正的请求可比，否则它那条"账要对得上"
+  // 还是做不到（实测：漏掉工具那一份时，账本报 11 token，真实请求约 448）。
+  // 与 `compactor` 同一种写法：`cliPlugins` 的闭包先占位，`createEngine` 之后才填得上。
+  let lastTools: readonly ToolSpec[] | undefined;
+
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
   // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
   // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
@@ -345,10 +352,16 @@ async function main(): Promise<void> {
     context: () =>
       contextReport({
         pieces: builder.last()?.pieces,
+        // 三样都是"最近一次真的发生的事"：系统提示取最近一次建出来的分节，
+        // 工具清单取最近一次发出去的那一份，消息就是手里这个数组。
+        tools: lastTools,
         messages,
         compact: policy.compact,
         lastUsage: compactor?.usage(),
       }),
+    // `/tools` 与 `/help` 的工具那一行共用它 —— 与 `describeCommand` 同一个延迟取的位置，
+    // 同一条理由（要 `dispatch`，而插件拿不到）。
+    toolListing: async () => await listTools({ $, dispatch }),
     reseed: (length) => persist.reseed(length),
     describeCommand: async (name) => await commandDescriber?.(name) ?? { kind: 'missing' },
   });
@@ -491,6 +504,10 @@ async function main(): Promise<void> {
       messages,
       persist,
       onUsage: (usage) => compactor?.note(usage),
+      // 账本吃的那一份（见上面 `lastTools` 那段）。
+      onTools: (specs) => {
+        lastTools = specs;
+      },
       afterTurn: async () => {
         await compactor?.afterTurn();
       },

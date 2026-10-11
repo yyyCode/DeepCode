@@ -63,7 +63,14 @@ export function createCoreNouns(
       signal: deps.signal,
     },
     // 工具清单不是硬编码表：它来自注册面上 `tool.call` 的 matcher 取值。
-    tool: { list: () => registry.matcherValues('tool.call', 'tool') },
+    tool: {
+      list: () => registry.matcherValues('tool.call', 'tool'),
+      // 一个工具的"面孔"由 `tool.describe` 决定，所以先看它；没有 describe 的
+      // （就是 `/tools` 里标成"故障"的那一类）退回看谁应答 `tool.call`。
+      origin: (name) =>
+        registry.matcherOwner('tool.describe', 'tool', name) ??
+        registry.matcherOwner('tool.call', 'tool', name),
+    },
     command: { list: () => registry.matcherValues('command.run', 'name') },
     model: { stream: (req) => deps.provider.stream(req) },
     agent: createAgentNoun({

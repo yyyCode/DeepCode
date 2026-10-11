@@ -11,6 +11,7 @@ import type { EngineInterface } from '../contract/engine';
 import type { TurnReason } from '../contract/turn';
 import { CORE_ORIGIN, type Origin } from '../contract/next';
 import { withContext } from '../contract/prompt-channel';
+import { listTools } from './tool-list';
 
 /** 一个 turn 内最多允许的"模型→工具→模型"往返次数，防止模型陷入死循环。 */
 const MAX_HOPS = 25;
@@ -75,6 +76,14 @@ export type LoopContext = {
     readonly outputTokens: number;
     readonly estimated: boolean;
   }) => void;
+  /**
+   * 这一轮真正推进请求里的那份工具清单（P9 §3.2）。
+   *
+   * 与 `onUsage` 同一条理由：插件拿不到 `dispatch`，而 `/context` 的账本是 CLI 的一屏。
+   * 报的是**发出去的那一份**，不是 `/context` 现算的 —— 账本必须与真正的请求可比，
+   * 否则它连自己那条"账要对得上"都做不到。
+   */
+  onTools?: (specs: readonly ToolSpec[]) => void;
 };
 
 /**
@@ -87,7 +96,14 @@ export type LoopContext = {
 export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<TurnReason> {
   await ctx.dispatch('turn.start', { index: ctx.turnIndex }, CORE_ORIGIN);
 
-  const tools = await describeTools(ctx);
+  // 工具清单的**唯一一份**（`core/tool-list.ts`）：模型拿到的、`/help` 列的、`/tools` 列的
+  // 与账本算的是同一个函数的结果（P9 §3.1）。`onTools` 把这一份原样报给账本。
+  const { specs: tools } = await listTools({
+    $: ctx.$,
+    dispatch: ctx.dispatch,
+    ...(ctx.tools === undefined ? {} : { tools: ctx.tools }),
+  });
+  ctx.onTools?.(tools);
   const maxHops = ctx.maxHops ?? MAX_HOPS;
   // 端点的**步级**停止原因。它只活在这个函数里，一步都不许漏到 `turn.complete` 上
   // —— 那一层是产品语义，翻译只有 `reasonOf` 那一处。
@@ -415,35 +431,4 @@ async function runOneTool(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** 工具清单与描述都来自 tool.describe 事件 —— 内核里没有硬编码的工具表。 */
-async function describeTools(ctx: LoopContext): Promise<ToolSpec[]> {
-  const specs: ToolSpec[] = [];
-  for (const name of ctx.$.tool.list()) {
-    // 与下面的 `hidden` 同一条：**安静**略去，一条 debug。
-    // 这不是"没注册描述"（那是故障，要 warn），是"这个子代理不许用"。
-    if (ctx.tools !== undefined && !ctx.tools.has(name)) {
-      ctx.$.logger.debug(`工具 ${name} 不在本次的工具清单里，不进模型可见列表。`);
-      continue;
-    }
-    try {
-      const described = await ctx.dispatch('tool.describe', { tool: name }, CORE_ORIGIN);
-      // 被权限规则整工具 deny 掉的：**安静**略去（一条 debug）。这不是"没注册描述"
-      // —— 那是故障，要 warn —— 而是"策略不让它露面"。两件事混在一起，
-      // 会让人以为某个插件坏了。
-      if ('hidden' in described) {
-        ctx.$.logger.debug(`工具 ${name} 被权限规则隐藏，不进模型可见清单。`);
-        continue;
-      }
-      specs.push({
-        name,
-        description: described.description,
-        inputSchema: described.inputSchema,
-      });
-    } catch (error) {
-      ctx.$.logger.warn(`工具 ${name} 没有注册描述，已从模型可见列表中略去：${String(error)}`);
-    }
-  }
-  return specs;
 }

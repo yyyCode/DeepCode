@@ -1,5 +1,5 @@
 import type { Interface } from 'node:readline';
-import type { Message } from '../contract/model-provider';
+import type { Message, ToolSpec } from '../contract/model-provider';
 import type { EngineInterface } from '../contract/engine';
 import type { DispatchFn } from '../core/dispatch';
 import { CORE_ORIGIN } from '../contract/next';
@@ -55,6 +55,11 @@ export type ReplDeps = {
     readonly outputTokens: number;
     readonly estimated: boolean;
   }) => void;
+  /**
+   * 每一轮真正带出去的那份工具清单（P9 §3.2）。账本（`/context`）吃它 ——
+   * 报"发出去的那一份"，不是 `/context` 现算的，两处才可比。
+   */
+  onTools?: (specs: readonly ToolSpec[]) => void;
   /** 每个 turn 收尾时调一次（落盘之后）。跨过压缩阈值时的提醒与自动压缩都在这儿。 */
   afterTurn?: () => Promise<void>;
 };
@@ -106,6 +111,7 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
           systemPrompt,
           turnIndex: turnIndex++,
           ...(deps.onUsage === undefined ? {} : { onUsage: deps.onUsage }),
+          ...(deps.onTools === undefined ? {} : { onTools: deps.onTools }),
         },
         messages,
       );
