@@ -148,139 +148,83 @@
 
 <!-- ─────────────────────────── 架构 ─────────────────────────── -->
 <section class="wrap band" id="architecture">
-  <h2>一条链，没有特例</h2>
+  <h2>六个模块，共用一条链</h2>
   <p class="section__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，按 tier 权威序串成一条链。
-    一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。</p>
+    一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。下面是这条链上的六个模块。</p>
 
-  <div class="topo-wrap">
-    <svg class="topo" viewBox="0 0 1060 580" role="img" aria-labelledby="topo-t topo-d">
-      <title id="topo-t">DeepCode 架构拓扑：执行链路、安全闸门、记忆与上下文</title>
-      <desc id="topo-d">终端进来的提示词交给 engine.dispatch —— 每个调用点抛出一个事件；插件把自己的
-        hook 注册成中间件，按 tier 权威序 prepend → user → append → builtin → core 串成一条链，
-        链的出口是工具与模型。工具调用必经安全闸门：tool.check 预览后停下等一行 y/N，再过 sandbox
-        的路径闸，才到真的 spawn 与写盘；tool.check 的 deny 回到链上。转录 JSONL、输入历史、遥测、
-        上下文压缩落在用户级目录，并经 --resume 绕回请求路径。</desc>
-      <defs>
-        <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
-          <path class="mk" d="M0 0 L10 5 L0 10 z"/>
-        </marker>
-        <marker id="arw-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
-          <path class="mk mk--w" d="M0 0 L10 5 L0 10 z"/>
-        </marker>
-        <marker id="arw-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
-          <path class="mk mk--a" d="M0 0 L10 5 L0 10 z"/>
-        </marker>
-      </defs>
+  <div class="mods">
+    <article class="mod">
+      <h3 class="mod__h">执行引擎<span>所有调用从这里进</span></h3>
+      <dl>
+        <dt>入口</dt>
+        <dd><code>engine.dispatch</code> —— 每个调用点抛出一个事件</dd>
+        <dt>链</dt>
+        <dd>五个 tier 按权威序串成一条：<code>prepend → user → append → builtin → core</code></dd>
+        <dt>续体</dt>
+        <dd><code>next(e)</code> 是 Koa 式续体，不是事件发射器 —— 链尾只有一处，没有第二个地方可以漏</dd>
+      </dl>
+    </article>
 
-      <!-- ── 带一：执行链路 ───────────────────────────── -->
-      <g>
-        <rect class="band__bg" x="16" y="20" width="968" height="200" rx="14"/>
-        <text class="t-lab" x="34" y="44">执行链路 · 一次请求怎么走</text>
+    <article class="mod">
+      <h3 class="mod__h">权限<span>谁说了算，谁不能</span></h3>
+      <dl>
+        <dt>来源</dt>
+        <dd>五层，从低到高：<code>user → project → local → flag → policy</code></dd>
+        <dt>判定</dt>
+        <dd><code>deny &gt; ask &gt; allow</code> —— 与写在哪一层、在同一数组里排第几都无关</dd>
+        <dt>上限</dt>
+        <dd><code>allow</code> 的效力上限是把 <code>ask</code> 变成 <code>allow</code>；托管层能收紧，不能放宽</dd>
+      </dl>
+    </article>
 
-        <rect class="bx" x="40" y="64" width="150" height="72" rx="10"/>
-        <text class="t-name" x="115" y="94">终端</text>
-        <text class="t-sub" x="115" y="114">REPL / 一次性</text>
+    <article class="mod">
+      <h3 class="mod__h">安全闸门<span>工具调用必经</span></h3>
+      <dl>
+        <dt>三道</dt>
+        <dd><code>tool.check</code>（预览后停下等一行 y/N）→ <code>sandbox</code>（只有 Bash，路径闸）→ 真进程 / 真文件</dd>
+        <dt>兜底</dt>
+        <dd>fail-closed —— 非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 = <code>deny</code></dd>
+        <dt>位置</dt>
+        <dd>坐在链的<strong>下游</strong> —— 任何 <code>allow</code> 规则都绕不过它</dd>
+      </dl>
+    </article>
 
-        <rect class="bx" x="228" y="64" width="180" height="72" rx="10"/>
-        <text class="t-code" x="318" y="94">engine.dispatch</text>
-        <text class="t-sub" x="318" y="114">每个调用点抛出一个事件</text>
+    <article class="mod">
+      <h3 class="mod__h">记忆与上下文<span>记在哪、怎么接上</span></h3>
+      <dl>
+        <dt>指令</dt>
+        <dd><code>AGENTS.md</code> × 5 层拼进系统提示 —— 五层里只有托管层能写</dd>
+        <dt>转录</dt>
+        <dd>用户级目录、0600 的 JSONL，<code>--resume</code> 接上一次会话</dd>
+        <dt>历史</dt>
+        <dd><code>~/.deepcode/history</code>；压缩用 <code>/compact</code>，自动压缩默认关</dd>
+      </dl>
+    </article>
 
-        <rect class="bx bx--key" x="446" y="64" width="300" height="72" rx="10"/>
-        <text class="t-lab t-lab--key" x="458" y="82">tier 链 · 权威序</text>
-        <g class="chips">
-          <rect class="chip" x="458" y="88" width="49" height="30" rx="6"/>
-          <text x="482.5" y="107">prepend</text>
-          <rect class="chip" x="514" y="88" width="49" height="30" rx="6"/>
-          <text x="538.5" y="107">user</text>
-          <rect class="chip" x="570" y="88" width="49" height="30" rx="6"/>
-          <text x="594.5" y="107">append</text>
-          <rect class="chip" x="626" y="88" width="49" height="30" rx="6"/>
-          <text x="650.5" y="107">builtin</text>
-          <rect class="chip" x="682" y="88" width="49" height="30" rx="6"/>
-          <text x="706.5" y="107">core</text>
-        </g>
-        <text class="t-note" x="596" y="130" text-anchor="middle">hook 可 应答 / 改写 / 拒绝 / 委托下层</text>
+    <article class="mod">
+      <h3 class="mod__h">工具与插件<span>一条接口，没有硬编码表</span></h3>
+      <dl>
+        <dt>工具</dt>
+        <dd>八个走<strong>同一条</strong>接口：六个内建 + <code>Task</code> / <code>Skill</code>（第一方插件给的）</dd>
+        <dt>插件</dt>
+        <dd>不 import 内核，只拿到注册回调；内建 mod 与第三方插件走同一个接口</dd>
+        <dt>边界</dt>
+        <dd>破坏依赖边界，<code>pnpm lint</code> 直接红 —— 不靠自觉</dd>
+      </dl>
+    </article>
 
-        <rect class="bx" x="784" y="64" width="176" height="72" rx="10"/>
-        <text class="t-code" x="872" y="94">provider</text>
-        <text class="t-sub" x="872" y="114">anthropic / openai</text>
-
-        <line class="ln" x1="190" y1="100" x2="223" y2="100" marker-end="url(#arw)"/>
-        <line class="ln" x1="408" y1="100" x2="441" y2="100" marker-end="url(#arw)"/>
-        <line class="ln" x1="746" y1="100" x2="779" y2="100" marker-end="url(#arw)"/>
-
-        <rect class="bx" x="784" y="156" width="176" height="52" rx="10"/>
-        <text class="t-sub" x="872" y="178">AGENTS.md × 5 层</text>
-        <text class="t-sub" x="872" y="196">拼进系统提示</text>
-        <line class="ln" x1="872" y1="156" x2="872" y2="141" marker-end="url(#arw)"/>
-      </g>
-
-      <!-- ── 带二：安全闸门 ───────────────────────────── -->
-      <g class="band--safety">
-        <rect class="band__bg" x="16" y="250" width="968" height="140" rx="14"/>
-        <!-- 这条带的标题拆成两行：单行「安全闸门 · 工具调用必经」一直伸到 x≈192，
-             正好挡住上面那条从 tier 链下来的连线（x=130）—— 文字给图让路。 -->
-        <text class="t-lab t-lab--warn" x="34" y="266">安全闸门</text>
-        <text class="t-note t-note--warn" x="34" y="282">工具调用必经</text>
-        <text class="t-note t-note--warn" x="382" y="270">deny / ask —— 结果回到链上，模型重新决定</text>
-
-        <rect class="bx bx--warn" x="40" y="294" width="180" height="72" rx="10"/>
-        <text class="t-name" x="130" y="324">工具 ×8</text>
-        <text class="t-sub" x="130" y="344">6 内建 + Task / Skill</text>
-
-        <rect class="bx bx--warn" x="268" y="294" width="200" height="72" rx="10"/>
-        <text class="t-code" x="368" y="324">tool.check</text>
-        <text class="t-sub" x="368" y="344">预览后停下等一行 y/N</text>
-
-        <rect class="bx bx--warn" x="516" y="294" width="180" height="72" rx="10"/>
-        <text class="t-code" x="606" y="324">sandbox</text>
-        <text class="t-sub" x="606" y="344">Bash 的路径闸（可选）</text>
-
-        <rect class="bx bx--warn" x="744" y="294" width="200" height="72" rx="10"/>
-        <text class="t-name" x="844" y="324">spawn / 写盘</text>
-        <text class="t-sub" x="844" y="344">真进程 · 真文件</text>
-
-        <line class="ln" x1="220" y1="330" x2="263" y2="330" marker-end="url(#arw)"/>
-        <line class="ln" x1="468" y1="330" x2="511" y2="330" marker-end="url(#arw)"/>
-        <line class="ln" x1="696" y1="330" x2="739" y2="330" marker-end="url(#arw)"/>
-      </g>
-
-      <!-- ── 带三：记忆与上下文 ───────────────────────── -->
-      <g class="band--memory">
-        <rect class="band__bg" x="16" y="404" width="968" height="140" rx="14"/>
-        <text class="t-lab t-lab--acc" x="34" y="430">记忆与上下文 · 记在哪、怎么接上</text>
-
-        <rect class="bx" x="40" y="448" width="220" height="72" rx="10"/>
-        <text class="t-code" x="150" y="478">转录 JSONL</text>
-        <text class="t-sub" x="150" y="498">用户级 · 0600 → --resume</text>
-
-        <rect class="bx" x="280" y="448" width="180" height="72" rx="10"/>
-        <text class="t-name" x="370" y="478">输入历史</text>
-        <text class="t-sub" x="370" y="498">~/.deepcode/history</text>
-
-        <rect class="bx" x="480" y="448" width="200" height="72" rx="10"/>
-        <text class="t-name" x="580" y="478">遥测</text>
-        <text class="t-sub" x="580" y="498">默认关 · 零自由文本</text>
-
-        <rect class="bx" x="700" y="448" width="260" height="72" rx="10"/>
-        <text class="t-name" x="830" y="478">上下文压缩</text>
-        <text class="t-sub" x="830" y="498">/compact · 自动压缩默认关</text>
-      </g>
-
-      <!-- ── 三条连线：链尾 → 工具 / deny 回到链上 / 记忆绕回 ──
-           链尾这条从 tier 链正下方下来、再折进工具的正上方。它会不会压到字，是拿浏览器
-           量出来的（getBoundingClientRect + 沿路径取点），不是靠估字宽。 -->
-      <path class="ln" d="M596 136 V228 H130 V289" marker-end="url(#arw)"/>
-      <path class="ln ln--warn" d="M368 294 V244 H700 V141" marker-end="url(#arw-w)"/>
-      <path class="ln ln--acc" d="M960 484 H1002 V100 H988" marker-end="url(#arw-a)"/>
-      <text class="t-note t-note--acc" x="1030" y="292" text-anchor="middle"
-            transform="rotate(-90 1030 292)">转录 → --resume 接回会话</text>
-    </svg>
+    <article class="mod">
+      <h3 class="mod__h">遥测<span>默认关</span></h3>
+      <dl>
+        <dt>开关</dt>
+        <dd>默认关。只有<strong>用户层</strong>能打开（项目级写的会被丢弃并出声），托管层能一句话关掉</dd>
+        <dt>内容</dt>
+        <dd>六个事件各写一行到用户级 <code>telemetry.jsonl</code>，没有网络上报</dd>
+        <dt>隐私</dt>
+        <dd>零自由文本 —— 任何一行不合规就<strong>整条丢掉</strong>，不是截断也不是改写</dd>
+      </dl>
+    </article>
   </div>
-  <p class="topo-hint">图比较宽 —— 左右滑动查看</p>
-  <p class="muted topo-note">非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 =
-    <code>deny</code>；闸门坐在<strong>链的下游</strong>，任何 <code>allow</code> 规则都绕不过它。
-    指令五层里只有托管层能写；转录与历史落在用户级目录，不进项目目录 —— 免得跟着仓库一起被提交上去。</p>
 
   <h3 class="h3-sample">目录分层（构建时）</h3>
 <pre class="term__body term__body--sample">src/
@@ -292,8 +236,7 @@
 mods/          四个内建 mod（与第三方插件同一个接口）     → node: 内建 + contract + 自己
 plugins/       第三方插件 —— 不 import 内核，只拿到注册回调</pre>
   <p class="muted">这张表就是 <code>scripts/check-boundaries.mjs</code> 里的规则表；方向对了才放行，破坏边界
-    <code>pnpm lint</code> 直接红。<code>next(e)</code> 是 Koa 式续体，不是事件发射器 —— 不调它 = 结束链并应答，
-    调 <code>next({...e, field})</code> = 带改写下行。</p>
+    <code>pnpm lint</code> 直接红。</p>
 
   <div class="callout">
     <p><strong>41 个事件已声明，22 个已实现；八个工具里六个内建、两个由第一方插件提供
