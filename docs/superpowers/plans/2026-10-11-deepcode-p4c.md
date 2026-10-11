@@ -2410,12 +2410,12 @@ git commit -m "docs(p4c): 落点与「装 ≠ 启用」写进 README / 项目简
 
 | 预登记 | 实际 |
 | --- | --- |
-| **`M8`（索引名字与清单名字一致）在真仓库里没有反例** —— `plugins/todo/plugin.json` 的 `name` 是 `todo`，索引里也写 `todo`。所以真仓库上它是**绿的但没被行使**，只能靠临时树 | |
-| 既有 `test/plugin-dir.test.ts` 的用例**一条不改**地继续绿（闸门从 `origin === 'project'` 改成 `origin !== 'user'` 时，既有两级的语义一个字不改） | |
-| `.deepcode-plugin/` 这个新点目录对 `pnpm typecheck` / `pnpm lint` / `pnpm test` **零影响**（三个检查器都不看它） | |
-| `readPlugins` 让 user 层的 enable 落进 `SourceInfo.plugins.enable` —— 预期**零可见变化**，因为 `SourceInfo.plugins` 没有消费者（`permissions-command.ts:78-79` 读的是 policy 级那个合并结果） | |
+| **`M8`（索引名字与清单名字一致）在真仓库里没有反例** —— `plugins/todo/plugin.json` 的 `name` 是 `todo`，索引里也写 `todo`。所以真仓库上它是**绿的但没被行使**，只能靠临时树 | **成立，且绿的那一半现已被钉住**：Task 5 补的 e2e 用例 `仓库自带的索引能装得上自己的插件`（`test/cli.test.ts:860`）**真的行使了**仓库那份 `.deepcode-plugin/marketplace.json`（此前所有用例都用临时树），把「名字一致 → 装得上」这一半钉住；红的那一半（名字不一致 → `M8`）在真仓库里找不到反例，靠临时树 —— Task 6 变异 3 正是靠临时树红的 |
+| 既有 `test/plugin-dir.test.ts` 的用例**一条不改**地继续绿（闸门从 `origin === 'project'` 改成 `origin !== 'user'` 时，既有两级的语义一个字不改） | **成立（中途误报过一次，核下来是改名 churn）**。`git diff main..p4c-marketplace -- test/plugin-dir.test.ts` 的 **6 行删除全部是机械改名**（1 行 import + 5 处 `installPlugins(` 调用），没有一条断言的期望值被改；新增 86 行是 Task 3 为落点那一级补的用例。一次「既有用例被改了？」的警觉，核清楚是这层改名，不是违规 |
+| `.deepcode-plugin/` 这个新点目录对 `pnpm typecheck` / `pnpm lint` / `pnpm test` **零影响**（三个检查器都不看它） | **成立**。C1 / C2 两轮六次全绿（41 个文件，639 → 658 个用例，只增不减）。`tsconfig.json` 的 `include` 是 `["src","test","scripts"]`，`check-boundaries.mjs` 只扫 `src/` —— 都不看仓库根的 `.deepcode-plugin/` |
+| `readPlugins` 让 user 层的 enable 落进 `SourceInfo.plugins.enable` —— 预期**零可见变化**，因为 `SourceInfo.plugins` 没有消费者（`permissions-command.ts:78-79` 读的是 policy 级那个合并结果） | **成立**。`SourceInfo.plugins` 确实没有消费者：唯一的 `policy.sources` 读者是 `permissions-command.ts`，它只用 `info.state` / `info.rules`（`:48`、`:65`、`:100`），从不碰 `info.plugins`。自动装载读的是 policy 级 `plugins.enable`，那条走 `PLUGIN_ENABLE_SOURCES` 的 flatMap（`settings.ts:246`），user 层不在那个常量里，所以新加的那句 `push` 改不了 `~/.deepcode/plugins/` 的行为 |
 | ~~`fs.cp` 在 Node 20 / 22 上不打 `ExperimentalWarning`~~ —— **写计划时查证了，不成立**：`fs.cp` 直到 **22.3.0** 才转正，20.x 上会打。原计划那条断言会在本地绿、只在 CI 的 20.x job 上红。已改成「滤掉已知噪音后再要求 stderr 干净」（本机实测 Node 22.19.0 不打） | **已提前处置**（写计划阶段就改了，没等到 Task 5 执行） |
-| `installPlugins` → `loadPlugins` 只动约 10 处、**零行为变化**（`grep -rn installPlugins src/ test/` 无输出，且那三个测试文件与改名前一样绿） | |
+| `installPlugins` → `loadPlugins` 只动约 10 处、**零行为变化**（`grep -rn installPlugins src/ test/` 无输出，且那三个测试文件与改名前一样绿） | **成立**。`git show --stat 2331e33` = 5 个文件 / **+17 −14**，全是机械改名；`grep -rn installPlugins src/ test/` 无输出。相关的测试文件（plugin-dir / plugin-e2e）与改名前一样绿 |
 | **原子 `rename` 没有可观测的反例** —— 变异 7（把 `rename` 换成直接 `cp`）不会有测试红。这是本轮唯一一条断言不了的保证 | **实测确认**：把 staging + `rename` 换成直接 `cp` 之后，三个与装机相关的文件 **82/82 全绿**，没有一条测试看得出差别。理由：那条保证（"中断时不留半个目录"）只有在真去中断（SIGINT／磁盘满／权限失败）时才可观测，而测试行使的两条失败路径（M5 逃逸、目标已存在）都在**写入任何字节之前**就中止了。所以它是真的，但**没有被钉住** —— 按计划要求**没有编一条假测试**上去 |
 | 六条变异的红/不红（Task 6 实测） | 变异 **1、3、4、5、6 全部按原计划红**在点名的用例上：1 → `落点里的一律不装载`＋`项目级名单管不着落点`；3 → `M8 索引名字与清单名字不一致`；4 → `M5 source 逃出索引根`＋`M5 source 用反斜杠`＋cli 的 `索引里的 source 逃出索引根`；5 → `目标已存在就拒绝`；6 → `remove 一个名字不合法的**不碰任何路径**`。**变异 2 换了一条用例**（见下） |
 | （计划缺陷，执行时才发现）Task 1 那份「干净清单」的 `uses` 只有 `describe` + `call`，经 M6 委托给 `validatePlugin` 后带回一条 **W7**（`plugin-manifest.ts:286`），好用例并不干净。实现是对的，错的**是计划里的固定件**。已把 `tool.check` 补进去，并把这条陷阱写在那段固定件旁边 | **执行时逮出，已修**（只动 `test/marketplace.test.ts`，`src/contract/marketplace.ts` 一个字没改） |

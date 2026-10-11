@@ -336,10 +336,27 @@ Windows 上就是 `C:\Users\<你>\.deepcode\projects\<工作目录>\sessions\<id
 项目级 `<工作目录>/.deepcode/plugins/<名字>/` 要在设置里 `plugins.enable` 之后才装
 （"我自己装的"与"这个仓库要求我装什么"是两件事）。
 
+还有第三种放法：**装进来**。`plugin add` 从一份**本地索引**把插件拷进落点
+`~/.deepcode/installed/<名字>/` —— 而落点**不参与自动装载**。
+
 ```bash
-deepcode plugin list                # 装上了哪些、跳过了哪些、为什么
+deepcode plugin list                # 装上的 / 装进来的 / 跳过的，各带理由
 deepcode plugin validate <目录>      # 只校验一份清单，不执行任何代码
+deepcode plugin add <名字> --from=<目录>   # 从一份本地索引装进来
+deepcode plugin remove <名字>        # 从落点删掉
 ```
+
+**装 ≠ 启用。** `plugin add` 只把文件放好，不放行任何东西；要它跑，得在**用户级**
+`~/.deepcode/settings.json` 里写 `plugins.enable: ["<名字>"]`。**项目级设置里写同一个
+名字不算数** —— 否则一个克隆下来的仓库就能按名字点亮你全局装着的插件。而且
+`plugin add` 不会替你改设置：一条命令替你把代码放行，与这个项目禁掉 `--yes` 是同一条理由。
+落点里那一份在 `plugin list` 里单占一节，标着启用与否 ——「装了但还没启用」是一个正常
+状态，不是错误。
+
+marketplace 就是一份本地目录：`<目录>/.deepcode-plugin/marketplace.json` 列出若干条目，
+每条一个 `name` 与一个相对的 `source`。**只有本地索引**：没有网络、没有签名与校验和、
+没有版本与升级（要更新就是 `remove` 之后再 `add`）。仓库自己那份在
+[`.deepcode-plugin/marketplace.json`](.deepcode-plugin/marketplace.json)，列的就是下面那两个插件。
 
 一份插件至少要有 `plugin.json`（`name` / `version`），可以再带：
 
@@ -453,7 +470,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，40 个文件 609 个用例
+pnpm test        # 测试，41 个文件 658 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 

@@ -68,7 +68,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>609</b><span>用例全绿 · 40 个文件</span></li>
+    <li><b>658</b><span>用例全绿 · 41 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
     <li><b>16/39</b><span>事件已实现（如实标注）</span></li>
   </ul>
@@ -343,8 +343,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>609</b>
-      <p>用例，40 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>658</b>
+      <p>用例，41 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -399,7 +399,8 @@
       <div class="road__head"><span class="pill">进行中</span><h3>P4 组合面</h3></div>
       <p><strong>P4a / P4b / P4e 已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具与
         <code>agent.offer</code> 进系统提示；会话压缩、<code>Bash</code> 沙箱、嵌套 <code>AGENTS.md</code>；
-        CI 与两个检查器。P4 还剩 P4c（marketplace / hookify）与 P4d（多 surface）。</p>
+        CI 与两个检查器。<strong>P4c-1 也已落地</strong>：marketplace 与安装 —— 装 ≠ 启用，
+        只有用户级设置能开闸。P4 还剩 P4c 的另外两片（hookify / <code>config.*</code>）与 P4d（多 surface）。</p>
     </li>
     <li>
       <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P5 内建与分发</h3></div>
@@ -461,6 +462,14 @@
       <h3>会话转录里是代码</h3>
       <p>转录落成 JSONL，放在<strong>用户级</strong>目录（不进项目目录，免得被跟着仓库提交出去），
         文件权限 <code>0600</code>。删掉那个文件就等于删掉那次会话 —— 没有别的副本，也不做过期清理。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3>marketplace 只做本地索引</h3>
+      <p><code>plugin add</code> 从一份<strong>本地</strong>索引把插件拷进落点
+        <code>~/.deepcode/installed/</code>：不 fetch、不 clone、不 HTTP，没有签名与校验和。</p>
+      <p class="card__cost">没有可信密钥体系时，做一个假的签名比不做更糟 —— 它会让人以为校验过。
+        也没有版本解析与升级：升级 = <code>remove</code> + <code>add</code>。</p>
     </article>
   </div>
 </section>
