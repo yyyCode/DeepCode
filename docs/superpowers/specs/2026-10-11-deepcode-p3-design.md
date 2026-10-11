@@ -117,7 +117,7 @@ E 级是"装不上"，W 级是"能装，但照这么写会不work 或本版本�
 | E9 | `hooks.json` 能 parse 成对象 |
 | E10 | `hooks.json` 每个事件名都在 33 个 classic 事件的白名单里 |
 | E11 | 每个 matcher 组是 `{matcher?, hooks:[…]}`，`hooks` 是非空数组 |
-| E12 | `HookDef.type === 'command'`（`'prompt'` 是 W12） |
+| E12 | `HookDef.type === 'command'`（`'prompt'` 是 W4） |
 | E13 | `HookDef.command` 是非空 string |
 | E14 | `HookDef.timeout` 若存在，是 1..300 的整数 |
 | W1 | 未识别的顶层字段（点名） |
@@ -129,6 +129,7 @@ E 级是"装不上"，W 级是"能装，但照这么写会不work 或本版本�
 | W7 | `uses` 里有 `tool.call` 但没有 `tool.check` —— 「这个工具会被 confirm 当未知工具拒掉」 |
 | W8 | 目录里有 `commands/`/`agents/`/`skills/`/`.mcp.json` 而清单没声明，或声明了但 P3 不加载 |
 | W9 | 既没有入口、也没有钩子 —— 这个插件装上了什么都不做 |
+| W10 | `hooks.json` 里桥接的事件没在 `uses` 里声明 —— 装载时这个插件会被**整个撤掉**（§4.3），所以在校验期就点名 |
 
 W6/W7 是这条校验里唯一带**意图**的两条：它们不查格式，查的是"照这么写会不work"。
 
@@ -223,10 +224,16 @@ return out;
 
 三点必须说清：
 
-1. **只对不可能落在流式事件上的 pattern 包装**。判定用现成的 `matchesPattern(pattern, 'turn.step')`
-   （`core/registry.ts` 已有这个函数，不另写一套）：命中就不包装。
-   理由：`turn.step` 的 hook 是 async generator，外面套一层 async 函数会把
-   `Promise<AsyncGenerator>` 交出去，生成器协议当场断掉。
+1. **一律包装 —— 判定不按 pattern 的名字做。**
+   初稿写的是"命中 `turn.step` 就不包装"，理由是会截断生成器协议。**两条都不成立**：
+
+   - 那个理由本身是错的。`core/dispatch.ts` 用 `await Promise.resolve(hook(...))` 接返回值，
+     而 `await` 一个生成器得到的还是它自己 —— 外面套一层 async 函数**不改变任何东西**。
+   - 更糟的是它能**被绕过**：`on('*')` 与 `on('tool.*')` 同样命中 `turn.step`，
+     于是通配 hook 拿到"免检"待遇，一次 `{decision:'allow'}` 就这么走出去了。
+
+   所以改成**无条件包装**，流式直通按**返回值的形状**决定（返回的东西带不带
+   `Symbol.asyncIterator`），与 pattern 写成什么无关。
 2. 形状判断覆盖不到别的返回值 —— 只有 `tool.check` 的结果有 `decision` 字段，所以这道包装**天然只作用于权限判定**。
 3. 于是「第三方插件给自己发放行条」这件事，**连表达都表达不出来**。这与 P2 那条
    「个人 allow 的效力上限是把一次 ask 变成 allow」是同一条线上的第三档：
@@ -254,6 +261,16 @@ MVP 指出的修法是"两趟注册"（第一趟只收集 `engine.create` 的 ho
 ---
 
 ## 5. classic hooks 桥
+
+### 5.0 钩子以**那个插件自己的名字**注册
+
+`hooks/hooks.json` 里的钩子由**该插件自己的 `Plugin.register`** 挂上去，
+而不是由一个第一方「桥插件」代挂。加载器把 `hooks.json` 翻译成一段 `register(on)` 的实现，
+与入口模块那段拼在一起，两者共用同一个插件名。
+
+这一条是承重的，不是实现细节：`uses` 覆盖检查（§4.3）与「剥掉 allow」（§4.4）都按**插件名**生效。
+若由一个第一方桥插件代挂，这两道闸就会作用在桥插件身上而不是那个第三方插件身上 ——
+一个插件只要把权限判定写进 `hooks.json` 就能绕开「只能更严」。**代挂本身就是个漏洞。**
 
 ### 5.1 只桥 3 个事件
 
@@ -351,7 +368,7 @@ stdin（照参考实现的形状）：
 **约束一：必须在 `builtin` 之外。** `confirm` 坐 `builtin`，对 `tool.check` 的注册**不带 matcher 且不调 `next`**
 （`builtins/confirm.ts` 里那个无名工具分支直接 return）。所以任何坐 `builtin` 或更里的
 `tool.check` hook 都**永远不会被跑到** —— 出口标准第三条会直接落空。
-classic hooks 桥必须在 `confirm` 外面。
+第三方插件（含它们申报的 classic hooks，见 §5.0）都必须在 `confirm` 外面。
 
 **约束二：不能坐到 `user` 或更外。** `user` 是个人规则，`prepend` 是托管策略。第三方插件坐到那里，
 就是让一个掉进目录的东西持有个人规则乃至策略的权威。
@@ -450,11 +467,11 @@ $ deepcode plugin validate plugins/broken
 ```
 新增  src/contract/plugin-manifest.ts   清单与约定目录的形状 + 纯函数校验（validate 与加载器共用）
 新增  src/contract/classic.ts           classic 事件名（33）+ hooks.json 形状 + 桥接白名单（3）
-新增  src/cli/plugin-dir.ts             发现用户级/项目级目录、读清单、import entry、读 hooks.json
+新增  src/cli/plugin-dir.ts             发现用户级/项目级目录、读清单、import entry、组装成 Plugin
+新增  src/cli/classic-hooks.ts          把解析好的钩子组翻译成 register(on)（§5.0：以插件自己的名字挂）
 新增  src/cli/hook-run.ts               唯一的 spawn 点：stdin JSON、展开变量、超时、退出码与输出解析
 新增  src/cli/plugin-command.ts         validate / list 的渲染
-新增  src/builtins/plugin-guard.ts      座位 prepend：答 plugin.register，持有 policy 的 plugins.deny
-新增  src/builtins/classic-hooks.ts     座位 append：把解析好的钩子映射到 tool.check / session.*
+新增  src/builtins/plugin-guard.ts      座位 prepend：答 plugin.register，持有合并后的 plugins.deny
 
 改    src/contract/events.ts            tool.check 的参数加一个 toolUseId（§5.2）
 改    src/core/loop.ts                  tool.check 那处 dispatch 多传 toolUseId
@@ -473,10 +490,10 @@ $ deepcode plugin validate plugins/broken
 新增  docs/superpowers/specs/2026-10-11-deepcode-p3-design.md（本文）
 ```
 
-**依赖边界的落法**：`builtins/` 只许 import `contract/`，所以路径发现与 `hooks.json` 的读取全部留在 `cli/`；
-`builtins/classic-hooks.ts` 只接收**解析好的钩子配置**（`createClassicHooksPlugin({ hooks: [...] })`），
-与 `createPermissionsPlugin({ rules })` 是同一手法。`builtins/` 直接用 `node:child_process` 不受边界脚本管辖
-（`bash.ts` 就是这么做的）。
+**依赖边界的落法**：`builtins/` 只许 import `contract/`，所以路径发现、`hooks.json` 的读取与
+子进程执行全部留在 `cli/`；`builtins/plugin-guard.ts` 只接收**解析好的** deny 名单与第一方插件名清单
+（`createPluginGuardPlugin({ deny, firstParty })`），与 `createPermissionsPlugin({ rules })` 是同一手法。
+`cli/` 直接用 `node:child_process` 不受边界脚本管辖（`builtins/tools/bash.ts` 也是这么做的）。
 
 ---
 
@@ -555,6 +572,20 @@ W 级的 fixture 断言退出码 0 且警告点名。
    而闸门要守的是"链上的权威面"。代价：一个插件可以用 `tool.call` 的 `{tool:'Read'}` matcher
    顶掉内建 `Read`。这与「链上每一环都能被替换」是同一件事，属于装即信任的范围（§4.6），
    不是准入闸门该管的。
+10. **`plugin validate` 的测试不提交 §9 里说的 `test/fixtures/plugins/`**，改用 `mkdtemp` 现造目录。
+    理由：每个用例的现场就在它自己那一屏里，而提交一堆"坏清单"会变成"没人知道这几个文件是坏的"。
+    §9 那张表相应少掉这一个目录。
+
+### 计划期纠正（写实施计划时发现设计稿有错，改的是设计稿本身）
+
+1. **§4.4 的包装判定**：初稿按 pattern 的名字决定要不要过那道闸（命中 `turn.step` 就不包装）。
+   这是个**绕过路径** —— `on('*')` 与 `on('tool.*')` 同样命中 `turn.step`，通配 hook 于是拿到
+   免检待遇，一次 `{decision:'allow'}` 就这么走出去了。已改成无条件包装 + 按返回值形状让流式直通；
+   初稿给的理由（"async 包装会截断生成器协议"）也被证伪，一并删掉。
+2. **§2.3 补一条 W10**：`hooks.json` 里桥接的事件没在 `uses` 里声明 —— 装的时候这个插件会被
+   整个撤掉，而那听起来像"装上了"，是最难查的一种失败。同族的 W6/W7 早就在表里，W10 是缺的那一条。
+3. **E12 里引用的 `W12` 是笔误**，应为 W4（`type: 'prompt'` 那条警告）。已改 —— 表里只有 W1–W10，
+   一条指向不存在的编号的交叉引用，比没有这条引用更糟。
 
 ### 存疑（本设计拍板，但上位文档说不清）
 
