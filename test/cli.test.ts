@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -662,4 +662,212 @@ describe('真跑一遍 bin：自带插件的清单都过 validate', () => {
       expect(stdout).toContain(resolve(process.cwd(), dir));
     }, 60_000);
   }
+});
+
+describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）', () => {
+  // 与上面那几条同一个用意：清掉会改变配置解析的变量，顺便再钉一遍顺序 ——
+  // plugin 子命令必须发生在"要 key"之前，否则在干净环境（CI）里会报"缺少 API key"，
+  // 而不是装机。**全程零密钥。**
+  const BIN = resolve(process.cwd(), 'bin', 'deepcode.mjs');
+
+  function cleanEnv(home: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home };
+    for (const name of [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_MODEL',
+      'DEEPCODE_MODEL',
+      'DEEPCODE_PROVIDER',
+      'DEEPCODE_MANAGED_SETTINGS',
+      'DEEPCODE_DEBUG',
+    ]) {
+      delete env[name];
+    }
+    return env;
+  }
+
+  /**
+   * 一个自足的 marketplace：索引 + 一个带钩子的插件。
+   * **不依赖仓库里的 `plugins/` 内容** —— 那两目录有自己的测试，而这条要测的是装机流程。
+   */
+  function fixtureMarket(base: string, source = './demo'): string {
+    const dir = join(base, 'market');
+    mkdirSync(join(dir, 'demo', 'hooks'), { recursive: true });
+    mkdirSync(join(dir, '.deepcode-plugin'), { recursive: true });
+    writeFileSync(
+      join(dir, 'demo', 'plugin.json'),
+      JSON.stringify({ name: 'demo', version: '0.1.0', uses: ['tool.check'], hooks: './hooks/hooks.json' }),
+    );
+    writeFileSync(
+      join(dir, 'demo', 'hooks', 'hooks.json'),
+      JSON.stringify({ PreToolUse: [{ hooks: [{ type: 'command', command: 'node demo-hook.mjs' }] }] }),
+    );
+    writeFileSync(
+      join(dir, '.deepcode-plugin', 'marketplace.json'),
+      JSON.stringify({
+        name: 'deepcode',
+        description: '测试用',
+        plugins: [{ name: 'demo', description: '演示', source }],
+      }),
+    );
+    return dir;
+  }
+
+  async function run(
+    args: readonly string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    let code = 0;
+    const result = await promisify(execFile)(process.execPath, [BIN, ...args], { cwd, env }).catch(
+      (error: any) => {
+        code = error.code ?? 1;
+        return { stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
+      },
+    );
+    return { code, stdout: result.stdout as string, stderr: result.stderr as string };
+  }
+
+  /**
+   * 滤掉 Node 自己那两条与本次行为无关的输出。
+   *
+   * `fs.cp` 在 22.3.0 之前是实验性 API，第一次用到就打一条 `ExperimentalWarning`
+   * 外加一行 `Use \`node --trace-warnings ...\` to show where the warning was created`。
+   * 那不是这个项目的问题 —— 但它会出现在 stderr 里，而 CI 矩阵里有 20.x。
+   * 所以"stderr 干不干净"这件事得先减掉这段已知噪音再谈。
+   */
+  function noise(stderr: string): string {
+    return stderr
+      .split('\n')
+      .filter((line) => !line.includes('ExperimentalWarning'))
+      .filter((line) => !line.includes('--trace-warnings'))
+      .join('\n')
+      .trim();
+  }
+
+  /** 每个用例自己的临时 HOME 与临时工作目录 —— `add` 会往 HOME 里写。 */
+  function scene(): { base: string; home: string; root: string } {
+    const base = mkdtempSync(join(tmpdir(), 'deepcode-market-'));
+    const home = join(base, 'home');
+    const root = join(base, 'root');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(root, { recursive: true });
+    return { base, home, root };
+  }
+
+  it('装：报告里有钩子命令原文、文件落进落点、没启用就不装载', async () => {
+    const { base, home, root } = scene();
+    try {
+      const from = fixtureMarket(base);
+      const env = cleanEnv(home);
+
+      const added = await run(['plugin', 'add', 'demo', `--from=${from}`], root, env);
+      expect(added.code).toBe(0);
+      // 装之前你能看见的全部。
+      expect(added.stdout).toContain('node demo-hook.mjs');
+      // ⚠️ **不能**写成 `expect(added.stderr).not.toContain('ExperimentalWarning')`。
+      // `fs.cp` 直到 Node 22.3.0 才转正，整条 20.x 上都会打那条实验性警告，
+      // 而 CI 矩阵里就有 20 —— 那么写会在本地绿、**只在 CI 红**，是最坏的一种失败。
+      // 改成：把已知噪音滤掉之后要求 stderr **干净**。20 与 22 上都成立，
+      // 而且仍然逮得住真正的杂音（下面没滤掉的东西一条都不许有）。
+      expect(noise(added.stderr)).toBe('');
+
+      const landed = join(home, '.deepcode', 'installed', 'demo');
+      expect(readFileSync(join(landed, 'plugin.json'), 'utf8')).toContain('demo');
+      expect(readFileSync(join(landed, 'hooks', 'hooks.json'), 'utf8')).toContain('demo-hook.mjs');
+
+      const listed = await run(['plugin', 'list'], root, env);
+      expect(listed.code).toBe(0);
+      expect(listed.stdout).toContain('装进来的（1）');
+      expect(listed.stdout).toContain('未启用');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('用户级设置里写了它才装载；**项目级写同一个名字不算数**', async () => {
+    const { base, home, root } = scene();
+    try {
+      const from = fixtureMarket(base);
+      const env = cleanEnv(home);
+      expect((await run(['plugin', 'add', 'demo', `--from=${from}`], root, env)).code).toBe(0);
+
+      // ① 项目级写同一个名字 —— **必须仍然不装载**。这是决策 3 的可执行形式，
+      //    也是这一轮唯一一个"不做就会静默错"的地方。
+      //    注意 `scene()` 只建了 root，没建 root/.deepcode（那本该由"仓库里放设置"的人建）——
+      //    `add` 只往 HOME 里写，所以这里得自己 mkdir，否则 writeFileSync 会 ENOENT。
+      mkdirSync(join(root, '.deepcode'), { recursive: true });
+      writeFileSync(
+        join(root, '.deepcode', 'settings.json'),
+        JSON.stringify({ plugins: { enable: ['demo'] } }),
+      );
+      const projectOnly = await run(['plugin', 'list'], root, env);
+      expect(projectOnly.stdout).toContain('装进来的（1）');
+      expect(projectOnly.stdout).toContain('未启用');
+      expect(projectOnly.stdout).not.toContain('已启用');
+
+      // ② 用户级写它 —— 这下才装载。
+      writeFileSync(
+        join(home, '.deepcode', 'settings.json'),
+        JSON.stringify({ plugins: { enable: ['demo'] } }),
+      );
+      const userToo = await run(['plugin', 'list'], root, env);
+      expect(userToo.stdout).toContain('装上的（1）');
+      expect(userToo.stdout).toContain('已启用');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('索引里的 source 逃出索引根：非零码，且落点里什么都没多出来', async () => {
+    const { base, home, root } = scene();
+    try {
+      const from = fixtureMarket(base, '../outside');
+      const env = cleanEnv(home);
+
+      const added = await run(['plugin', 'add', 'demo', `--from=${from}`], root, env);
+      expect(added.code).not.toBe(0);
+      expect(added.stderr).toContain('M5');
+      // 承重的那半：中止发生在写盘之前。
+      expect(existsSync(join(home, '.deepcode'))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('remove 把落点那一份删掉', async () => {
+    const { base, home, root } = scene();
+    try {
+      const from = fixtureMarket(base);
+      const env = cleanEnv(home);
+      await run(['plugin', 'add', 'demo', `--from=${from}`], root, env);
+
+      const removed = await run(['plugin', 'remove', 'demo'], root, env);
+      expect(removed.code).toBe(0);
+      expect(removed.stdout).toContain('plugins.enable'); // 提醒删掉设置里那一行
+      expect(existsSync(join(home, '.deepcode', 'installed', 'demo'))).toBe(false);
+
+      const gone = await run(['plugin', 'remove', 'demo'], root, env);
+      expect(gone.code).not.toBe(0);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('仓库自带的索引能装得上自己的插件（validate 之后 add）', async () => {
+    // 真仓库那份 `.deepcode-plugin/marketplace.json` 到这里才第一次被行使：
+    // 上面几条全用临时树。`M8`（索引名字与清单名字一致）在真仓库上没有反例，
+    // 所以它绿的这一半由这条钉住，红的那一半只能靠临时树 —— 见计划末尾的对照表。
+    const { base, home, root } = scene();
+    try {
+      const env = cleanEnv(home);
+      const repo = resolve(process.cwd());
+      const added = await run(['plugin', 'add', 'todo', `--from=${repo}`], root, env);
+      expect(added.code).toBe(0);
+      expect(existsSync(join(home, '.deepcode', 'installed', 'todo', 'plugin.json'))).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

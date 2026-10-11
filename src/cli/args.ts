@@ -154,9 +154,11 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 插件
   用户级 ~/.deepcode/plugins/<名字>/plugin.json        自动装载
   项目级 <工作目录>/.deepcode/plugins/<名字>/plugin.json  要在设置里 plugins.enable 之后才装
-  deepcode plugin list             列出装上的与跳过的，各带理由
+  落点   ~/.deepcode/installed/<名字>/                 plugin add 装在这儿，只有用户级设置能启用
+  deepcode plugin list             列出装上的 / 装进来的 / 跳过的，各带理由
   deepcode plugin validate <目录>  只校验一份清单，不执行任何代码
-  deepcode --help                  这份说明
+  deepcode plugin add <名字> --from=<目录>  从一份本地索引装进来（装了不等于启用）
+  deepcode plugin remove <名字>    从落点删掉
   第三方插件只能拧紧不能拧松：它的判定要么拦下、要么往下交，放行一律忽略。
 
 权限：

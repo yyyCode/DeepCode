@@ -270,9 +270,9 @@ describe('plugin add / remove', () => {
   });
 
   // ⚠️ 下面两条断言的是 `plugin list` 的**第三节**（"装进来的"那一段）—— 那是 Task 5 的
-  // `renderList` 才渲染的，Task 4 里它还只有"装上来的 / 跳过的"两节。所以这两条现在按
-  // `.skip` 挂着，Task 5 装上第三节之后去掉 `.skip` 即可（计划把这两条排在 Task 4 是排错了位置）。
-  it.skip('没启用的落点插件在 list 里单独一节，且不是"跳过"那种错', async () => {
+  // `renderList` 才渲染的，Task 4 里它还只有"装上来的 / 跳过的"两节。所以这两条在 Task 4
+  // 里按 `.skip` 挂着，Task 5 装上第三节之后去掉 `.skip`（计划把这两条排在 Task 4 是排错了位置）。
+  it('没启用的落点插件在 list 里单独一节，且不是"跳过"那种错', async () => {
     const { home, root, market: from } = await addWorld();
     await add({ home, root }, from);
     const { text } = await list({ home, root });
@@ -281,7 +281,7 @@ describe('plugin add / remove', () => {
     expect(text).toContain('用户级设置');
   });
 
-  it.skip('启用了之后它出现在「装上的」里，标着已启用', async () => {
+  it('启用了之后它出现在「装上的」里，标着已启用', async () => {
     const { home, root, market: from } = await addWorld();
     await add({ home, root }, from);
     const { text } = await list({ home, root }, ['demo']);

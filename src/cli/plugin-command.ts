@@ -5,7 +5,14 @@ import { validateMarketplace, type MarketplaceEntry } from '../contract/marketpl
 import type { PluginManifest, Problem } from '../contract/plugin-manifest';
 import { validatePlugin } from '../contract/plugin-manifest';
 import type { StartupAction } from './args';
-import { dirReader, discoverPlugins, type Discovery } from './plugin-dir';
+import {
+  dirReader,
+  discoverPlugins,
+  INSTALLED_DIR,
+  type DiscoveredPlugin,
+  type Discovery,
+  type PluginOrigin,
+} from './plugin-dir';
 import { landPlugin, removePlugin } from './plugin-install';
 
 /**
@@ -147,14 +154,27 @@ async function installEntry(
 
 export const PLUGIN_HELP = `deepcode plugin —— 插件
 
-  deepcode plugin list             列出装上的与跳过的，各带理由
-  deepcode plugin validate <目录>  只校验一份清单，不执行任何代码
+  deepcode plugin list                        列出装上的 / 装进来的 / 跳过的，各带理由
+  deepcode plugin validate <目录>              只校验一份清单，不执行任何代码
+  deepcode plugin add <名字> --from=<目录>     从一份本地索引装进来（**不启用**）
+  deepcode plugin remove <名字>                从落点删掉
 
 装在哪
-  用户级 ~/.deepcode/plugins/<名字>/plugin.json        自动装载
-  项目级 <工作目录>/.deepcode/plugins/<名字>/plugin.json  要在设置里 plugins.enable 之后才装
+  用户级 ~/.deepcode/plugins/<名字>/plugin.json         自动装载
+  项目级 <工作目录>/.deepcode/plugins/<名字>/plugin.json   要在设置里 plugins.enable 之后才装
+  落点   ~/.deepcode/installed/<名字>/                  plugin add 装在这儿
 
-一份插件至少要有 plugin.json（name / version），可以带一个入口模块（main.mjs）与
+装 ≠ 启用
+  plugin add 只把文件放好，不放行任何东西。要它跑，得在**用户级**
+  ~/.deepcode/settings.json 里写 plugins.enable: ["<名字>"]。
+  **项目级设置里写同一个名字不算数** —— 否则一个克隆下来的仓库就能按名字
+  点亮你全局装着的插件。这条命令也不会替你改设置。
+
+marketplace 就是一份本地目录：<目录>/.deepcode-plugin/marketplace.json 列出若干条目，
+每条一个 name 与一个相对 source（指向该目录下的一个插件目录）。没有网络、没有签名、
+没有版本与升级 —— 要更新就是 remove 之后再 add。
+
+一份插件至少要有 plugin.json（name 必填），可以再带一个入口模块（main.mjs）与
 一份 hooks/hooks.json。清单里的路径必须是相对的、以 ./ 开头、不含 ..。
 `;
 
@@ -178,28 +198,68 @@ function renderValidate(dir: string, validated: Awaited<ReturnType<typeof valida
   return lines.join('\n');
 }
 
-function renderList(found: Discovery, home: string, root: string): string {
-  const lines: string[] = [`插件目录 ${root}/.deepcode/plugins 与 ${home}/.deepcode/plugins`];
+/**
+ * 来源标签。落点那条**必须**带全路径读起来才不混（设计 §7.2）：
+ * `installed` 与 `user` 在字面上都是"装上的"，而它们一个自动装载、一个不自动装载。
+ */
+function originLabel(origin: PluginOrigin): string {
+  if (origin === 'user') return '用户级';
+  if (origin === 'project') return '项目级';
+  return '装进来的';
+}
 
-  lines.push('', `装上来的（${found.loaded.length}）`);
+function describeLoaded(plugin: DiscoveredPlugin): string {
+  const parts = [plugin.manifest.version, originLabel(plugin.origin)];
+  if (plugin.entry !== undefined) parts.push(`入口 ${plugin.entry}`);
+  if (plugin.hooks.length > 0) {
+    parts.push(`钩子 ${plugin.hooks.map((group) => group.event).join('、')}`);
+  }
+  return parts.join(' · ');
+}
+
+function renderList(found: Discovery, home: string, root: string): string {
+  // 落点单独占一节（「装进来的」），而不是并进「跳过的」：**"装了但还没启用"是一个正常状态，
+  // 不是错误** —— 混进错误列表会让人觉得装坏了（设计 §4.4）。
+  //
+  // ⚠️ 用一个名字被用户级设置点亮之后，它就从「装进来的」挪进「装上的」：`装上的` 是
+  // "正在跑的那一组"，落点里被启用的那几个也在这一组，只是多标一个「已启用」。
+  // （计划原文把 installed-loaded 也留在「装进来的」里计数，与本节两条用例——
+  // 「启用了之后它出现在「装上的」里」——的断言对不上；按用例更正：装上的 = loaded 全体。）
+  const installedSkipped = found.skipped.filter((plugin) => plugin.origin === 'installed');
+  const otherSkipped = found.skipped.filter((plugin) => plugin.origin !== 'installed');
+
+  const lines: string[] = [
+    '插件目录',
+    `  ${join(root, '.deepcode', 'plugins')}（项目级，要在设置里 plugins.enable）`,
+    `  ${join(home, '.deepcode', 'plugins')}（用户级，自动装载）`,
+    `  ${join(home, ...INSTALLED_DIR)}（落点，plugin add 装在这儿，只有用户级设置能启用）`,
+  ];
+
+  lines.push('', `装上的（${found.loaded.length}）`);
   if (found.loaded.length === 0) lines.push('  （一个都没有）');
   for (const plugin of found.loaded) {
-    const parts = [`${plugin.manifest.version}`, plugin.origin === 'user' ? '用户级' : '项目级'];
-    if (plugin.entry !== undefined) parts.push(`入口 ${plugin.entry}`);
-    if (plugin.hooks.length > 0) {
-      parts.push(`钩子 ${plugin.hooks.map((group) => group.event).join('、')}`);
-    }
-    lines.push(`  ${plugin.name.padEnd(24)} ${parts.join(' · ')}`);
+    const suffix = plugin.origin === 'installed' ? ' · 已启用' : '';
+    lines.push(`  ${plugin.name.padEnd(24)} ${describeLoaded(plugin)}${suffix}`);
     if (plugin.manifest.description !== undefined) {
       lines.push(`  ${' '.repeat(24)} ${plugin.manifest.description}`);
     }
   }
 
-  lines.push('', `跳过的（${found.skipped.length}）`);
-  if (found.skipped.length === 0) lines.push('  （没有）');
-  for (const skipped of found.skipped) {
-    lines.push(`  ${(skipped.name ?? '（清单坏了）').padEnd(24)} ${skipped.reason}`);
-    lines.push(`  ${' '.repeat(24)} ${skipped.dir}`);
+  lines.push('', `装进来的（${installedSkipped.length}）`);
+  if (installedSkipped.length === 0) lines.push('  （一个都没有）');
+  for (const plugin of installedSkipped) {
+    // 清单坏了的点不了名 —— 那时候理由就不是"没启用"，照原样打。
+    const who = plugin.name ?? '（清单坏了）';
+    const why = plugin.name === undefined ? plugin.reason : `未启用 —— ${plugin.reason}`;
+    lines.push(`  ${who.padEnd(24)} ${why}`);
+    lines.push(`  ${' '.repeat(24)} ${plugin.dir}`);
+  }
+
+  lines.push('', `跳过的（${otherSkipped.length}）`);
+  if (otherSkipped.length === 0) lines.push('  （没有）');
+  for (const plugin of otherSkipped) {
+    lines.push(`  ${(plugin.name ?? '（清单坏了）').padEnd(24)} ${plugin.reason}`);
+    lines.push(`  ${' '.repeat(24)} ${plugin.dir}`);
   }
 
   lines.push('', '这份命令没有执行任何插件的代码 —— 只读了文件。');
