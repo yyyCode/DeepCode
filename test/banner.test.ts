@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { banner } from '../src/cli/banner';
+import { banner, shouldShowBanner } from '../src/cli/banner';
 import { createPalette } from '../src/cli/ansi';
 import { displayWidth } from '../src/cli/width';
+import { parseArgs } from '../src/cli/args';
 
 const info = {
   version: '1.2.3',
@@ -55,6 +56,24 @@ describe('开场那一屏', () => {
     expect(colored).toContain('\u001b[2m模型    \u001b[0m');
     // 剥掉转义序列之后就等于关掉色的那一份 —— 上色不许多吐或吞掉任何一个字。
     expect(colored.replace(/\u001b\[\d+m/g, '')).toBe(plain({ baseUrl: 'https://x/v1' }));
+  });
+
+  it('⚠️ 没有提示词时才画 —— 而"没有提示词"就是**空串**，不是 undefined', () => {
+    // 这条测的是"到底画不画"，不是"画出来什么"。第一版就是在这里栽的：
+    // 判据写成 `text === undefined`，于是整屏字一个都没出现，而上面那几条
+    // 全绿 —— 它们测的是 `banner()` 本身，不包含"有没有被叫到"。
+    expect(shouldShowBanner('', true)).toBe(true);
+    expect(shouldShowBanner('改一下 X', true)).toBe(false);
+    expect(shouldShowBanner('', false)).toBe(false);
+  });
+
+  it('⚠️ 钉住那个陷阱：`parseArgs([])` 给的是空串 —— 判据跟着这个事实走', () => {
+    const parsed = parseArgs([]);
+    expect(parsed.kind).toBe('prompt');
+    const text = parsed.kind === 'prompt' ? parsed.text : null;
+    // 不是 `undefined`。任何用"没给提示词 = undefined"写的判据，都恒假。
+    expect(text).toBe('');
+    expect(shouldShowBanner(text!, true)).toBe(true);
   });
 
   it('三个标签把值对齐到同一列（按显示宽度算，不按字符数）', () => {

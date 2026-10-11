@@ -13,7 +13,7 @@ import { formatPane } from './diff-render';
 import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
-import { banner } from './banner';
+import { banner, shouldShowBanner } from './banner';
 import { createSessionChanges } from './changes';
 import { exitLines } from './tally';
 import { createCompleter, createLineQueue } from './input';
@@ -414,7 +414,9 @@ async function main(): Promise<void> {
 
   // 开场那一屏（P6d 的收尾）。放在这儿：会话与 mods 的降级提醒都已经出完，
   // 它是最后一条"开始之前"的信息，紧跟着就是提示符。
-  if (oneShot === undefined && interactive) {
+  // 判据在 `shouldShowBanner` 里 —— `oneShot` 是**空串**不是 `undefined`
+  // （`parseArgs` 给的就是 `rest.join(' ').trim()`），写错这一处会让整屏字消失。
+  if (shouldShowBanner(oneShot, interactive)) {
     for (const line of banner(
       {
         version: readVersion(),

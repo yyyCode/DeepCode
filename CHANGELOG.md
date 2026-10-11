@@ -313,5 +313,11 @@ readline 的历史里同时也记下确认时的 `y`（与 shell 一致，不另
 **顺带修掉的既有欠账**：README「已知限制」里那条**「非 TTY 下 REPL 收不到输入」**
 （`echo '/diff' | deepcode` 无效）—— 修了，所以从三份文档里删掉，不是改成"解释了"。
 
+**⚠️ 合并之后才逮出来的真 bug**：开场那一屏**整屏没画出来**。判据写成
+`oneShot === undefined`，而 `parseArgs` 在没有提示词时给的是**空串** —— `if` 恒假，
+九条测试却全绿（测的是 `banner()` 本身，没一条问"到底画不画"）。用户在自己机器上开
+`deepcode` 看到光秃秃一个 `>` 才发现。修法是把这一问提成 `shouldShowBanner(text,
+interactive)`，并把"`parseArgs([]).text` 就是空串"也钉一条测试。详见 `p6-design.md` §8.1 第 6 条。
+
 **刻意不做**：`p6-design.md:293` §7 —— 全屏 alternate screen、语法高亮、鼠标、`ui.render`
 数据树、多 surface、进度条、表格渲染、主题系统、打字机动画、任何形态的自动放行开关、没接上的 `esc` 键。
