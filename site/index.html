@@ -69,7 +69,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>1143</b><span>用例全绿 · 66 个文件</span></li>
+    <li><b>1159</b><span>用例全绿 · 67 个文件</span></li>
     <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
     <li><b>3</b><span>条命令管质量（typecheck / lint / test）</span></li>
   </ul>
@@ -338,6 +338,13 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <h3>转录里是代码</h3>
       <p>会话落成 JSONL，放在<strong>用户级</strong>目录（不进项目目录），权限 <code>0600</code>。
         删掉那个文件就等于删掉那次会话 —— 没有别的副本。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3>被截断续写时，钱在悄悄花</h3>
+      <p>回答撞上输出长度上限时会自动接着往下写，最多 3 次 —— <strong>每一次都是一次真的模型请求</strong>。
+        这个 3 是我们自己定的数，不是测出来的。</p>
+      <p class="card__cost">所以每一次都在终端上说一声：宁可多一行通知，也不让人碰上「怎么又慢又贵」。</p>
     </article>
 
     <article class="card card--limit">
