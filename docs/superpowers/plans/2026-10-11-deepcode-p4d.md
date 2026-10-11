@@ -1358,3 +1358,39 @@ uses 只有 … —— 越界，整个插件不装（已撤掉 3 条注册）`�
 `allow`/`ask`/`notify` 而不是 `deny`，"工具已经跑完了"那句话在那儿是**错的报错**。
 `test/hookify.test.ts` 里两条用例专门钉这件事（Stop 的理由里不许出现"工具已经跑完"）。
 
+### C3（Task 10–13）—— 2026-10-11
+
+- `pnpm typecheck` 绿；`pnpm lint` 绿（依赖边界 + 工作流硬化）。
+- `pnpm vitest run test/settings.test.ts test/telemetry-rows.test.ts test/telemetry-sink.test.ts test/telemetry.test.ts`：
+  **4 文件 / 103 用例全绿**（settings 45、rows 29、sink 15、telemetry 14）。
+- `pnpm test`：**52 文件 / 891 用例全绿**（C2 时是 49 / 818）。
+- 反向验证三条，每条都先 `grep` 确认变异落上：
+
+| # | 变异 | 结果 |
+| --- | --- | --- |
+| 1 | `telemetry-rows.ts` 的值分支 `typeof value === 'string' && IDENT.test(value)` → 只要 `typeof value === 'string'` | 红 4 条（带空格 / 带中文 / 空串 / 一个坏字段带坏整条） |
+| 2 | `settings.ts` 的遥测表达式里把 `telemetryLayers.get('policy')?.enabled === false` 换成 `false` | 红 1 条（"托管层能一句话把它关掉"） |
+| 3 | `telemetry-sink.ts` 删掉**`record` 里**那句 `if (!deps.enabled) return;` | 红 1 条（"关着的时候连'这条不合格'都不判"） |
+
+**变异 3 与计划写的不一样，值得记下来**：计划只说"删掉 `if (!enabled) return;`"，
+而 sink 里**有两处**这句话（`record` 一处、`flush` 一处）。先拆 `flush` 那处 ——
+**一条都没红**：`record` 的早退让缓冲永远是空的，`flush` 于是早就停在
+`buffer.length === 0` 那行，永远走不到那道闸。也就是说"关掉时零系统调用"这条性质
+今天由**两道**防线各挡一次，其中 `flush` 那道在公开 API 上不可达（`enabled` 是构造期
+常量，生产里不会中途翻），属于纵深防御而不是承重墙。**保留它**，但把它记在这里：
+下一个人拆它时不会看到红，那不等于它没意义，也不等于可以顺手把 `record` 那道也拆了。
+
+**计划之外的一处改动（Task 13 实现时才发现）**：`src/core/create.ts` 的 `engine.create`
+折叠原先发生在**插件注册之前**，于是"插件可以往 `$` 上加名词"这句话（`contract/engine.ts:91-98`
+的 `declare module` 注释、设计 §6.1）在运行时是**假的** —— 那条 hook 永远不会被 dispatch，
+`$.telemetry` 是 `undefined`（Task 13 的第 1 条用例第一次跑就红了）。第三方的那条拒绝
+理由（`core/third-party.ts`："早在插件注册之前就折叠完了"）一直是这个时间差。
+
+改成折**两次**：注册前折一次（注册期间 `plugin.register` 的 hook 要拿到 `$` ——
+dispatch 是**无条件**取 `deps.engine()` 的，没有 `$` 会让每一次注册都走进
+"hook 失败已跳过"，闸门静默失灵），注册之后再折一次（插件的名词这时才叠得上去）。
+两折用同一张 registry，座位与"靠外的赢"是同一条规则。第三方**依旧不许**扩 `$`，
+但理由从"技术上不可能"改成判定（`$` 是给所有人的门面），消息文案随之更新。
+`test/dispatch.test.ts` 新增三条用例把它钉住（名词进得来且内核名词一个不少、
+两个插件供同名名词时靠外的赢、座位抬到 `prepend` 就压过 `builtin`）。
+
