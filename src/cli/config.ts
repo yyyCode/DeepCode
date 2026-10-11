@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { PROVIDER_KINDS, isProviderKind } from '../providers';
 import type { ProviderKind } from '../contract/model-provider';
 
@@ -23,6 +23,32 @@ const FIELD_TYPES: Record<keyof CliConfig, 'string' | 'boolean'> = {
 
 /** 没有任何配置时用的模型。写在这里是为了让"默认值是什么"只有一处。 */
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
+
+/**
+ * 每个字段"谁都没配"时的生效值。只有这两个有默认 —— 其余没配就是没配，
+ * `ResolvedSettings` 里也相应地是 `undefined`。
+ */
+const DEFAULTS: Partial<Record<keyof CliConfig, string>> = {
+  model: DEFAULT_MODEL,
+  provider: 'anthropic',
+  debug: 'false',
+};
+
+/**
+ * `config.set` 能写的键。**只有 `model`**（设计 §5.2）。
+ *
+ * `apiKey` 是凭据，`baseUrl` 决定你的请求发去哪 —— 这两个由一条命令替你写，
+ * 是可以安静地把流量端掉的。想让它们改，自己开文件看一眼再改。
+ */
+export const WRITABLE_KEYS: readonly (keyof CliConfig)[] = ['model'];
+
+/**
+ * 这些前缀下的键永远拒绝，且要说清为什么 —— 它们属于 settings，不属于 config。
+ *
+ * `permissions` / `sandbox` / `plugins` 都直接决定"什么动作会被执行"。
+ * 一个能在运行时改权限来源的入口，就是第二个自动放行开关（见 README 那句原话）。
+ */
+export const FORBIDDEN_PREFIXES = ['permissions', 'sandbox', 'plugins'] as const;
 
 export type ResolvedSettings = {
   apiKey: string | undefined;
@@ -49,6 +75,17 @@ const ENV_NAMES: ReadonlyArray<{
 ];
 
 /**
+ * `debug` 是唯一不进 `ENV_NAMES` 的字段：它是布尔，而那张表的语义是"取到字符串值赋给字段"，
+ * 照走会把字符串 `"1"` 赋给一个 boolean。所以这里单独看有没有设。
+ *
+ * 抽成一个函数只为一件事：`resolveSettings` 与 `describeConfig` 必须对"谁算配了 debug"
+ * 给出同一个答案，两处各写一遍 `Boolean(...)` 迟早会走岔。
+ */
+function debugFromEnv(env: Record<string, string | undefined>): boolean {
+  return Boolean(env.DEEPCODE_DEBUG);
+}
+
+/**
  * 环境变量与配置文件合到一处，优先级 `环境变量 > 配置文件`。
  *
  * 抽成纯函数而不是留在 main.ts 里，是因为"谁盖谁"这条规则正是最该被钉住的部分，
@@ -71,7 +108,7 @@ export function resolveSettings(
     apiKey: undefined,
     model: DEFAULT_MODEL,
     baseUrl: undefined,
-    debug: Boolean(env.DEEPCODE_DEBUG) || config.debug === true,
+    debug: debugFromEnv(env) || config.debug === true,
     provider: 'anthropic',
   };
 
@@ -218,4 +255,200 @@ function parseLayer(
 async function readTextFile(path: string): Promise<string | undefined> {
   if (!existsSync(path)) return undefined;
   return readFile(path, 'utf8');
+}
+
+/**
+ * 给人看的凭据。空 → 显式说「没配」：`""` 与「配了但打码」必须看得出区别，
+ * 否则你会对着一个空字符串猜半天（设计 §0 决策 8）。
+ *
+ * 短值不吐头部：`slice(0, 6)` 对一把 4 位的值等于原样打出来，那就不叫打码了。
+ */
+export function maskSecret(value: string | undefined): string {
+  if (value === undefined || value === '') return '（没配）';
+  const head = value.length > 6 ? `${value.slice(0, 6)}…` : '';
+  return `${head}（共 ${value.length} 位）`;
+}
+
+export type ConfigEntry = {
+  readonly key: string;
+  readonly value: string;
+  readonly source: 'env' | 'user' | 'project' | 'default';
+  readonly writable: boolean;
+};
+
+export type DescribeConfigDeps = {
+  env: Record<string, string | undefined>;
+  /** 用户主目录：用户级配置在 `<home>/.deepcode/config.json`。 */
+  home: string;
+  /** 会话根目录（= cwd）：项目级配置在 `<root>/.deepcode/config.json`。 */
+  root: string;
+  /** 未知字段的告警出口（来自 parseLayer）。默认不出声。 */
+  warn?: (line: string) => void;
+  /** 测试替身：返回 undefined 表示文件不存在。默认真读磁盘。 */
+  readText?: (path: string) => Promise<string | undefined>;
+};
+
+/**
+ * 生效配置的清单，**带来源**。与 `resolveSettings` 共用同一张 `ENV_NAMES`、同一份 `DEFAULTS`
+ * 与同一条优先级（环境变量 > 项目级 > 用户级 > 默认），但多报一个 source ——
+ * 那正是这个事件存在的理由。
+ *
+ * 一个键同时来自环境与文件时**只报 env**，不再把文件里的值列一遍：
+ * 那正是 `resolveSettings` 那条告警要防的「你以为配置生效了」。
+ *
+ * 文件也走同一个 `parseLayer`：**坏文件照样抛**，不在这里假装没看见 —— 悄悄吞掉解析失败，
+ * 会让 `deepcode config list` 打出一份看着正常、实际不是生效值的清单。
+ */
+export async function describeConfig(deps: DescribeConfigDeps): Promise<ConfigEntry[]> {
+  const readText = deps.readText ?? readTextFile;
+  const warn = deps.warn ?? (() => {});
+  const layers: ReadonlyArray<{ path: string; label: 'user' | 'project'; name: string }> = [
+    { path: join(deps.home, '.deepcode', 'config.json'), label: 'user', name: '用户级' },
+    { path: join(deps.root, '.deepcode', 'config.json'), label: 'project', name: '项目级' },
+  ];
+
+  // 项目级盖用户级，与 loadConfig 同一个方向。
+  const fromFile = new Map<keyof CliConfig, { value: unknown; source: 'user' | 'project' }>();
+  for (const { path, label, name } of layers) {
+    const text = await readText(path);
+    if (text === undefined) continue;
+    const parsed = parseLayer(text, path, name, warn);
+    for (const [key, value] of Object.entries(parsed) as Array<[keyof CliConfig, unknown]>) {
+      fromFile.set(key, { value, source: label });
+    }
+  }
+
+  const entries: ConfigEntry[] = [];
+  for (const key of Object.keys(FIELD_TYPES) as Array<keyof CliConfig>) {
+    const envName = ENV_NAMES.find((e) => e.field === key)?.names.find(
+      (name) => (deps.env[name] ?? '') !== '',
+    );
+    const file = fromFile.get(key);
+
+    let value: unknown;
+    let source: ConfigEntry['source'];
+    if (key === 'debug' && debugFromEnv(deps.env)) {
+      // 与 resolveSettings 里那条 `debugFromEnv(env) || ...` 对上（见上面那个函数的注释）。
+      value = true;
+      source = 'env';
+    } else if (envName !== undefined) {
+      value = deps.env[envName];
+      source = 'env';
+    } else if (file !== undefined) {
+      value = file.value;
+      source = file.source;
+    } else {
+      value = DEFAULTS[key];
+      source = 'default';
+    }
+
+    const shown =
+      key === 'apiKey'
+        ? maskSecret(typeof value === 'string' ? value : undefined)
+        : value === undefined
+          ? '（没配）'
+          : String(value);
+    entries.push({ key, value: shown, source, writable: WRITABLE_KEYS.includes(key) });
+  }
+  return entries;
+}
+
+export type SetConfigDeps = {
+  /** 只写用户级 —— 项目级那个文件是仓库的，写它正是「key 跟着仓库走」那条路。 */
+  home: string;
+  key: string;
+  value: string;
+  /** 测试替身：返回 undefined 表示文件不存在。默认真读磁盘。 */
+  readText?: (path: string) => Promise<string | undefined>;
+  /** 测试替身。默认真写盘（原子 + 0600）。 */
+  writeJson?: (path: string, json: string) => Promise<void>;
+};
+
+export type SetConfigResult =
+  | { readonly ok: true; readonly path: string }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * 改**用户级** `~/.deepcode/config.json` 里的一个键（设计 §5.3）。
+ *
+ * 三条边界，缺一不可：
+ * - 只写用户级：项目级那个文件是仓库的，写它正是「key 跟着仓库走」那条路；
+ * - 读-改-写：不能留一个「只写了 model、把 apiKey 抹了」的出口；
+ * - 原子 + 0600：一次中断留下的是半个 JSON，而 `parseLayer` 会把它当坏文件抛。
+ *
+ * 拒绝的顺序是有意的：**先问"这是不是设置"，再问"在不在可写清单里"**。
+ * 反过来的话，`permissions.allow` 会拿到一句"不在可写清单里（能写的只有 model）"——
+ * 对是对，但答错了问题：它被拒的真正理由是那个前缀整个不许由命令去动。
+ */
+export async function setConfigValue(deps: SetConfigDeps): Promise<SetConfigResult> {
+  for (const prefix of FORBIDDEN_PREFIXES) {
+    if (deps.key === prefix || deps.key.startsWith(`${prefix}.`) || deps.key.startsWith(`${prefix}:`)) {
+      return {
+        ok: false,
+        error:
+          `"${deps.key}" 属于 ${prefix}.*，那是**设置**不是连接配置 —— ` +
+          `改权限 / 沙箱 / 插件名单请直接编辑设置文件。一个能在运行时改权限来源的入口，` +
+          `就是第二个自动放行开关。`,
+      };
+    }
+  }
+
+  if (!WRITABLE_KEYS.includes(deps.key as keyof CliConfig)) {
+    return {
+      ok: false,
+      error:
+        `"${deps.key}" 不在可写清单里。能写的只有：${WRITABLE_KEYS.join(' / ')}。` +
+        `（apiKey 是凭据、baseUrl 决定请求发去哪 —— 这两个要自己开文件改。）`,
+    };
+  }
+
+  if (deps.key === 'model') {
+    try {
+      assertModelShape(deps.value);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  const path = join(deps.home, '.deepcode', 'config.json');
+  const readText = deps.readText ?? readTextFile;
+  const existing = await readText(path);
+
+  let record: Record<string, unknown> = {};
+  if (existing !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(existing);
+    } catch (error) {
+      return { ok: false, error: `现有的 ${path} 不是合法 JSON，改它之前先修它：${String(error)}` };
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, error: `现有的 ${path} 顶层不是对象，改它之前先修它。` };
+    }
+    // 展开而不是重建：不认识的键也要原样留着。这是「读-改-写」里的那个"改"。
+    record = { ...(parsed as Record<string, unknown>) };
+  }
+  record[deps.key] = deps.value;
+
+  const write = deps.writeJson ?? writeJsonAtomic;
+  try {
+    await write(path, `${JSON.stringify(record, null, 2)}\n`);
+  } catch (error) {
+    return { ok: false, error: `写 ${path} 失败：${String(error)}` };
+  }
+  return { ok: true, path };
+}
+
+/**
+ * 写临时文件再 `rename` —— 与 P4c-1 的落盘同一条（那份设计 §5）。
+ *
+ * 0600 是因为这个文件里有 `apiKey`：它躺在用户主目录下，但没必要让同机其他账号读到。
+ * `rename` 是原子的，所以任何时刻盘上要么是旧的完整文件、要么是新的完整文件 ——
+ * 半截 JSON 会被 `parseLayer` 当坏文件**抛**，那等于下次启动直接起不来。
+ */
+async function writeJsonAtomic(path: string, json: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp`;
+  await writeFile(tmp, json, { mode: 0o600 });
+  await rename(tmp, path);
 }
