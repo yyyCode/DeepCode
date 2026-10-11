@@ -1,48 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { Interface } from 'node:readline';
 import type { Plugin } from '../src/contract/plugin';
 import type { Message, ModelProvider, StreamEvent } from '../src/contract/model-provider';
 import { createEngine } from '../src/core/create';
 import { startRepl } from '../src/cli/repl';
+import { createLineQueue } from '../src/cli/input';
 import { createTurnSignals } from '../src/cli/turns';
 import type { Renderer } from '../src/cli/render';
 import { CONTEXT_MARKER } from '../src/contract/prompt-channel';
-
-/**
- * 假的 readline：把脚本里的行依次交给 `question` 的回调，用完就当作 EOF。
- *
- * 只实现 `startRepl` 用得着的那几个（`once` / `off` / `question` / `close`）——
- * 真的 `createInterface` 要 stdin 管道，那会让这条测试从"验 REPL 的语义"
- * 变成"验终端"，而终端那部分已经由 createPromptSink 自己的测试管着。
- */
-function fakeRl(lines: readonly string[]): Interface {
-  const waiters = new Map<string, (() => void)[]>();
-  let index = 0;
-  return {
-    question: (_prompt: string, callback: (answer: string) => void) => {
-      const line = lines[index];
-      index += 1;
-      // 不同步回调：`startRepl` 是先在 `question` 之前挂 `once('close')` 的，
-      // 同步回调会让"拿答案"和"挂监听"两次调用挤在同一个栈里，读起来像竞态。
-      queueMicrotask(() => {
-        if (line === undefined) {
-          for (const hook of waiters.get('close') ?? []) hook();
-          return;
-        }
-        callback(line);
-      });
-    },
-    once: (event: string, listener: () => void) => {
-      const list = waiters.get(event) ?? [];
-      list.push(listener);
-      waiters.set(event, list);
-    },
-    off: (event: string, listener: () => void) => {
-      waiters.set(event, (waiters.get(event) ?? []).filter((item) => item !== listener));
-    },
-    close: () => {},
-  } as unknown as Interface;
-}
+import { fakeReadline } from './harness';
 
 /** 什么都不显示的渲染器。REPL 会调它，但这条测试断言的是消息数组，不是屏幕。 */
 function silentRenderer(): Renderer {
@@ -90,12 +55,20 @@ async function run(
     signal: () => new AbortController().signal,
   });
 
+  const fake = fakeReadline();
+  // 队列与真实路径同序：**先建队列，再让输入到达**（`main.ts` 就是 rl 一建好就挂上它）。
+  // 反过来的话那几行会被发给没人听的 `line` 事件 —— 那正是 P6d 修掉的那个洞。
+  const lines2 = createLineQueue(fake.rl, { windowMs: 0 });
+  for (const line of lines) fake.pushLine(line);
+  fake.pushEof();
+
   const messages: Message[] = [];
   await startRepl({
     $,
     dispatch,
     render: silentRenderer(),
-    rl: fakeRl(lines),
+    rl: fake.rl,
+    lines: lines2,
     systemPrompt: '',
     turns: createTurnSignals(),
     messages,

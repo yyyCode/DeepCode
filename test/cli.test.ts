@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -523,6 +523,46 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
       // 空 home 里没有会话 → 非零退出，并列出"能接的"（含找不到时找的是哪个目录）。
       expect(code).not.toBe(0);
       expect(stderr).toContain('可以接上的会话');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('⚠️ 真跑一遍 bin：管道里的输入不再被丢掉（P6d 修掉的那条已知限制）', () => {
+    // 这条**今天必须是红的**（改之前：一行都不被处理，输出为空）—— 它钉的正是
+    // `main.ts` 从建 readline 到 REPL 开始读之间那段空窗：管道里的行在那时候到达，
+    // 而 readline 只在有 `question` 挂着时才把行交给谁。
+    //
+    // 两条命令一起喂，还顺带钉住了"命令就地切开"：`/exit` 不是 `/help` 的参数
+    // （合成一次提交的话它会变成参数，进程就在这儿挂住，测试超时）。
+    const home = mkdtempSync(join(tmpdir(), 'deepcode-pipe-'));
+    try {
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        USERPROFILE: home,
+        HOME: home,
+        ANTHROPIC_API_KEY: 'sk-ant-fake-for-pipe-test',
+      };
+      for (const name of [
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_MODEL',
+        'ANTHROPIC_BASE_URL',
+        'DEEPCODE_MODEL',
+        'DEEPCODE_DEBUG',
+        'DEEPCODE_PROVIDER',
+      ]) {
+        delete env[name];
+      }
+
+      const stdout = execFileSync(
+        process.execPath,
+        [resolve(process.cwd(), 'bin', 'deepcode.mjs')],
+        { cwd: process.cwd(), env, input: '/help\n/exit\n', encoding: 'utf8', timeout: 60_000 },
+      );
+
+      expect(stdout).toContain('可用命令：');
+      // 非交互下**不画提示符**：管道那头没有人在等，`> ` 只会与输出挤在同一行。
+      expect(stdout).not.toContain('\n> ');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

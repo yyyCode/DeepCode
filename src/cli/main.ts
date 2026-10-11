@@ -15,6 +15,8 @@ import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
 import { createSessionChanges } from './changes';
 import { exitLines } from './tally';
+import { createCompleter, createLineQueue } from './input';
+import { HISTORY_LIMIT, loadHistory } from './history';
 // 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
 import type { CommandDescription } from './commands';
 import { applyManagedGateway, loadConfig, resolveSettings } from './config';
@@ -152,6 +154,12 @@ async function main(): Promise<void> {
   const turns = createTurnSignals();
   const palette = createPalette();
   const render = createRenderer();
+  /**
+   * 一条给人看的警告。**所有**这类出口都走它，而不是直接写 `process.stderr` ——
+   * stderr 与 stdout 在终端里是同一块屏幕，而活动区（P6a）是一块被借走、随时会被
+   * 重画的区域。绕过渲染器写出去的每一个字节都可能糊在那半行小圆圈后面。
+   */
+  const warnLine = (line: string): void => render.notice(line);
 
   // 托管层把出网位置钉死（P5d）。放在 `resolvePolicy` 之后、建引擎之前 ——
   // 这块内容只有读设置时才存在，而引擎一建就拿着 `baseUrl` 了。
@@ -163,12 +171,29 @@ async function main(): Promise<void> {
     // 会让人对着 401 查半天，而真正发生的事是"你的请求根本没发去你以为的地方"。
     render.notice(`⚠️ 托管策略钉住了出网位置：${gateway.pinned.join('、')}（个人配置改不动）。`);
   }
+  // ── 输入面（P6d）──
+  // 历史先读出来：readline 要它在建实例时就给（`history` / `historySize` 两个选项）。
+  // 交出去的是那个数组**本身**，readline 就地往里加，退出时存的与上键翻的是同一份。
+  const history = await loadHistory(home, warnLine);
+  // 补全：命令名册要等 `createEngine` 之后才拿得到（`$.command.list()`），
+  // 而 completer 必须在建实例时就给 —— 所以这里又是一个延迟取的位置，
+  // 与 compactor / commandDescriber 同一种写法。
+  let lookupCommands: () => readonly string[] = () => [];
+  const completer = createCompleter({ commands: () => lookupCommands(), cwd: root });
+
   // readline 全进程只建这一次：REPL 的行输入与工具确认提示共用同一个实例。
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
     terminal: Boolean(process.stdin.isTTY),
+    completer,
+    history: history.entries,
+    historySize: HISTORY_LIMIT,
   });
+  // ⚠️ 行队列**必须**在 rl 建好之后立刻挂上。从这一刻到 REPL 开始读之间有一大段 await
+  // （读设置、建转录、发现插件），管道里的输入落在那段空窗里就会被 readline 丢掉
+  // —— `echo '/diff' | deepcode` 今天什么都不做，正是这个原因（README 的「已知限制」）。
+  const lines = createLineQueue(rl);
   // 两条路都要挂：一次性模式下没有 readline 在转，而 REPL 里 Ctrl-C 是 readline
   // 先接住再抛出来的。onSigint 自带去重，重复收到一次不会误判成"连按两次"。
   process.on('SIGINT', turns.onSigint);
@@ -232,13 +257,13 @@ async function main(): Promise<void> {
     enabled: policy.plugins.enable.map((rule) => rule.name),
     // 落点只认用户层的名单 —— 与上面那行**不是同一个东西**，别合并（设计 §0 决策 3）。
     enabledInstalled: policy.plugins.enableByUser,
-    warn: (line) => render.notice(line),
+    warn: warnLine,
   });
   const thirdParty = await loadPlugins(found.loaded, {
     projectDir: root,
     session: { id: sessionId, transcriptPath: transcript?.path },
     env: process.env,
-    warn: (line) => render.notice(line),
+    warn: warnLine,
   });
 
   // ── 名册 ──
@@ -246,12 +271,6 @@ async function main(): Promise<void> {
   // 结果是两张**已经解析好**的名册，以参数进 `cliPlugins`（设计 §4.1）。
   // 只有判为 `loaded` 的插件贡献名册 —— 被 deny 的、项目级没 enable 的、清单坏掉的，
   // 它们的 agent 也不该出现。
-  // ⚠️ 走 `render.notice` 而不是直接写 `process.stderr`：stderr 与 stdout 在终端里
-  // 是同一块屏幕，而活动区（P6a）是一块被借走、随时会被重画的区域。绕过渲染器写出去的
-  // 每一个字节都可能糊在那半行小圆圈后面。这些警告大多发生在活动区起来之前，所以今天
-  // 还没炸过 —— 但活动区一旦变成多行，散在外面的写入口每一处都是新的残影来源。
-  const warnLine = (line: string): void => render.notice(line);
-
   const pluginDirs = found.loaded.map((plugin) => ({ name: plugin.name, dir: plugin.dir }));
   const agents = await discoverAgents({ root, home, plugins: pluginDirs, warn: warnLine });
   const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
@@ -347,6 +366,10 @@ async function main(): Promise<void> {
     signal: () => turns.current(),
   });
 
+  // 有了 `dispatch`，`$` 就是真的了 —— 补全那个延迟取的位置也填得上。
+  // 名单**现取**（`$.command.list()`），不另抄一份：抄的那份迟早落后。
+  lookupCommands = () => $.command.list();
+
   // 有了 `dispatch`，`/help` 那个延迟取的位置也就填得上了。
   commandDescriber = async (name) => {
     try {
@@ -413,6 +436,8 @@ async function main(): Promise<void> {
       dispatch,
       render,
       rl,
+      lines,
+      palette,
       systemPrompt,
       turns,
       messages,
@@ -423,6 +448,10 @@ async function main(): Promise<void> {
       },
     });
   }
+
+  // 历史落盘（P6d）。**在退出摘要之前** —— 它自己可能喊一声"没写进去"，
+  // 而那一屏是最后要在屏幕上留住的东西。放摘要后面的话，那声警告会跑到它下面去。
+  await history.save();
 
   // 退出那一屏（P6c）：干了多少、改了哪些、转录在哪儿。
   //
