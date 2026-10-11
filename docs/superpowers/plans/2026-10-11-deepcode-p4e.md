@@ -684,10 +684,16 @@ describe('真跑一遍 bin：自带插件的清单都过 validate', () => {
 Run: `pnpm test test/cli.test.ts`
 Expected: 全绿
 
-- [ ] **Step 3: 反向验证（这一条必须是"真的跑了"）**
+- [x] **Step 3: 反向验证（这一条必须是"真的跑了"）**
 
-临时把 `plugins/todo/plugin.json` 的 `version` 删掉，跑一次 → 该用例必须**红**
-（`validate` 报错、退出码非零、`execFile` reject）。确认后把文件改回来。
+临时把 `plugins/todo/plugin.json` 的 `entry` 改成 `"../main.mjs"`，跑一次 → 该用例必须**红**
+（`validate` 报 E6、退出码 1、`execFile` reject）。确认后 `git checkout --` 把文件改回来。
+
+> **计划本身的错（执行时逮到）**：这一条原本写的是"把 `version` 删掉"。
+> 但 `version` 在 `src/contract/plugin-manifest.ts:179` 是**可选**的（E4 只在字段存在时才判格式），
+> 删掉它 `validate` 照样通过、用例照样绿 —— 拿它做反向验证，红不出来只能说明**变异选错了**，
+> 不说明断言是摆设。改选 `entry` 越界（E6）：这条是本文件最要紧的校验（`..` 是唯一能把清单
+> 带出插件目录的写法），也确实红了。
 
 - [ ] **Step 4: 提交**
 

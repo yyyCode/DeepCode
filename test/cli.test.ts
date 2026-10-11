@@ -628,3 +628,36 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
     expect(out).not.toContain('有问题');
   });
 });
+
+describe('真跑一遍 bin：自带插件的清单都过 validate', () => {
+  // 与上面 --help 那条同一个用意：清掉会改变配置解析的变量，
+  // 顺便**再钉一遍顺序** —— plugin 子命令必须发生在"要 key"之前，
+  // 否则下面两步会在干净环境（CI）里报"缺少 API key"，而不是校验清单。
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of [
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'DEEPCODE_MODEL',
+    'DEEPCODE_PROVIDER',
+  ]) {
+    delete env[name];
+  }
+
+  // 这两个目录是**仓库自己发出的插件**，也就是 P3 出口标准里那两条演示用的。
+  // 它们此前从没被任何检查跑过 —— 这正是「校验器进 CI」那一格欠着的意思。
+  for (const dir of ['./plugins/todo', './plugins/secret-guard']) {
+    it(`${dir} 的清单没问题`, async () => {
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        [resolve(process.cwd(), 'bin', 'deepcode.mjs'), 'plugin', 'validate', dir],
+        { cwd: process.cwd(), env },
+      );
+
+      expect(stdout).toContain('清单没问题');
+      // 这一句是防"空转"的：validate 必须真的读了那个目录，
+      // 而不是因为路径写错落到别处、恰好也没报错。
+      expect(stdout).toContain(resolve(process.cwd(), dir));
+    }, 60_000);
+  }
+});
