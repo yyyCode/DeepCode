@@ -81,7 +81,7 @@ pnpm test test/loop-options.test.ts    # 单个文件
 | `src/cli/offer.ts` | **新增** | `renderOffer`：把 `agent.offer` 的答复渲染成 system prompt 里的一节 |
 | `src/cli/plugins.ts` | 修改 | 装 `subagents`；deps 加两张名册与基础提示词 |
 | `src/cli/main.ts` | 修改 | 异步发现两张名册并传下去；system prompt 多拼一节；`max_hops` 认成失败 |
-| `test/frontmatter.test.ts` | **新增** | 解析器的 12 条 |
+| `test/frontmatter.test.ts` | **新增** | 解析器的 13 条 |
 | `test/loop-options.test.ts` | **新增** | `LoopContext` 三个新字段与两个落点 |
 | `test/provider-model.test.ts` | **新增** | `StreamRequest.model` 省略/给定时两个适配器的行为（4 条） |
 | `test/agent-noun.test.ts` | **新增** | `$.agent.spawn` / `$.skill.load`，两条默认 coreImpl |
@@ -92,10 +92,11 @@ pnpm test test/loop-options.test.ts    # 单个文件
 | `test/offer.test.ts` | **新增** | `renderOffer` 的四种形态（4 条） |
 | `test/skill-tool.test.ts` | **新增** | `Skill` 工具、`skill.prompt` 缝、第三层靠 `Read` |
 | `test/harness.ts` | 修改 | `HarnessOptions.hookBudgetMs`（Task 9） |
+| `test/dispatch.test.ts` | 修改 | "落到未实现的事件抛 `NotImplementedError`"那条改点名 `config.set`（`agent.spawn` 转正了） |
 | `test/plugin-wiring.test.ts` | 修改 | `bundle()` 补上 `cliPlugins` 的三个新必需项 |
 | `README.md` / `docs/项目简介.md` / `site/index.html` | 修改 | 计数 12 → 15；agent / skill 约定目录 |
 
-**新增源文件 9 个 + 新增测试 10 个；修改源文件 14 个 + 修改测试 2 个 + 修改文档 3 份。**
+**新增源文件 9 个 + 新增测试 10 个；修改源文件 14 个 + 修改测试 3 个 + 修改文档 3 份。**
 （其中 4 个源文件是**修正既有缺陷**而非新增能力：`contract/next.ts`、`core/dispatch.ts`、
 `builtins/confirm.ts`、`cli/plugin-dir.ts`。）
 
@@ -605,14 +606,25 @@ Expected: 绿
 把 `src/contract/agent.ts` 里 `AgentSpawnRequest` 的 `readonly tools: readonly string[];` 改成 `readonly toolz: readonly string[];`，然后：
 
 Run: `pnpm typecheck`
-Expected: **红**（`nouns/agent.ts` 或 `nouns/index.ts` 处报缺少 `tools`）。看到红之后**改回来**。
+Expected: **绿 —— 这条此刻是走过场，别被它骗了。** 此刻还没有任何消费者读 `AgentSpawnRequest.tools`
+（真正的消费者 `core/nouns/agent.ts` 要到 Task 5 才生出来，而 Step 6 的临时桩不读入参）。
+**要看到红，得先造一个消费者**：把 Step 6 的临时桩改成读那个字段 ——
+`agent: { spawn: async (req) => ({ text: req.tools.join(','), stopReason: 'error' }) },`
+再跑 `pnpm typecheck`，这次会是 `Property 'tools' does not exist on type 'AgentSpawnRequest'. Did you mean 'toolz'?`。
+看完把这处探针与那个 typo **一起**改回去，再确认绿。
+（这条替换测试的正式版在 Task 5 —— 那里消费者真的存在了，一行 typo 就能让全仓红。）
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add src/contract/agent.ts src/contract/events.ts src/contract/engine.ts src/contract/model-provider.ts src/core/nouns/index.ts
+git add src/contract/agent.ts src/contract/events.ts src/contract/engine.ts src/contract/model-provider.ts src/core/nouns/index.ts test/dispatch.test.ts
 git commit -m "feat(contract): P4a 契约变宽 —— 三个事件转正、两个名词、model 透传" -m "Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ```
+
+> ⚠️ `test/dispatch.test.ts` 也在这一笔里，计划原先漏了它：那条"落到未实现的事件抛
+> `NotImplementedError`"的用例点名的正是 `agent.spawn`，而这一步把它转正了 ——
+> 转正之后它既不编译（`agent.spawn` 的入参不再是 `{}`）、也不再成立（通知事件的链尾是 `{}` 不是抛）。
+> 改成点名一个仍然未实现的事件（`config.set`），语义一字不变。
 
 ---
 
@@ -3824,9 +3836,10 @@ Expected: 全绿。
 
 - [ ] **逐条对设计 §13 的 C1**
 
-1. `parseFrontmatter` 的 fixture 组 —— `test/frontmatter.test.ts`（12 条：裸标量、带转义的双引号、
-   逗号串、JSON 数组、注释、无 frontmatter、多行标量带行号、重复键、引号没闭合、
-   `description` 里的逗号不被切、body 原样、不存在的字段是 `undefined`）。✓
+1. `parseFrontmatter` 的 fixture 组 —— `test/frontmatter.test.ts`（13 条：裸标量/注释/空行、
+   双引号转义、JSON 数组、逗号串、方括号不加引号也认、`description` 里的逗号不被切、
+   body 原样、`readList` 对缺失字段返回 `undefined`、没有 frontmatter 抛、没有结束的 `---` 抛、
+   多行标量抛且带行号、重复键抛、引号没闭合抛）。✓
 2. `agent.offer` 默认答复是空清单（不接插件的裸引擎）—— `test/agent-noun.test.ts` 最后那一节。✓
 3. `skill.prompt` 默认答复是原文 —— 同上。✓
 4. `StreamRequest.model` 省略时两个适配器都用 `config.model`；给了就用给的 ——
@@ -3958,4 +3971,43 @@ git commit --allow-empty -m "checkpoint: P4a C3 通过（技能与收口）" -m 
   「项目级 > 用户级 > 插件级」的根顺序，抄两份必然会漂。
 - **`subagents` 插件在 system prompt 里报的是文件里写的 `tools`**，不是解析后的白名单：
   解析后的那份 = 会话此刻的全部工具，会随时间变，印一份会变的清单没有意义。）
+
+### 实际发生的偏差
+
+**T1 —— 计划里有一条自相矛盾的断言被删掉了（计划错了，不是实现错了）。**
+
+- **现象**：`test/frontmatter.test.ts` 的 `description 里的逗号不会被切成数组` 一条，计划写了
+  `expect(readList(fm, 'description')).toBeUndefined();`，实测红：
+  `expected [...] to be undefined`，收到的是那个逗号切出来的三元素数组。
+- **为什么计划错了**：同文件的 `逗号串写法`（`tools: Glob, Grep, Read` → `['Glob','Grep','Read']`）
+  要求 `readList` 必须对裸标量做逗号切分，而 `description` 在解析器眼里与 `tools` 没有任何区别 ——
+  **两条断言不可能同时成立**。设计 §3 末段也明说切分归 `readList`。那条断言是写计划时顺手加的，
+  它想钉的是"切分不长在通用解析器里"，而这一条**紧邻的 `readScalar` 断言已经钉住了**（若解析器
+  自己把它切成了数组，`readScalar` 就会返回 `undefined`）。
+- **改成了什么**：删掉那一行，保留该用例与它的 `readScalar` 断言。
+- **影响**：零。用例数 13（计划里写的"12 条"是少算了一条，两处已改）。删掉的断言是**重复**而非**缺口**。
+
+**T1 —— 计数少了一个**：计划说 12 条，实际 13 条。文件结构总览与 C1 清单已改为 13。
+
+**T2 —— 计划漏了一个被牵连的测试文件（计划错了）。**
+
+- **现象**：`test/dispatch.test.ts:277` 那条「落到未实现的事件抛 `NotImplementedError`」点名的正是
+  `agent.spawn`，而入参写的是 `{}`。三个事件一转正，这一行**既不编译**（入参不再收 `{}`）
+  **也不再成立**（`agent.spawn` 进了 `NOTIFICATION_EVENTS`，链尾兜底返回 `{}`，不抛）。
+- **为什么计划错了**：写计划时按设计文档列了要改的文件清单，没有反向扫一遍"谁在依赖这三个事件
+  当前的状态"。这是清单式分解的典型漏法 —— 被牵连的消费者不会主动出现在清单里。
+- **改成了什么**：改点名 `config.set`（仍然未实现），语义一字不变；`test/dispatch.test.ts`
+  进 Task 2 的 `git add`，文件结构总览补上这一行、计数 2 → 3。
+- **影响**：零功能影响。**这是一条值得记住的教训**：把一个声明-only 的事件转正时，
+  先 grep 一遍它的名字，看看谁把它当"未实现"在测。
+
+**T2 —— Step 7 的反向验证在 Task 2 时刻是走过场的（计划错了）。**
+
+- **现象**：把 `AgentSpawnRequest.tools` 打成 `toolz`，`pnpm typecheck` **依然是绿的**。
+- **为什么**：此刻没有任何消费者读这个字段 —— 真正的消费者 `core/nouns/agent.ts` 要到 Task 5 才生出来，
+  而 Task 2 自己的临时桩不读入参。**"类型变宽"这一步在它被消费之前是拦不住任何人的。**
+- **改成了什么**：Step 7 的文案改成实话（"此刻是走过场，要看到红得先造一个消费者"），
+  并给出那一步的临时探针写法；正式的替换测试留在 Task 5。
+- **影响**：零。但这条值得单独记：**反向验证要在"消费者存在"的那一步做才有意义**，
+  否则它绿得毫无信息量 —— 而绿的假验证比没有验证更坏，因为它会让人以为验过了。
 
