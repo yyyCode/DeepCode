@@ -13,6 +13,9 @@ export type ResumeTarget =
 export type StartupAction =
   | { kind: 'help' }
   | { kind: 'version' }
+  | { kind: 'plugin'; sub: 'help' }
+  | { kind: 'plugin'; sub: 'list' }
+  | { kind: 'plugin'; sub: 'validate'; dir: string }
   | { kind: 'prompt'; text: string; resume: ResumeTarget; settings: string | undefined };
 
 /** `-V` 而不是 `-v`：后者在太多工具里是 verbose，别去抢那个字母。 */
@@ -29,6 +32,12 @@ export function parseArgs(argv: readonly string[]): StartupAction {
   // help 优先于 version，两者都优先于 resume 与提示词。
   if (argv.some((arg) => HELP_FLAGS.includes(arg))) return { kind: 'help' };
   if (argv.some((arg) => VERSION_FLAGS.includes(arg))) return { kind: 'version' };
+
+  // 子命令：**第一个非开关 token 恰好是 `plugin`，且第二个是 validate/list** 才进子命令模式。
+  // 其余一律照旧当提示词 —— `deepcode plugin 系统怎么写` 是句正经提问，
+  // 把"plugin"抢成保留字会让它变成一条报错。
+  const plugin = parsePluginCommand(argv);
+  if (plugin !== undefined) return plugin;
 
   let resume: ResumeTarget = { kind: 'none' };
   let settings: string | undefined;
@@ -68,6 +77,27 @@ export function readVersion(): string {
   return (JSON.parse(raw) as { version?: string }).version ?? '0.0.0';
 }
 
+/**
+ * 认出 `plugin list` / `plugin validate <目录>` / 光一个 `plugin`。
+ *
+ * 只在**第一个非开关 token** 上认它，且后面必须跟 validate/list：`--resume plugin list`
+ * 里那个 plugin 是 token 流里的第一个非开关词，照样进子命令；而
+ * `deepcode plugin 系统怎么写` 的第二个词不是子命令名，整个回落到提示词。
+ */
+function parsePluginCommand(argv: readonly string[]): StartupAction | undefined {
+  const first = argv.findIndex((arg) => !arg.startsWith('-'));
+  if (first === -1 || argv[first] !== 'plugin') return undefined;
+
+  const sub = argv[first + 1];
+  if (sub === undefined) return { kind: 'plugin', sub: 'help' };
+  if (sub === 'list') return { kind: 'plugin', sub: 'list' };
+  if (sub === 'validate') {
+    const dir = argv[first + 2];
+    return dir === undefined ? { kind: 'plugin', sub: 'help' } : { kind: 'plugin', sub: 'validate', dir };
+  }
+  return undefined;
+}
+
 export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 
 用法
@@ -96,6 +126,14 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 会话落盘
   ~/.deepcode/projects/<工作目录>/sessions/<id>.jsonl
   转录里有代码内容，删掉文件就等于删掉那次会话。
+
+插件
+  用户级 ~/.deepcode/plugins/<名字>/plugin.json        自动装载
+  项目级 <工作目录>/.deepcode/plugins/<名字>/plugin.json  要在设置里 plugins.enable 之后才装
+  deepcode plugin list             列出装上的与跳过的，各带理由
+  deepcode plugin validate <目录>  只校验一份清单，不执行任何代码
+  deepcode --help                  这份说明
+  第三方插件只能拧紧不能拧松：它的判定要么拦下、要么往下交，放行一律忽略。
 
 权限：
   allow / ask / deny 三组规则，写在 .deepcode/settings.json 里，五个来源从低到高：
