@@ -41,3 +41,38 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+  agent-smoke:
+    name: agent smoke（防火墙 runner）
+    # deepcode:agent-job
+    # deepcode:permission-mode deny-by-default
+    #
+    # ⚠️ 默认**跳过**：这个仓库的账号上没有 `ubuntu-24.04-firewall` 那个 runner，
+    # 真让它排队会得到一条永远红的流水线 —— 而一条永远是红的流水线等于没有流水线。
+    # 硬化规则管的是**形状**，形状不跑也在那儿（`pnpm lint` 每一趟都扫它）。
+    # 有那个 runner 的组织把它打开：Settings → Variables → DEEPCODE_AGENT_CI = on
+    if: ${{ vars.DEEPCODE_AGENT_CI == 'on' }}
+    runs-on: ubuntu-24.04-firewall
+    # job 级的 permissions 是**这一层显式钉过**的意思。顶层那个是上限，上限不能替代声明。
+    permissions:
+      contents: read
+    steps:
+      # v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10
+
+      # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      # 非 TTY 是这条命令的前提，CI 里天然成立；脚本自己会挡住 TTY 那种跑法。
+      - run: pnpm exec tsx scripts/agent-smoke.ts

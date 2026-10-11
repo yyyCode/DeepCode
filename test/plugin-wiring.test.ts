@@ -27,6 +27,7 @@ const POLICY: ResolvedPolicy = {
   telemetry: DEFAULT_TELEMETRY,
   plugins: { enable: [], enableByUser: [], deny: [] },
   instructions: [],
+  gateway: {},
 };
 
 const THIRD: Plugin = { name: 'todo', uses: [], register: () => {} };

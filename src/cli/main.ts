@@ -16,7 +16,7 @@ import { createPalette } from './ansi';
 import { createSessionChanges } from './changes';
 // 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
 import type { CommandDescription } from './commands';
-import { loadConfig, resolveSettings } from './config';
+import { applyManagedGateway, loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   const projectConfigPath = join(root, '.deepcode', 'config.json');
 
   const settings = resolveSettings(process.env, config, (line) => process.stderr.write(`${line}\n`));
-  const { apiKey, model, baseUrl, debug, provider } = settings;
+  const { apiKey, debug, provider } = settings;
   if (!apiKey) {
     process.stderr.write(
       '缺少 API key。几种给法，优先级从高到低：\n' +
@@ -151,6 +151,17 @@ async function main(): Promise<void> {
   const turns = createTurnSignals();
   const palette = createPalette();
   const render = createRenderer();
+
+  // 托管层把出网位置钉死（P5d）。放在 `resolvePolicy` 之后、建引擎之前 ——
+  // 这块内容只有读设置时才存在，而引擎一建就拿着 `baseUrl` 了。
+  // 个人配置能改"发给谁"（apiKey），"发给哪"是组织的事：与 sandbox 白名单、托管指令同一条。
+  const gateway = applyManagedGateway(settings, policy.gateway);
+  const { model, baseUrl } = gateway.config;
+  if (gateway.pinned.length > 0) {
+    // **必须看得见** —— 与托管指令、托管遥测同一条：一条被悄悄改掉的端点，
+    // 会让人对着 401 查半天，而真正发生的事是"你的请求根本没发去你以为的地方"。
+    render.notice(`⚠️ 托管策略钉住了出网位置：${gateway.pinned.join('、')}（个人配置改不动）。`);
+  }
   // readline 全进程只建这一次：REPL 的行输入与工具确认提示共用同一个实例。
   const rl = createInterface({
     input: process.stdin,

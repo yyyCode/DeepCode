@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": ["Bash(git push:*)"]
+  },
+  "telemetry": {
+    "enabled": false
+  },
+  "instructions": {
+    "text": "所有改动都要跑测试",
+    "files": ["/etc/deepcode/policy.md"]
+  }
+}
