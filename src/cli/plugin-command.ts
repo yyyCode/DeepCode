@@ -221,11 +221,14 @@ function renderList(found: Discovery, home: string, root: string): string {
   // 落点单独占一节（「装进来的」），而不是并进「跳过的」：**"装了但还没启用"是一个正常状态，
   // 不是错误** —— 混进错误列表会让人觉得装坏了（设计 §4.4）。
   //
-  // ⚠️ 用一个名字被用户级设置点亮之后，它就从「装进来的」挪进「装上的」：`装上的` 是
-  // "正在跑的那一组"，落点里被启用的那几个也在这一组，只是多标一个「已启用」。
-  // （计划原文把 installed-loaded 也留在「装进来的」里计数，与本节两条用例——
-  // 「启用了之后它出现在「装上的」里」——的断言对不上；按用例更正：装上的 = loaded 全体。）
+  // ⚠️ 落点里**启用了的那几个也留在这一节**（标「已启用」），不挪去「装上的」。
+  // 「装进来的」回答的是"我装过什么"，那个答案不该随我开没开它而改变 ——
+  // 挪来挪去的话，人一 enable 就会看到「装进来的（0）」，而他明明刚装过。
+  // （计划原文写的是"挪过去"，与设计 §4.4「逐条标启用与否」对不上；
+  //  §4.4 是用户批过的那份设计，按它来。）
+  const installedLoaded = found.loaded.filter((plugin) => plugin.origin === 'installed');
   const installedSkipped = found.skipped.filter((plugin) => plugin.origin === 'installed');
+  const otherLoaded = found.loaded.filter((plugin) => plugin.origin !== 'installed');
   const otherSkipped = found.skipped.filter((plugin) => plugin.origin !== 'installed');
 
   const lines: string[] = [
@@ -235,18 +238,23 @@ function renderList(found: Discovery, home: string, root: string): string {
     `  ${join(home, ...INSTALLED_DIR)}（落点，plugin add 装在这儿，只有用户级设置能启用）`,
   ];
 
-  lines.push('', `装上的（${found.loaded.length}）`);
-  if (found.loaded.length === 0) lines.push('  （一个都没有）');
-  for (const plugin of found.loaded) {
-    const suffix = plugin.origin === 'installed' ? ' · 已启用' : '';
-    lines.push(`  ${plugin.name.padEnd(24)} ${describeLoaded(plugin)}${suffix}`);
+  lines.push('', `装上的（${otherLoaded.length}）`);
+  if (otherLoaded.length === 0) lines.push('  （一个都没有）');
+  for (const plugin of otherLoaded) {
+    lines.push(`  ${plugin.name.padEnd(24)} ${describeLoaded(plugin)}`);
     if (plugin.manifest.description !== undefined) {
       lines.push(`  ${' '.repeat(24)} ${plugin.manifest.description}`);
     }
   }
 
-  lines.push('', `装进来的（${installedSkipped.length}）`);
-  if (installedSkipped.length === 0) lines.push('  （一个都没有）');
+  lines.push('', `装进来的（${installedLoaded.length + installedSkipped.length}）`);
+  if (installedLoaded.length + installedSkipped.length === 0) lines.push('  （一个都没有）');
+  for (const plugin of installedLoaded) {
+    lines.push(`  ${plugin.name.padEnd(24)} ${describeLoaded(plugin)} · 已启用`);
+    if (plugin.manifest.description !== undefined) {
+      lines.push(`  ${' '.repeat(24)} ${plugin.manifest.description}`);
+    }
+  }
   for (const plugin of installedSkipped) {
     // 清单坏了的点不了名 —— 那时候理由就不是"没启用"，照原样打。
     const who = plugin.name ?? '（清单坏了）';

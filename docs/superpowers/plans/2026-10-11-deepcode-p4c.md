@@ -1593,7 +1593,7 @@ describe('plugin add / remove', () => {
   });
 
   // ⚠️ 这两条断言的是 **Task 5 才有的** `renderList` 第三节
-  // （`装进来的（1）` / `未启用` / `装上的（1）` / `已启用`）。Task 4 里 `renderList`
+  // （`装进来的（1）` / `未启用` / `已启用` / `装上的（0）`）。Task 4 里 `renderList`
   // 还没有那一节，所以执行时把它们写成 `it.skip(...)`，**并在 Task 5 做完之后把 `.skip` 摘掉**。
   //
   // 编在 Task 4 里是计划的排布失误（早了一个任务）。但**不许长期留着 skip** ——
@@ -1608,13 +1608,18 @@ describe('plugin add / remove', () => {
     expect(text).toContain('用户级设置');
   });
 
-  it.skip('启用了之后它出现在「装上的」里，标着已启用', async () => {
+  it.skip('启用了之后它**留在**「装进来的」里，标着已启用 —— 位置不随开关跳', async () => {
     const { home, root, market: from } = await addWorld();
     await add({ home, root }, from);
     const { text } = await list({ home, root }, ['demo']);
-    expect(text).toContain('装上的（1）');
+    // ⚠️ 「装进来的」回答的是"我装过什么"，那个答案不该随开没开它而改变（设计 §4.4
+    // 说的「逐条标启用与否」—— 只有启用的那条也留在这一节，那句话才有意义）。
+    // 计划初稿这条断言写的是 `装上的（1）`，与同一段 `renderList` 的代码对不上：
+    // 代码按 §4.4 把 installed-loaded 也放在「装进来的」。**代码是对的，断言写错了。**
+    expect(text).toContain('装进来的（1）');
     expect(text).toContain('已启用');
-    // 每一份插件在输出里只出现一节 —— 第三节是"跳过的"，落点那两份都不该落进去。
+    // 它不落进「装上的」—— 那一节是自动/手工放进插件目录的那些。
+    expect(text).toContain('装上的（0）');
     expect(text).toContain('跳过的（0）');
   });
 
@@ -1769,7 +1774,7 @@ git commit -m "feat(p4c): plugin add / remove —— 落盘原子，目标已存
 - [ ] **Step 1: `renderList` 加第三节，来源标签认三个 origin**
 
       ⚠️ **做完这一节之后，把 `test/plugin-command.test.ts` 里两处 `it.skip` 的 `.skip` 摘掉**
-      （`没启用的落点插件在 list 里单独一节`、`启用了之后它出现在「装上的」里`，Task 4 埋在那儿
+      （`没启用的落点插件在 list 里单独一节`、`启用了之后它留在「装进来的」里`，Task 4 埋在那儿
       因为它们要的正是你现在写的这一节）。摘掉之后这两条必须**真绿**；如果绿不了，
       说明第三节的行为与那两条的断言对不上，先弄明白是哪边错。
       一条永远 `skip` 的用例与一条永远不红的断言是同一种摆设。
@@ -2102,7 +2107,9 @@ describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）',
         JSON.stringify({ plugins: { enable: ['demo'] } }),
       );
       const userToo = await run(['plugin', 'list'], root, env);
-      expect(userToo.stdout).toContain('装上的（1）');
+      // 它**留在「装进来的」里**，只是标上了已启用 —— 位置不随开关跳（设计 §4.4）。
+      // 写成「装上的（1）」的话，人一 enable 就会看到「装进来的（0）」，而他明明刚装过。
+      expect(userToo.stdout).toContain('装进来的（1）');
       expect(userToo.stdout).toContain('已启用');
     } finally {
       rmSync(base, { recursive: true, force: true });
@@ -2403,6 +2410,9 @@ git commit -m "docs(p4c): 落点与「装 ≠ 启用」写进 README / 项目简
 | （计划缺陷，执行时逮出）Task 4 的 `--from` 解析写成 `argv[first + 2]`，在 `--from=…` 写在名字前面时那个位置正是 `--from=…` 自己，被 `startsWith('-')` 一挡回落成 help —— **计划自己的那条测试就会红** | **已改成 `argv.slice(first + 2).find(a => !a.startsWith('-'))`** |
 | （计划排布失误，执行时逮出）Task 4 里那两条 `plugin list` 第三节的用例，断言的是 **Task 5 才有的** `renderList` 行为，早了一个任务 | Task 4 写成 `it.skip`，**Task 5 摘掉**；C2 新增一条硬检查：`grep -rn "it.skip\|describe.skip\|it.todo" test/` 必须无输出 |
 | （计划说错了，执行时逮出）Task 4 Step 6 说 stderr 里有一条 W9 —— 实际 W9 走 `deps.out` 进 **stdout**，stderr 是**空的** | **已按实测改写**（本机 22.19.0：stdout 有报告，stderr 一个字没有，无 `ExperimentalWarning`）。`fs.cp` 那条预登记假设在本机成立 |
+| （**计划内部自相矛盾**，执行时逮出）`renderList` 的**代码**按设计 §4.4 把「装进来的」当成"我装过什么"（启用的也留在这一节，标 `已启用`），而**同一节的用例**断言 `装上的（1）`。执行者照"用例是基准"改了**代码**去迁就断言 | **已判给 spec §4.4、改回代码**：§4.4 是用户批过的那份设计，而那条断言是我照着它派生的。判据是"照断言改"会让人一 enable 就看到 `装进来的（0）` —— 他明明刚装过。代码未动（本来就是对的），改的是**三处断言**（`plugin-command.test.ts` × 2、`cli.test.ts` × 1） |
+| （计划缺陷，执行时逮出）Task 5 Step 7 的项目级设置用例写 `root/.deepcode/settings.json`，而 `scene()` 只建了 `home` 与 `root` —— `root/.deepcode/` 不存在，`writeFileSync` 抛 ENOENT | **已补 `mkdirSync`** |
+| （计划缺陷，执行时逮出）Task 5 Step 9 的 `git add` 漏了 `test/plugin-command.test.ts`（那正是要摘 `.skip` 的文件） | **已补进 `git add`** |
 
 ## 自查（写完计划后自己过一遍的那张表）
 

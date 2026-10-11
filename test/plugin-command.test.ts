@@ -281,13 +281,16 @@ describe('plugin add / remove', () => {
     expect(text).toContain('用户级设置');
   });
 
-  it('启用了之后它出现在「装上的」里，标着已启用', async () => {
+  it('启用了之后它**留在**「装进来的」里，标着已启用 —— 位置不随开关跳', async () => {
     const { home, root, market: from } = await addWorld();
     await add({ home, root }, from);
     const { text } = await list({ home, root }, ['demo']);
-    expect(text).toContain('装上的（1）');
+    // 「装进来的」回答的是"我装过什么"，那个答案不该随开没开它而改变（设计 §4.4：
+    // 「逐条标启用与否」—— 只有启用的那条也留在这一节，那句话才有意义）。
+    expect(text).toContain('装进来的（1）');
     expect(text).toContain('已启用');
-    // 每一份插件在输出里只出现一节 —— 第三节是"跳过的"，落点那两份都不该落进去。
+    // 它不落进「装上的」—— 那一节是自动/手工放进插件目录的那些。
+    expect(text).toContain('装上的（0）');
     expect(text).toContain('跳过的（0）');
   });
 

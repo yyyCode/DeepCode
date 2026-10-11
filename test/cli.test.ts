@@ -813,7 +813,9 @@ describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）',
         JSON.stringify({ plugins: { enable: ['demo'] } }),
       );
       const userToo = await run(['plugin', 'list'], root, env);
-      expect(userToo.stdout).toContain('装上的（1）');
+      // 它**留在「装进来的」里**，只是标上了已启用 —— 位置不随开关跳（设计 §4.4）。
+      // 换成「装上的（1）」的话，人一 enable 就会看到「装进来的（0）」，而他明明刚装过。
+      expect(userToo.stdout).toContain('装进来的（1）');
       expect(userToo.stdout).toContain('已启用');
     } finally {
       rmSync(base, { recursive: true, force: true });
