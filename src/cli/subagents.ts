@@ -13,12 +13,6 @@ export type SubagentsDeps = {
   readonly baseSystemPrompt: string;
 };
 
-/**
- * 白名单能表达"允许不允许"，表达不了"允许几次"。一次失控的递归要花真钱 ——
- * 这不是策略，是保险丝（设计 §8）。顶层 Task 的 depth = 1。
- */
-const MAX_DEPTH = 3;
-
 const TASK_DESCRIPTION =
   '派一个子代理去独立完成一件事。它**看不到**你和我现在的对话，只能看到 prompt 里写的内容 —— ' +
   '把任务说清楚：要它做什么、看哪些文件、回报什么。可用子代理见系统提示词里的清单，' +
@@ -48,27 +42,23 @@ const SKILL_SCHEMA = {
 /**
  * 组合面的第一方插件：应答 `agent.offer`、注册 `Task` 与 `Skill` 两个工具。
  *
- * 为什么住 `cli/` 而不是 `builtins/`：它要知道名册、要往屏幕上打通知、要维护一个嵌套
- * 深度栈 —— 这三样都是 REPL 侧的东西。`builtins/` 放的是"与 surface 无关的通用工具"。
+ * 为什么住 `cli/` 而不是 `builtins/`：它要知道名册、要往屏幕上打通知
+ * —— 这两样都是 REPL 侧的东西。`builtins/` 放的是"与 surface 无关的通用工具"。
+ *
+ * ⚠️ **它不再算"子代理能用哪些工具"，也不算"能派多深"**（P10）：那两样都要知道
+ * "父级这一轮模型看得见什么"，而这份事实只存在于内核那几层正在跑的 loop 里。
+ * 这里只把 agent 文件里写的 `tools` / `disallowedTools` 当**声明**交出去。
  */
 export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
-  /**
-   * 只用来在错误消息里说清是"谁派的谁"。
-   *
-   * **闭包里的栈，不是模块级变量**：模块级的会跨测试泄漏（设计 §8）。
-   * 又因为工具是串行执行的（`core/loop.ts`），这个栈不会交错，不需要栈帧栈那类东西。
-   */
-  const stack: string[] = [];
-
   return {
     name: 'subagents',
     // `uses` 的腔调照抄其余插件：事件写全名，**名词写名字本身**（`fs` / `ui` 那样），
     // 不写点号路径。所以是 `agent` / `skill`，不是 `agent.spawn` / `skill.load`。
-    // 这里**不列 `tool`**：`resolveTools` 里那次 `$.tool.list()` 是自省，不是能力 ——
-    // `builtins/commands.ts` 同样调它，`uses` 也只有 `['command.run', 'ui']`。
+    // 这里**不列 `tool`**：P10 之前它调过一次 `$.tool.list()`（算白名单），那次是自省、
+    // 不是能力 —— 现在连那次也没有了，这个插件碰不到工具面。
     // ⚠️ `uses` 的越界检查**只对第三方插件生效**（`core/create.ts` 只把列进清单的插件
     // 包成 `makeThirdPartyOn`），所以这里写错不会报错、也不会拦你 —— 正因如此才要写对。
-    uses: ['agent.offer', 'tool.call', 'tool.describe', 'ui', 'agent', 'skill'],
+    uses: ['agent.offer', 'agent.spawn', 'tool.call', 'tool.describe', 'ui', 'agent', 'skill'],
     register(on) {
       on('agent.offer', () => ({
         agents: deps.agents.map((spec) => ({
@@ -80,6 +70,17 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
         })),
         skills: deps.skills.map((spec) => ({ name: spec.name, description: spec.description })),
       }));
+
+      // ── 进度提示 ────────────────────────────────────────────────────────
+      // 挂在 `agent.spawn` 上，不是挂在下面那个 `tool.call` 里：内核**只对真要开跑的
+      // 那一次**派这个事件（深度超了的那次在它之前就返回了）。于是"被拒的那一次"
+      // 屏幕上不会出现一行"派子代理 X"却再也不回来 —— 那是我第一版挪进来时打的假账。
+      // 顺带把插件直派的子代理也照亮了：那条路径上没有 Task，也就没有别的地方出声。
+      on('agent.spawn', ($, e, next) => {
+        // 层数不在这儿说：它已经在回来那条通知里（设计 §5）。这里印的是 P10 之前那一行。
+        $.ui.notice(`派子代理 ${e.name}：${firstLine(e.task)}`);
+        return next(e);
+      });
 
       // ── Task ────────────────────────────────────────────────────────────
       on('tool.describe', { tool: 'Task' }, () => ({
@@ -110,12 +111,6 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
           };
         }
 
-        if (stack.length >= MAX_DEPTH) {
-          return {
-            deny: `嵌套太深了（${[...stack, spec.name].join(' → ')}，上限 ${MAX_DEPTH} 层）`,
-          };
-        }
-
         // 模型分层的解析顺序：调用参数 → spec 自带的 → 父级（undefined = 适配器配置里那个）。
         const model = callModel ?? spec.model;
         // 正文为空 ⇒ 回落到会话的基础提示。**回落判断在这儿**，内核不知道这回事（设计 §2.3）。
@@ -124,37 +119,41 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
             ? `${deps.baseSystemPrompt}\n\n你是子代理「${spec.name}」：${spec.description}`
             : spec.prompt;
 
-        stack.push(spec.name);
-        $.ui.notice(`派子代理 ${spec.name}（第 ${stack.length} 层）：${firstLine(prompt)}`);
-        try {
-          const result = await $.agent.spawn({
-            name: spec.name,
-            systemPrompt,
-            task: prompt,
-            tools: resolveTools(spec, $),
-            ...(model === undefined ? {} : { model }),
-            ...(spec.maxTurns === undefined ? {} : { maxHops: spec.maxTurns }),
-          });
+        // （"派子代理 X"那一条在上面的 `agent.spawn` hook 里 —— 那条通知现在由内核的
+        // 事件驱动，见那里的理由。）
 
-          $.ui.notice(`子代理 ${spec.name} 回来了（${result.stopReason}）`);
+        // agent 文件里写的 `tools` / `disallowedTools` 当**声明**交给内核 —— 由它拿
+        // 父级那一轮的面去求交（P10 设计 §3.2）。插件手上没有那份面，也不该猜。
+        const result = await $.agent.spawn({
+          name: spec.name,
+          systemPrompt,
+          task: prompt,
+          ...(spec.tools === undefined ? {} : { allow: spec.tools }),
+          ...(spec.disallowedTools === undefined ? {} : { deny: spec.disallowedTools }),
+          ...(model === undefined ? {} : { model }),
+          ...(spec.maxTurns === undefined ? {} : { maxHops: spec.maxTurns }),
+        });
 
-          // 子代理失败**不是**让父级整个 turn 炸掉，而是变成本次 tool.call 的错误结果
-          // （设计 §5.3）：父级要知道"那个子代理没做完"并继续，而不是自己一起倒下。
-          // `ERROR:` 前缀是 loop.ts 判 isError 的依据。
-          //
-          // ⚠️ 判据是 `isNormalTurn` 这个**白名单**，不是黑名单。P8 之前这里列的是
-          // "哪几种算不正常"，于是 `truncated`（被长度上限砍断）不在名单里 —— 一个
-          // 只写了一半的子代理把那半截当成完整答复交回父级，谁都不知道它没写完。
-          // 正文照带回去：父级既看得见"它没做完"，也拿得到那半截内容。
-          if (!isNormalTurn(result.stopReason)) {
-            return {
-              value: `ERROR: 子代理 ${spec.name} 未正常结束（${result.stopReason}）\n\n${result.text}`,
-            };
-          }
-          return { value: result.text };
-        } finally {
-          stack.pop();
+        // 内核拒了这次派生（今天只有一种：嵌套太深）。翻成工具层的一次 deny，
+        // 与 P10 之前那条 deny 在屏幕上长得一模一样。
+        if (!result.ok) return { deny: result.reason };
+
+        $.ui.notice(`子代理 ${spec.name} 回来了（${result.stopReason}，第 ${result.depth} 层）`);
+
+        // 子代理失败**不是**让父级整个 turn 炸掉，而是变成本次 tool.call 的错误结果
+        // （设计 §5.3）：父级要知道"那个子代理没做完"并继续，而不是自己一起倒下。
+        // `ERROR:` 前缀是 loop.ts 判 isError 的依据。
+        //
+        // ⚠️ 判据是 `isNormalTurn` 这个**白名单**，不是黑名单。P8 之前这里列的是
+        // "哪几种算不正常"，于是 `truncated`（被长度上限砍断）不在名单里 —— 一个
+        // 只写了一半的子代理把那半截当成完整答复交回父级，谁都不知道它没写完。
+        // 正文照带回去：父级既看得见"它没做完"，也拿得到那半截内容。
+        if (!isNormalTurn(result.stopReason)) {
+          return {
+            value: `ERROR: 子代理 ${spec.name} 未正常结束（${result.stopReason}）\n\n${result.text}`,
+          };
         }
+        return { value: result.text };
       });
 
       // ── Skill ───────────────────────────────────────────────────────────
@@ -187,23 +186,6 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
       });
     },
   };
-}
-
-/**
- * 白名单解析就是一行减法，归插件 —— 内核只收解析后的结果（设计 §6.1）：
- *   1. 省略 `tools` ⇒ 继承父级全部工具
- *   2. 给出 `tools` ⇒ 白名单，清单外的调不通
- *   3. `disallowedTools` 在白名单之上再扣一层
- *
- * "继承父级全部"听着宽，但**"全权"指的是工具面、不是免确认**：一个省略 tools 的子代理
- * 去写文件，照样要走同一条 `tool.check` 链（confirm 在 builtin、个人规则在 user、
- * 守门器在 prepend，一个都不少）。C2 有一条出口标准专门钉它。
- */
-function resolveTools(spec: AgentSpec, $: EngineInterface): readonly string[] {
-  const inherited = spec.tools ?? $.tool.list();
-  const denied = spec.disallowedTools;
-  if (denied === undefined) return [...inherited];
-  return inherited.filter((tool) => !denied.includes(tool));
 }
 
 /** 通知里只放任务的第一行：它是一句进度提示，不是把 prompt 抄一遍。 */

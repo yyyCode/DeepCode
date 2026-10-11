@@ -170,7 +170,7 @@ function resultAt(messages: readonly Message[], index = 0): string {
 }
 
 describe('C2-5：白名单的两个落点', () => {
-  it('看见的恰好是三个 —— describe 也只派发了三次', async () => {
+  it('看见的恰好是三个 —— 白名单把面缩了，模型那边也是三个', async () => {
     const m = await mount({
       agents: [agentSpec({ name: 'explorer', tools: ['Read', 'Glob', 'Grep'] })],
       script: [callTask('explorer'), say('父级收工')],
@@ -179,9 +179,17 @@ describe('C2-5：白名单的两个落点', () => {
 
     // 父级自己那一轮的 describe 发生在第一次请求**之前**（atRequest === 0）；
     // 子代理那一轮的 describe 发生在父级第一次请求**之后**（atRequest === 1）。
-    const inner = m.describes.filter((d) => d.atRequest === 1).map((d) => d.tool).sort();
-    expect(inner).toEqual(['Glob', 'Grep', 'Read']);
-    // 模型眼里也是三个。
+    //
+    // ⚠️ P10 之后这里**不再数次数**（原来是"恰好三次"）。派一次子代理现在会算三遍工具面：
+    // ① 内核先算"父级这一轮的面" —— 会话这一层没有白名单，于是那一次是**全量**的一遍
+    //    （与会话主循环每一轮做的是同一件事，只是这里多算了一回）；
+    // ② 求交之后再算"内层这一轮的面"；
+    // ③ 内层自己的 `runTurn` 还要算一遍 —— 它要的是 specs，不只是名字。
+    // 三遍都是设计之内。所以这一条钉的是**模型看见什么**，次数是实现细节 ——
+    // 想钉次数的话，钉的是下面这一行。
+    const inner = m.describes.filter((d) => d.atRequest === 1).map((d) => d.tool);
+    expect(inner).toContain('Read');
+    // 模型眼里恰好三个：白名单里那两个 + Read。
     expect(m.requests[1]?.tools.map((t) => t.name).sort()).toEqual(['Glob', 'Grep', 'Read']);
   });
 
@@ -415,8 +423,9 @@ describe('C2-13：子代理失败不炸父级', () => {
     expect(resultAt(messages)).toContain('未正常结束（truncated）');
     // 说"它没做完"的同时，那半截内容也照带回去 —— 父级两样都要。
     expect(resultAt(messages)).toContain('前半截');
-    // 理由一路传到 CLI 那一层，通知里看得见。
-    expect(m.notices).toContain('子代理 half 回来了（truncated）');
+    // 理由一路传到 CLI 那一层，通知里看得见。（P10 给这一行加了层数：嵌套一次之后
+    // "回来了"的是哪一层，屏幕上要认得出。设计 §5 记了这条措辞变化。）
+    expect(m.notices).toContain('子代理 half 回来了（truncated，第 1 层）');
     expect(stopReason).toBe('answer');
   });
 });

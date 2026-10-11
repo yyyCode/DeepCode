@@ -12,9 +12,14 @@ import type { DispatchFn } from './dispatch';
  * （`13-tool-system.md` A5）。搬出来是为了让它们**共用一个函数**，不是为了多一个文件。
  *
  * ⚠️ 与 `$.tool.list()` 的分工（两个都要，别拿一个替另一个）：
- * - `$.tool.list()` 是**注册面**：谁注册了 `tool.call {tool: X}`。子代理的白名单吃它
- *   （`cli/subagents.ts` 的 `resolveTools`），那里要的正是"注册过哪些名字"。
+ * - `$.tool.list()` 是**注册面**：谁注册了 `tool.call {tool: X}`。它是这里的**输入**
+ *   （下面那行 `for` 就是从它数起的），`/help` 在没注入清单时会退回它并当场标明"未过滤"。
  * - 这里是**模型面**：注册面再过滤两道（白名单、`hidden`、没注册描述）之后剩下的那一份。
+ *
+ * P10 之前子代理的白名单吃的是注册面（`cli/subagents.ts` 那个 `resolveTools`），于是
+ * "父级这一轮看得见什么"根本没人算 —— 嵌套一层就把被扣掉的面拿回来了（P10 设计 §2.1
+ * 探针 A 实测）。现在派子代理也走**这一个**函数：`core/nouns/agent.ts` 拿父级那一轮
+ * 的面当白名单再算一次。**模型面只有一份算法**这句话，从 P10 起对子代理也成立。
  */
 export type ToolListing = {
   /** 模型能看到的，顺序 = `$.tool.list()` 的顺序（= 注册顺序）。 */

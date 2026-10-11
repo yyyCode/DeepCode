@@ -69,7 +69,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>1177</b><span>用例全绿 · 70 个文件</span></li>
+    <li><b>1187</b><span>用例全绿 · 71 个文件</span></li>
     <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
     <li><b>3</b><span>条命令管质量（typecheck / lint / test）</span></li>
   </ul>
@@ -308,6 +308,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <tr><td><strong>P7</strong> 记忆与上下文</td><td><code>/context</code> 账本（<strong>明说不报「还剩多少」</strong>）、系统提示每轮重算、<code>/compact</code> 能带一句说明、压缩后重新附上目录约定、两道断电器</td></tr>
       <tr><td><strong>P8</strong> 执行循环的收场</td><td>停止原因收敛成七个产品字面量、被截断就接着往下写（≤ 3 次，<strong>每次出声</strong>）、空步与炸在中途都不丢内容、两侧统一按白名单判「做完了没有」</td></tr>
       <tr><td><strong>P9</strong> 工具清单</td><td>一条清单三个消费者（模型请求 / <code>/help</code> / <code>/tools</code>）收敛到一个函数；<code>/context</code> 把工具算进合计；<code>/tools</code> 说清每个工具<strong>来自哪个插件</strong>、以及<strong>哪些没进来、为什么</strong></td></tr>
+      <tr><td><strong>P10</strong> 子代理的边界</td><td>子代理看得见哪些工具、能派多深，从<strong>调用方按「会话的全部」算</strong>挪进内核<strong>按「当前这一轮」算</strong>：嵌套一层拿不回被扣掉的面，深度上限（3 层）对 <code>Task</code> 与插件直派<strong>共用同一个数</strong></td></tr>
     </tbody>
   </table>
 </section>
@@ -343,6 +344,14 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <p>算术写错、正则编译不过、钩子进程崩了 —— 一律非零退出，而 <code>PreToolUse</code> 上的非零就是
         <code>deny</code>：<code>Write</code> / <code>Edit</code> / <code>Bash</code> 全部被拒绝，直到修好它。</p>
       <p class="card__cost">我们接受这个代价 —— 一个读不懂自己规则的守卫，比一个假装没事的守卫危险。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3>子代理不知道项目规矩</h3>
+      <p>子代理的系统提示只有 agent 文件里那段正文（为空时回落到会话的基础提示）——
+        <code>AGENTS.md</code> / <code>CLAUDE.md</code> 一个字都不进，工具面也只能是父级那一轮的<strong>子集</strong>。</p>
+      <p class="card__cost">硬隔离是刻意的（对标的实现有一个「别读指令文件」旋钮，我们连旋钮都没有 ——
+        加上它必然是放宽）：代价是要它守的规矩得写进那个 agent 文件或 <code>prompt</code> 里。</p>
     </article>
 
     <article class="card card--limit">

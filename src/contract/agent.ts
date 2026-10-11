@@ -47,21 +47,45 @@ export type AgentSpawnRequest = {
   /** **已解析**的系统提示词（回落已经算完）。内核不再做回落判断。 */
   readonly systemPrompt: string;
   readonly task: string;
-  /** **已解析**的允许清单。内核只照着它过滤，不做任何减法。 */
-  readonly tools: readonly string[];
+  /**
+   * 只许这些。**省略 = 继承父级那一轮的面**。
+   *
+   * ⚠️ 这里给的是**声明**，不是"已解析的清单"（P10 之前是后者，那是个错的分工）：
+   * 只有内核知道"父级这一轮模型看得见什么"，而这个面只存在于"此刻跑着的那几层 loop"里。
+   * 内核拿它与父面**求交** —— 于是它只会更小，不会更大（P10 设计 §3.2）。
+   */
+  readonly allow?: readonly string[] | undefined;
+  /** 在 `allow` 之上再扣一层。同样是声明。 */
+  readonly deny?: readonly string[] | undefined;
   /** 已解析的模型；undefined = 用会话自己的（= 父级那个）。 */
   readonly model?: string;
   readonly maxHops?: number;
 };
 
-export type AgentSpawnResult = {
-  /** 子代理**最后一轮**模型说的话。中间的工具结果一个字都不在这儿。 */
-  readonly text: string;
-  /**
-   * 子代理这一轮**为什么收场**（产品语义，见 `./turn`）。
-   *
-   * 消费方（`cli/subagents.ts`）照 `isNormalTurn` 判"它干完了没有" —— 白名单。
-   * P8 之前这里是 `string` 且消费方用黑名单，于是 `truncated`（被截断）被当成正常结束。
-   */
-  readonly stopReason: TurnReason;
-};
+/**
+ * 派一次子代理的结局。
+ *
+ * 两个分支而不是一个可空的结果：**拒绝是内核给出的**（嵌套深度是内核的事实，
+ * 见 P10 设计 §3.3/§3.4），所以类型必须能表达"这次压根没跑"。
+ * 形状与复刻对象的 `$.agent.spawn` 同构（它返回 `{ model, agentId }` 或 `{ deny }`）。
+ */
+export type AgentSpawnResult =
+  | {
+      /** 子代理**最后一轮**模型说的话。中间的工具结果一个字都不在这儿。 */
+      readonly text: string;
+      /**
+       * 子代理这一轮**为什么收场**（产品语义，见 `./turn`）。
+       *
+       * 消费方（`cli/subagents.ts`）照 `isNormalTurn` 判"它干完了没有" —— 白名单。
+       * P8 之前这里是 `string` 且消费方用黑名单，于是 `truncated`（被截断）被当成正常结束。
+       */
+      readonly stopReason: TurnReason;
+      /** 这是第几层（1 = 会话直接派的）。内核手上就有，白送。 */
+      readonly depth: number;
+      readonly ok: true;
+    }
+  | {
+      /** 没跑。今天只有一种：嵌套太深（消息里带名字链与上限）。 */
+      readonly reason: string;
+      readonly ok: false;
+    };
