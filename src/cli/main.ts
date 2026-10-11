@@ -196,7 +196,7 @@ async function main(): Promise<void> {
   });
   // ⚠️ 行队列**必须**在 rl 建好之后立刻挂上。从这一刻到 REPL 开始读之间有一大段 await
   // （读设置、建转录、发现插件），管道里的输入落在那段空窗里就会被 readline 丢掉
-  // —— `echo '/diff' | deepcode` 今天什么都不做，正是这个原因（README 的「已知限制」）。
+  // —— `echo '/diff' | deepcode` 当时什么都不做，行队列就是为这个空窗建的（P6d）。
   const lines = createLineQueue(rl);
   // 两条路都要挂：一次性模式下没有 readline 在转，而 REPL 里 Ctrl-C 是 readline
   // 先接住再抛出来的。onSigint 自带去重，重复收到一次不会误判成"连按两次"。
