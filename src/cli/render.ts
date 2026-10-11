@@ -1,4 +1,6 @@
 import type { UiSink } from '../core/nouns/ui';
+import { colorEnabled, createPalette, type Palette } from './ansi';
+import { createMarkdownStream } from './markdown';
 import { formatDuration } from './result-view';
 import { FRAMES, INTERVAL_MS, startTicker, type Cancel, type Ticker } from './ticker';
 import { activityWidth, fitTo } from './width';
@@ -60,6 +62,12 @@ export type RendererOptions = {
   readonly now?: () => number;
   readonly frames?: readonly string[];
   readonly intervalMs?: number;
+  /**
+   * 内容面（P6b）着色用。**默认按 `stream` 自己判** —— 关掉色时
+   * `createPalette(false)` 逐字节等于纯文本，markdown 的结构（框线、缩进、折行）
+   * 照旧在，只是不上色。
+   */
+  readonly palette?: Palette;
 };
 
 /**
@@ -92,6 +100,20 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
   const now = options.now ?? (() => Date.now());
   const startClock = options.ticker ?? startTicker;
   const intervalMs = options.intervalMs ?? INTERVAL_MS;
+
+  /**
+   * 内容面（P6b）：模型流出来的文本按行过一遍 markdown 子集，再折到终端宽度。
+   *
+   * ⚠️ **只在活动面活着时才建**。非 TTY 下 `delta` 写出去的必须与 P6a 之前
+   * 逐字节相同 —— 而 markdown 渲染会改字节（加框线、上色、折行），
+   * 管道里那些都是污染。与活动面同一条纪律，同一处开关。
+   */
+  const markdown = live
+    ? createMarkdownStream({
+        palette: options.palette ?? createPalette(colorEnabled(stream)),
+        width: activityWidth(stream.columns),
+      })
+    : undefined;
 
   // 模型文本是**增量**来的（delta 不带换行），别的东西都是按行写的。
   // 记着自己在不在行首，工具预览、通知、提示符才不会接到半句话后面去。
@@ -133,6 +155,10 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
   };
 
   const endLine = (): void => {
+    // 先交出 markdown 行缓冲里那半行。**顺序要紧**：模型可能正说到一半
+    // （缓冲里攒着"我先看看"，还没有换行），而下面紧接着要落一行永久行 ——
+    // 不在这儿交出来的话，那半句话会掉到那行永久行的**后面**去。
+    if (markdown !== undefined) write(markdown.flush());
     if (atLineStart || stdoutGone) return;
     stream.write('\n');
     atLineStart = true;
@@ -222,7 +248,9 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
       if (text === '') return;
       stopClock();
       erase();
-      write(text);
+      // ⚠️ 空增量在上面就被放过了 —— 它连一个 code unit 都没有，**不**该推进
+      // markdown 的行缓冲（推了也一样，但"空串也是输入"这个念头是 bug 的温床）。
+      write(markdown === undefined ? text : markdown.push(text));
     },
     newline: () => {
       stopClock();
@@ -240,6 +268,8 @@ export function createRenderer(options: RendererOptions = {}): Renderer {
       if (!live) return;
       stopClock();
       erase();
+      // 与 endLine 同一个理由：半句话必须先交出来（并把那一行收掉），再落这几行。
+      endLine();
       // ⚠️ 这里**不**按宽度截断：永久行归终端自己折，折了不丢信息。
       // 会截断的只有活动区 —— 那里屏幕行数必须与账面严格相等，否则上移几行会算错。
       for (const line of lines) write(`${line}\n`);

@@ -2,6 +2,7 @@ export type Palette = {
   readonly enabled: boolean;
   bold(text: string): string;
   dim(text: string): string;
+  italic(text: string): string;
   red(text: string): string;
   green(text: string): string;
   cyan(text: string): string;
@@ -37,6 +38,7 @@ export function createPalette(enabled: boolean = colorEnabled()): Palette {
     enabled,
     bold: (text) => wrap(1, text),
     dim: (text) => wrap(2, text),
+    italic: (text) => wrap(3, text),
     red: (text) => wrap(31, text),
     green: (text) => wrap(32, text),
     cyan: (text) => wrap(36, text),
