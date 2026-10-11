@@ -226,50 +226,24 @@ tr:last-child td { border-bottom: 0; }
 #roadmap table { margin-top: 1.6rem; }
 #roadmap td:first-child { white-space: nowrap; }
 
-/* ── 架构拓扑 ───────────────────────────────────────── */
-/* 三条带 = 三件事（怎么执行 / 谁把关 / 记在哪），带与带之间是**画出来的连线**，
-   不是「→」符号。用 SVG 是因为要真的把框和箭头摆到坐标上 —— 之前那版是
-   一行行文字加箭头字符，读起来还是文字。窄屏横向滚动，不缩成一团糊。 */
-.topo-wrap { overflow-x: auto; margin-top: 2rem; }
-.topo { display: block; width: 100%; min-width: 880px; height: auto; }
-
-.topo .band__bg { fill: var(--bg-soft); stroke: var(--line); stroke-width: 1; }
-.topo .band--safety .band__bg { fill: var(--warn-soft); }
-.topo .band--memory .band__bg { fill: var(--accent-soft); }
-
-.topo .bx { fill: #fff; stroke: var(--line-strong); stroke-width: 1.4; }
-.topo .bx--key { stroke: var(--accent); stroke-width: 1.8; }
-.topo .bx--warn { stroke: var(--warn); stroke-width: 1.6; }
-.topo .chip { fill: #fff; stroke: var(--line-strong); stroke-width: 1.2; }
-
-.topo .ln { fill: none; stroke: var(--line-strong); stroke-width: 1.6; }
-.topo .ln--warn { stroke: var(--warn); stroke-dasharray: 6 4; }
-.topo .ln--acc { stroke: var(--accent); stroke-dasharray: 6 4; }
-.topo .mk { fill: var(--line-strong); }
-.topo .mk--w { fill: var(--warn); }
-.topo .mk--a { fill: var(--accent); }
-
-.topo text { fill: var(--ink); }
-.topo .t-lab { font: 500 12px/1 var(--mono); fill: var(--ink-3); letter-spacing: 0.05em; }
-.topo .t-lab--key { fill: var(--accent); }
-.topo .t-lab--warn { fill: var(--warn); }
-.topo .t-lab--acc { fill: var(--accent); }
-.topo .t-name { font: 500 13.5px/1 var(--sans); text-anchor: middle; }
-.topo .t-code { font: 500 13px/1 var(--mono); text-anchor: middle; }
-.topo .t-sub { font: 400 11px/1 var(--sans); text-anchor: middle; fill: var(--ink-3); }
-.topo .t-note { font: 400 10.5px/1 var(--sans); fill: var(--ink-3); }
-.topo .t-note--warn { fill: var(--warn); }
-.topo .t-note--acc { fill: var(--accent); }
-.topo .chips text { font: 500 9.5px/1 var(--mono); text-anchor: middle; fill: var(--ink-2); }
-
-/* 图下面那两行实话：长句左对齐，不跟着版面居中。 */
-.topo-note { max-width: 78ch; margin: 1.1rem auto 0; }
-
-/* 窄屏上图是横向滚的 —— 与事实无关，所以只说一句怎么操作。 */
-.topo-hint { display: none; }
-@media (max-width: 900px) {
-  .topo-hint { display: block; margin: 0.7rem auto 0; text-align: center; font-size: 0.86rem; color: var(--ink-3); }
+/* ── 核心模块 ───────────────────────────────────────── */
+/* 六个模块各占一块：模块名 + 一句职责 + 三行结构。左对齐 —— 这是"规格"，不是
+   宣传语，标签对成列才扫得动；置中只留给标题和一句话的导语。
+   上一版这里是一张 SVG 拓扑图：三条带、九条连线，连线还压到过字上。模块化之后
+   信息量没减（每个模块三行硬事实），但不再依赖"画得对"。 */
+.mods {
+  display: grid; grid-template-columns: 1fr; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  margin-top: 2rem; text-align: left;
 }
+@media (min-width: 820px) { .mods { grid-template-columns: 1fr 1fr; } }
+.mod { background: #fff; padding: 1.2rem 1.3rem 1.35rem; }
+.mod__h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.55rem; margin: 0 0 0.9rem; font-size: 1.02rem; }
+.mod__h span { font: 400 0.8rem/1 var(--sans); color: var(--ink-3); }
+.mod dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.6rem 0.8rem; }
+.mod dt { font: 400 0.78rem/1.7 var(--mono); color: var(--ink-3); }
+.mod dd { margin: 0; font-size: 0.89rem; line-height: 1.7; color: var(--ink-2); }
+.mod dd code { font-size: 0.86em; }
 
 /* ── 收尾 ───────────────────────────────────────────── */
 .band--cta { padding-bottom: clamp(2.6rem, 6vw, 4.6rem); }
