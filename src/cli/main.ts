@@ -14,6 +14,7 @@ import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
 import { createSessionChanges } from './changes';
+import { exitLines } from './tally';
 // 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
 import type { CommandDescription } from './commands';
 import { applyManagedGateway, loadConfig, resolveSettings } from './config';
@@ -422,6 +423,20 @@ async function main(): Promise<void> {
       },
     });
   }
+
+  // 退出那一屏（P6c）：干了多少、改了哪些、转录在哪儿。
+  //
+  // 三个数字来自**同一本账**：`bundle.tally`（每轮摘要也读它）与 `changes`（`/diff` 读它）。
+  // 各算一份的话，屏幕上那行迟早与 `/diff` 对不上。
+  //
+  // `settle` 而不是 `print`：它要先抹掉活动区再落这几行。非 TTY 下 settle 是 no-op ——
+  // 于是管道里这一屏**一个字节都不产出**，与 P6a 之前逐字节相同（render.ts 顶部那条纪律）。
+  render.settle(
+    exitLines(bundle.tally, changes.list(), palette, {
+      root,
+      ...(transcript === undefined ? {} : { transcriptPath: transcript.path }),
+    }),
+  );
 
   await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);
   prompt.close();

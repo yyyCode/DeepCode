@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 import type { Plugin } from '../src/contract/plugin';
 import type { Message, ModelProvider, StreamEvent } from '../src/contract/model-provider';
 import type { LoopContext } from '../src/core/loop';
@@ -7,6 +8,8 @@ import { createEngine } from '../src/core/create';
 import { createPalette } from '../src/cli/ansi';
 import { createRenderer, type Renderer } from '../src/cli/render';
 import { createActivityPlugin } from '../src/cli/activity';
+import { createSessionChanges, type SessionChanges } from '../src/cli/changes';
+import { createTally, type Tally } from '../src/cli/tally';
 import {
   MAX_LINES,
   actionLine,
@@ -149,8 +152,17 @@ describe('render —— 活动区是借来的那一块', () => {
 
 // ── 插件：挂到真实装配上，看屏幕上真出现了什么 ──
 
-const activityPlugin = (render: Renderer): Plugin =>
-  createActivityPlugin({ render, palette: plain, now: () => 0 });
+const activityPlugin = (
+  render: Renderer,
+  extra: { readonly changes?: SessionChanges; readonly tally?: Tally } = {},
+): Plugin =>
+  createActivityPlugin({
+    render,
+    palette: plain,
+    changes: extra.changes ?? createSessionChanges(),
+    tally: extra.tally ?? createTally(() => 0),
+    now: () => 0,
+  });
 
 function toolPlugin(tool: string, value: string, seen: string[]): Plugin {
   return {
@@ -297,8 +309,7 @@ describe('活动面插件 —— 一条会话上屏幕的东西', () => {
     expect(text()).toContain('拒绝 —— 进程层拒绝');
   });
 
-  it('管道里一个字节的界面噪声都没有', async () => {
-    const tty = fakeTty();
+  it('管道里一个字节的界面噪声都没有', async () => {    const tty = fakeTty();
     // 默认 live = isTTY && TERM !== 'dumb' —— 这里给的就是一块真 TTY，但显式关掉活动面，
     // 走的正是管道那一支。
     const render = createRenderer({ stream: tty.stream, live: false });
@@ -308,5 +319,50 @@ describe('活动面插件 —— 一条会话上屏幕的东西', () => {
       render,
     });
     expect(tty.text()).toBe('');
+  });
+
+  it('⚠️ 改完之后印 `+3`，**不是**工具自己那段正文', async () => {
+    const { render, text } = liveRenderer();
+    const changes = createSessionChanges();
+    // 数字是从**会话改动表**读的（真跑的时候由 session-changes 插件记），
+    // 所以这里先把那一条摆进去 —— 插件的职责只是把它印出来。
+    changes.record({
+      path: resolve('a.ts'),
+      before: { kind: 'absent' },
+      after: { kind: 'text', text: 'a\nb\nc' },
+    });
+
+    await run({
+      plugins: [activityPlugin(render, { changes }), allowPlugin()],
+      value: '已写入 3 行',
+      tool: 'Write',
+      input: { file_path: 'a.ts', content: 'a\nb\nc' },
+      render,
+    });
+
+    const screen = text();
+    expect(screen).toContain('⏺ Write  a.ts');
+    expect(screen).toContain('  ⎿  +3');
+    // "已写入 3 行"对用户没有信息量，**改了多少**才是这一格的意义。
+    expect(screen).not.toContain('已写入 3 行');
+  });
+
+  it('一轮跑完落一行摘要；token 是估的就标 `（估）`，账也记在会话那份上', async () => {
+    const { render, text } = liveRenderer();
+    const tally = createTally(() => 0);
+
+    await run({
+      plugins: [activityPlugin(render, { tally }), allowPlugin()],
+      value: 'ok',
+      render,
+    });
+
+    const screen = text();
+    expect(screen).toContain('本轮 1 次工具调用');
+    // 假 provider 不报用量 → `turn.complete` 带 usageEstimated，不标就是报假账。
+    expect(screen).toContain('（估）');
+    // 同一本账：每轮摘要与退出摘要读的是**同一个** `tally`。
+    expect(tally.toolCalls).toBe(1);
+    expect(tally.tokens).toBeGreaterThan(0);
   });
 });
