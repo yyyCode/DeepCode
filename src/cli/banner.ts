@@ -24,6 +24,19 @@ export type BannerInfo = {
   readonly sessionId?: string;
 };
 
+/**
+ * 要不要画开场那一屏。
+ *
+ * **判据是 `text === ''`，不是 `text === undefined`。** 这一行看起来可以内联进
+ * `main.ts` 的一个 `if` 里，但它是第一版掉进去的那个坑：`parseArgs` 在没有提示词时
+ * 给的是**空串**（`rest.join(' ').trim()`），而"空串 falsy、所以 `=== undefined`
+ * 大约等价"这个念头，让整整一屏字一个字都没出现 —— 而且单元测试全绿，
+ * 因为测的是 `banner()` 本身，不是"到底画不画"。所以它单独立在这儿，单独立一条测试。
+ */
+export function shouldShowBanner(text: string, interactive: boolean): boolean {
+  return text === '' && interactive;
+}
+
 export function banner(info: BannerInfo, palette: Palette): readonly string[] {
   const where = info.baseUrl === undefined ? '' : `  ${palette.dim(info.baseUrl)}`;
   return [
