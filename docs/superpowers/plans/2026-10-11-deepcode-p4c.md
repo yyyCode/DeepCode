@@ -703,7 +703,7 @@ git commit -m "feat(p4c): marketplace 索引的纯校验器（M1–M8 / W1）"
  */
 ```
 
-**(e)** 补两个测试到 `test/settings-plugins.test.ts` 的 `plugins 的五层合并`describe 末尾：
+**(e)** 补**三**个测试到 `test/settings-plugins.test.ts` 的 `plugins 的五层合并` describe 末尾：
 
 ```ts
   it('user 层的 enable 虽然不进 enable，但会进 enableByUser —— 落点只认这一层', async () => {
@@ -742,13 +742,25 @@ git commit -m "feat(p4c): marketplace 索引的纯校验器（M1–M8 / W1）"
 const NO_PLUGIN_POLICY = { ...NO_PLUGINS, enableByUser: [] } as const;
 ```
 
-  然后把**policy 级**的三处 `plugins: NO_PLUGINS` 换成 `plugins: NO_PLUGIN_POLICY`
-  —— `:46`（`NO_POLICY`）、`:584`（`fixturePolicy` 的 return）、`:619`（`empty`）。
+  然后把**policy 级**的**四**处 `plugins: NO_PLUGINS` 换成 `plugins: NO_PLUGIN_POLICY`：
+
+  | 行 | 在哪儿 |
+  | --- | --- |
+  | `:52` | `const NO_POLICY: ResolvedPolicy` 的字面量 |
+  | `:268` | 那条 fail-closed 测试里传给 `registered({...})` 的字面量 |
+  | `:584` | `fixturePolicy(): ResolvedPolicy` 的 return |
+  | `:619` | `const empty: ResolvedPolicy` |
+
+  ⚠️ **`:268` 这一处容易漏** —— 它不在 `NO_POLICY` 附近，而在一个测试体中间，
+  但它进的是 `registered(policy: ResolvedPolicy = NO_POLICY, …)`（`:183`），
+  所以形状要求与另外三处**完全一样**。（计划初稿只点了三处，是逐行核源码时补上的第四条。）
+
   ⚠️ `fixturePolicy` 里 `sources: [...]` 那五处 `plugins: NO_PLUGINS`（`:564`、`:566`、`:570`、
   `:572`、`:575`）**不动** —— 那是 `SourceInfo.plugins`，形状是 `PluginsLayer`，没有那个字段。
 
-Run: `grep -n "plugins: NO_PLUGINS" test/cli.test.ts`
-Expected: 恰好 5 处，全在 `sources:` 数组里（行号 564 / 566 / 570 / 572 / 575）。
+Run: `grep -c "plugins: NO_PLUGINS" test/cli.test.ts`
+Expected: 改之前 **9** 处；改完 **5** 处，且这 5 处全落在 `:564`–`:575` 那段 `sources: [...]` 里
+（`grep -n "plugins: NO_PLUGINS" test/cli.test.ts` 逐行核一遍）。
 
 - [ ] **Step 2: typecheck 这一关先过**
 
@@ -974,7 +986,10 @@ async function putInstalled(
 
   it('落点里的坏清单照旧是"跳过的"，与启不启用无关', async () => {
     const world = await makeWorld();
-    await putInstalled(world, 'bad', { 'plugin.json': { name: 'BadName' } as never });
+    // ⚠️ 这里是 **JSON 文本**，不是对象 —— `putInstalled` 与 `putPlugin` 一样会
+    // `JSON.parse(files['plugin.json'])`，给对象的话 `JSON.parse` 先把它字符串化成
+    // `"[object Object]"` 再抛 SyntaxError，测试会死在搭现场而不是断言上。
+    await putInstalled(world, 'bad', { 'plugin.json': JSON.stringify({ name: 'BadName' }) });
     const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
     expect(found.loaded).toEqual([]);
     expect(found.skipped[0]?.origin).toBe('installed');
@@ -2335,6 +2350,7 @@ git commit -m "docs(p4c): 落点与「装 ≠ 启用」写进 README / 项目简
 | `installPlugins` → `loadPlugins` 只动约 10 处、**零行为变化**（`grep -rn installPlugins src/ test/` 无输出，且那三个测试文件与改名前一样绿） | |
 | **原子 `rename` 没有可观测的反例** —— 变异 7（把 `rename` 换成直接 `cp`）不会有测试红。这是本轮唯一一条断言不了的保证 | |
 | （计划缺陷，执行时才发现）Task 1 那份「干净清单」的 `uses` 只有 `describe` + `call`，经 M6 委托给 `validatePlugin` 后带回一条 **W7**（`plugin-manifest.ts:286`），好用例并不干净。实现是对的，错的**是计划里的固定件**。已把 `tool.check` 补进去，并把这条陷阱写在那段固定件旁边 | **执行时逮出，已修**（只动 `test/marketplace.test.ts`，`src/contract/marketplace.ts` 一个字没改） |
+| （计划缺陷，执行前重核源码时逮出）Task 2 Step 1(f) 只点了 **3** 处 policy 级 `plugins: NO_PLUGINS`，实际有 **4** 处 —— 漏掉 `test/cli.test.ts:268`，它在一条测试体中间、离 `NO_POLICY` 很远，但进的是 `registered(policy: ResolvedPolicy)` | **已补齐四处并做成表**（否则 `tsc` 会在那儿炸，虽然炸得出来，但计划该是准的） |
 
 ## 自查（写完计划后自己过一遍的那张表）
 
