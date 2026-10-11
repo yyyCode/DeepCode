@@ -8,6 +8,7 @@ import { commandsPlugin } from '../builtins/commands';
 import { createPermissionsPlugin } from '../builtins/permissions';
 import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin-guard';
 import { streamPlugin } from './stream';
+import { createActivityPlugin } from './activity';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands, type CommandDescription } from './commands';
 import { createPermissionsCommand } from './permissions-command';
@@ -128,6 +129,9 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   // 3. 第三方插件排在**最后**：它们坐 append，与这里的第一方同 tier 时后装载者在内层，
   //    于是任何第一方判定都在它们外面 —— 与"只能更严"配着看，这是双保险。
   const firstParty: Plugin[] = [
+    // 活动面（P6a）排在最外：它量的耗时要是**用户实际等的那个时间**，
+    // 排在 session-changes 里面的话，快照文件那一段就不算数了。
+    createActivityPlugin({ render: deps.render, palette: deps.palette }),
     // 个人规则：policy 之外的四个来源。
     createPermissionsPlugin({ rules: deps.policy.personalRules }),
     createChangesPlugin(deps.changes),

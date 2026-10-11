@@ -77,7 +77,9 @@ export function createPromptSink(
           return;
         }
 
-        rl.question(palette.bold(question), (answer) => settle(answer));
+        // 问什么由内核说（`执行 Edit? (y/N) `），长什么样由界面说 —— 这个 `⏸` 是
+        // 界面加的，内核那行文案一个字没动（P6 设计 §3.1 的「等」那一态）。
+        rl.question(palette.bold(`⏸ ${question}`), (answer) => settle(answer));
       });
     },
 
