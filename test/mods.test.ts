@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ModDeps, ModSpec } from '../src/contract/mod';
 import type { Plugin } from '../src/contract/plugin';
 import { DEFAULT_TELEMETRY } from '../src/contract/telemetry';
-import { builtinMods, describeMods, loadMods } from '../src/cli/mods';
+import { builtinMods, describeMods, loadMods, paneUnavailable } from '../src/cli/mods';
 
 /**
  * 装载器自己的测试。
@@ -141,22 +141,74 @@ describe('loadMods：装配期炸了（也不许传染）', () => {
 });
 
 describe('builtinMods：真清单', () => {
-  it('三个 mod，顺序是 sec-default → agents-md → telemetry（顺序即契约）', async () => {
+  const RENDER = (model: { readonly headline: string }): readonly string[] => [model.headline];
+  /** 真清单，但探针钉死 —— 清单的**名册**不该取决于跑测试的那台机器有没有 git。 */
+  const deterministic = () =>
+    builtinMods(RENDER).map((mod) =>
+      mod.name === 'diff' ? { ...mod, optionalDeps: [{ name: 'git', probe: () => true }] } : mod,
+    );
+
+  it('四个 mod，顺序是 sec-default → agents-md → telemetry → diff（顺序即契约）', async () => {
     // sec-default 要与 plugin-guard 挨着；agents-md 整片在 coreTools 之前；
-    // telemetry 是个读者，放最后。三条都写在 `cli/mods.ts` 的注释里。
-    expect(builtinMods().map((mod) => mod.name)).toEqual(['sec-default', 'agents-md', 'telemetry']);
+    // telemetry 是个读者，放最后；diff 只贡献一条命令的应答者，最后。
+    // 四条都写在 `cli/mods.ts` 的注释里。
+    expect(builtinMods(RENDER).map((mod) => mod.name)).toEqual([
+      'sec-default',
+      'agents-md',
+      'telemetry',
+      'diff',
+    ]);
   });
 
   it('真清单装出来的插件名是可预期的（装配表按名字推豁免名单）', async () => {
-    const { plugins, report } = await loadMods(DEPS, builtinMods());
-    expect(plugins.map((p) => p.name)).toEqual(['sec-default', 'instructions', 'agents-md', 'telemetry']);
+    const { plugins, report } = await loadMods(DEPS, deterministic());
+    expect(plugins.map((p) => p.name)).toEqual([
+      'sec-default',
+      'instructions',
+      'agents-md',
+      'telemetry',
+      'diff-pane',
+    ]);
     expect(describeMods(report)).toEqual([]);
   });
 
-  it('真清单今天**没有**可选依赖 —— 这不是忘了写，是它们真的不挑环境', async () => {
-    // 第一个真依赖（git）随 P5c 的 diff mod 进来。到那天这条断言会红 ——
-    // 那正是它该红的时候：红的这一刻提醒你，出口标准第二条终于有了真实例证，
-    // 该在 P5c 的检查点里补上"把 git 拿掉，主流程无损"那一条。
-    expect(builtinMods().every((mod) => (mod.optionalDeps ?? []).length === 0)).toBe(true);
+  it('真清单里**只有** diff 有可选依赖，且那一条就是 git', async () => {
+    // P5c 之前这条断言写的是"真清单今天没有可选依赖"，注释里明写着"到 P5c 那天它会红"。
+    // 现在它红了，改成了它的反面：出口标准第二条（"可选依赖缺失时主流程无损"）
+    // 到这儿才有了第一个真实例证，而**只有这一个** —— 下一个进来的要自己开口。
+    const withDeps = builtinMods(RENDER).filter((mod) => (mod.optionalDeps ?? []).length > 0);
+    expect(withDeps.map((mod) => mod.name)).toEqual(['diff']);
+    expect(withDeps[0]?.optionalDeps?.map((dep) => dep.name)).toEqual(['git']);
+  });
+});
+
+describe('paneUnavailable：/diff 那一块看不成了时说什么', () => {
+  it('装上了 → 一个字都不说', () => {
+    expect(paneUnavailable({ outcomes: [{ name: 'diff', status: 'loaded' }] })).toBeUndefined();
+  });
+
+  it('这台机器没有 git → 一句人话，点名缺的是 git', () => {
+    const said = paneUnavailable({ outcomes: [{ name: 'diff', status: 'missing', dep: 'git' }] });
+    expect(said).toContain('git');
+    expect(said).toContain('会话改动照常');
+  });
+
+  it('探针自己坏了 → 与"没有"分得开（这是我们的 bug）', () => {
+    const said = paneUnavailable({
+      outcomes: [{ name: 'diff', status: 'probe-failed', dep: 'git', error: 'E: 写错了' }],
+    });
+    expect(said).toContain('bug');
+    expect(said).not.toContain('这台机器上没有');
+  });
+
+  it('装配失败 → 也说，且说的是"装配失败"', () => {
+    const said = paneUnavailable({
+      outcomes: [{ name: 'diff', status: 'broken', error: 'E: 炸了' }],
+    });
+    expect(said).toContain('装配失败');
+  });
+
+  it('报告里根本没有 diff（清单里没它）→ 不说话，不编一个原因出来', () => {
+    expect(paneUnavailable({ outcomes: [] })).toBeUndefined();
   });
 });

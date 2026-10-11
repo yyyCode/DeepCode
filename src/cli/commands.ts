@@ -1,8 +1,8 @@
 import type { Palette } from './ansi';
 import type { Plugin } from '../contract/plugin';
 import type { Message } from '../contract/model-provider';
-import type { FileChange, SessionChanges } from './changes';
-import { diffLines, displayPath, formatUnified, splitLines, toHunks } from './diff';
+import type { SessionChanges } from './changes';
+import { formatChange } from './diff-render';
 
 /**
  * 需要外设的命令（`/diff`、`/clear`、`/compact`、`/help`）住在 `cli/` 而不是 `builtins/`。
@@ -37,6 +37,21 @@ export type SessionCommandsDeps = {
    * 不给 = 每条命令都当"没注册 describe"处理 —— `/help` 照样列全，只是每行只有名字。
    */
   readonly describeCommand?: (name: string) => Promise<CommandDescription>;
+  /**
+   * 内建 mod `diff` 装上了没有（P5c）。装上了 → `/diff` 由**那个 mod**应答，
+   * 这里**一个字都不注册**。
+   *
+   * ⚠️ **必填、不给默认值。** 给默认 `false` 的话，生产里 mod 与 CLI 会**两条应答者
+   * 抢同一条命令**（hook 链两条都跑，`/diff` 打两遍）而三条检查全绿；
+   * 给默认 `true` 的话，一台没有 git 的机器上 `/diff` 会变成"未知命令"——
+   * 而 §5.3 判据要的恰恰是那时**还给一句人话**。
+   */
+  readonly paneLoaded: boolean;
+  /**
+   * `paneLoaded === false` 时要多说的一句话（`cli/mods.ts` 的 `paneUnavailable` 给）。
+   * 说不出原因时给 `undefined` —— 那时只打本会话改动那一块，不撒谎。
+   */
+  readonly paneUnavailable?: string;
 };
 
 /**
@@ -56,18 +71,26 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
     uses: ['command.run', 'command.describe', 'ui'],
 
     register(on) {
-      on('command.run', { name: 'diff' }, ($) => {
-        const changes = deps.changes.list();
-        if (changes.length === 0) {
-          $.ui.log('本会话还没有改动过文件。');
+      // ⚠️ **只有 mod `diff` 没装时才装这一条**（P5c）。
+      // 装上了就没有这一段 —— 两条应答者抢同一条命令，`/diff` 会打两遍。
+      // 那条因果链（"把 git 从 PATH 里拿掉 → mod 不装 → 这里接管"）由
+      // `test/plugin-wiring.test.ts` 钉住，不靠读代码相信。
+      if (!deps.paneLoaded) {
+        on('command.run', { name: 'diff' }, ($) => {
+          // 工作区那一块看不成了，先说为什么 —— 静默地少一块是最坏的那种降级。
+          if (deps.paneUnavailable !== undefined) $.ui.log(deps.paneUnavailable);
+          const changes = deps.changes.list();
+          if (changes.length === 0) {
+            $.ui.log('本会话还没有改动过文件。');
+            return { handled: true };
+          }
+          // 每条改动**分开**打：渲染器是按行处理的，拼成一个大字符串会一团糟。
+          for (const change of changes) {
+            $.ui.log(formatChange(change, deps.root, deps.palette));
+          }
           return { handled: true };
-        }
-        // 每条改动**分开**打：渲染器是按行处理的，拼成一个大字符串会一团糟。
-        for (const change of changes) {
-          $.ui.log(renderChange(change, deps.root, deps.palette));
-        }
-        return { handled: true };
-      });
+        });
+      }
 
       on('command.run', { name: 'clear' }, ($) => {
         // 就地清空 REPL 正在用的那个数组引用，不是换一个新的 —— 换新的话
@@ -88,9 +111,11 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
       // ── 各条命令的自我介绍 ──
       // 与各自那条 command.run 挨着写：一条命令加了、忘了写 describe，`/help` 会当场
       // 在屏幕上提醒（见下面 help 的兜底），比放在别处更容易被发现。
-      on('command.describe', { name: 'diff' }, () => ({
-        description: '看本会话改动过的文件（unified diff）',
-      }));
+      if (!deps.paneLoaded) {
+        on('command.describe', { name: 'diff' }, () => ({
+          description: '看本会话改动过的文件（unified diff）',
+        }));
+      }
       on('command.describe', { name: 'clear' }, () => ({
         description: '清空上下文里这一轮的消息（磁盘转录保留）',
       }));
@@ -141,26 +166,4 @@ async function describeOne(
     return null;
   }
   return said.usage === undefined ? said.description : `${said.description}　${said.usage}`;
-}
-
-/**
- * 一条改动渲染成一屏 unified diff（或一句退化说明）。
- *
- * 三种退化各有独立输出，不混成一句：
- * - 任意一侧 skipped（太大 / 是目录 / 读不动）→ 说清为什么没内容，别假装没改过；
- * - `hunks.length === 0`（写了一遍却一字未变，或改了又改回去）→ "没有净改动"，
- *   说了也白说，不打一片空白。
- */
-function renderChange(change: FileChange, root: string, palette: Palette): string {
-  const label = displayPath(change.path, root);
-
-  const skipped = [change.before, change.after].find((s) => s.kind === 'skipped');
-  if (skipped?.kind === 'skipped') return `${label}: 未记录内容（${skipped.why}）`;
-
-  const before = change.before.kind === 'text' ? splitLines(change.before.text) : [];
-  const after = change.after.kind === 'text' ? splitLines(change.after.text) : [];
-  const hunks = toHunks(diffLines(before, after));
-  if (hunks.length === 0) return `${label}: 没有净改动。`;
-
-  return formatUnified(label, hunks, palette, { isNew: change.before.kind === 'absent' });
 }

@@ -1,7 +1,5 @@
-import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createPalette } from '../src/cli/ansi';
-import { diffLines, displayPath, formatUnified, splitLines, toHunks, type DiffLine } from '../src/cli/diff';
+import { diffLines, splitLines, toHunks, type DiffLine } from '../lines';
 
 /** 只看 kind 序列，好断言又不会被文本噪音淹没。 */
 const kinds = (lines: readonly DiffLine[]): string[] => lines.map((line) => line.kind);
@@ -121,44 +119,5 @@ describe('diffLines', () => {
     expect(lines.slice(n).every((line) => line.kind === 'add')).toBe(true);
     expect(lines[0]).toMatchObject({ kind: 'del', text: 'old 0' });
     expect(lines[n]).toMatchObject({ kind: 'add', text: 'new 0' });
-  });
-});
-
-describe('formatUnified 与调色板', () => {
-  const hunks = toHunks(diffLines(['a', 'b', 'c'], ['a', 'B', 'c']));
-
-  it('关掉着色时输出与"根本没有这个模块"逐字节相同', () => {
-    const text = formatUnified('src/a.ts', hunks, createPalette(false));
-
-    expect(text).not.toContain('\u001b');
-    expect(text).toBe(
-      ['--- a/src/a.ts', '+++ b/src/a.ts', '@@ -1,3 +1,3 @@', ' a', '-b', '+B', ' c'].join('\n'),
-    );
-  });
-
-  it('开着色时 hunk 头是青色、增删行是红绿', () => {
-    const text = formatUnified('src/a.ts', hunks, createPalette(true));
-
-    expect(text).toContain('\u001b[36m@@ -1,3 +1,3 @@\u001b[0m');
-    expect(text).toContain('\u001b[32m+B\u001b[0m');
-    expect(text).toContain('\u001b[31m-b\u001b[0m');
-  });
-
-  it('isNew 时旧侧指向 /dev/null', () => {
-    const text = formatUnified('src/a.ts', toHunks(diffLines([], ['a'])), createPalette(false), {
-      isNew: true,
-    });
-
-    expect(text.split('\n')[0]).toBe('--- /dev/null');
-  });
-});
-
-describe('displayPath', () => {
-  const ROOT = join(sep, 'work', 'p');
-
-  it('root 里给相对路径，root 外照直给绝对路径', () => {
-    expect(displayPath(join(ROOT, 'src', 'a.ts'), ROOT)).toBe(join('src', 'a.ts'));
-    const outside = join(sep, 'other', 'x.ts');
-    expect(displayPath(outside, ROOT)).toBe(outside);
   });
 });

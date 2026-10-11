@@ -6,6 +6,7 @@ import type { Tier } from '../src/contract/tier';
 import type { ModDeps } from '../src/contract/mod';
 import { DEFAULT_TELEMETRY } from '../src/contract/telemetry';
 import { builtinMods, loadMods } from '../src/cli/mods';
+import type { PaneModel } from '../mods/diff/pane';
 import type { StreamEvent, StreamRequest } from '../src/contract/model-provider';
 import type { ModelProvider } from '../src/contract/engine';
 
@@ -133,5 +134,26 @@ export async function modPlugins(over: Partial<ModDeps> = {}): Promise<readonly 
     managedInstructions: [],
     ...over,
   };
-  return (await loadMods(deps, builtinMods())).plugins;
+  return (await loadMods(deps, deterministicMods())).plugins;
+}
+
+/** 测试里的渲染器：不许色，逐行拼。理由见 `deterministicMods`。 */
+const testRenderer = (model: PaneModel): readonly string[] => [
+  `── ${model.headline} · ${model.backend} ──  ${model.files} 个文件`,
+];
+
+/**
+ * 真清单，**但把 `diff` 的探针钉成永远为真**。
+ *
+ * ⚠️ 这不是图省事，是不让测试结果取决于**跑测试的那台机器有没有 git**：
+ * 一个在开发机上绿、在干净的 CI 容器里红（或反过来）的测试，比没有这个测试更坏 ——
+ * 它会训练人忽略红色。真探针的行为由 `mods/diff/test/backend.test.ts` 注入假的 `run`
+ * 去测，那里才问得准。
+ */
+export function deterministicMods(): ReturnType<typeof builtinMods> {
+  return builtinMods(testRenderer).map((mod) =>
+    mod.name === 'diff'
+      ? { ...mod, optionalDeps: [{ name: 'git', probe: () => true }] }
+      : mod,
+  );
 }

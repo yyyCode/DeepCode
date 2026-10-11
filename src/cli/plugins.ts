@@ -89,6 +89,13 @@ export type CliPluginDeps = {
    * 不给 = `/help` 照列名字，只是每行没有那句话。
    */
   readonly describeCommand?: (name: string) => Promise<CommandDescription>;
+  /**
+   * 内建 mod `diff` 装上了没有（P5c）。`/diff` 的应答者由它与 CLI **二选一** ——
+   * 两条都在的话命令会打两遍。必填的理由写在 `cli/commands.ts` 那个字段的注释里。
+   */
+  readonly paneLoaded: boolean;
+  /** `paneLoaded === false` 时 `/diff` 要多说的那一句（`cli/mods.ts` 的 `paneUnavailable`）。 */
+  readonly paneUnavailable?: string;
 };
 
 export type CliPluginBundle = {
@@ -142,6 +149,8 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       messages: deps.messages,
       root: deps.root,
       palette: deps.palette,
+      paneLoaded: deps.paneLoaded,
+      ...(deps.paneUnavailable === undefined ? {} : { paneUnavailable: deps.paneUnavailable }),
       ...(deps.compact === undefined ? {} : { compact: deps.compact }),
       ...(deps.describeCommand === undefined ? {} : { describeCommand: deps.describeCommand }),
     }),
@@ -181,6 +190,8 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       // 内建 mod。**整片排在 firstParty 之前**：`agents-md` 的嵌套 hook 必须在
       // `coreTools` 外层（同 tier 内先装载者在外层），而它就在这一片里 ——
       // 这条约束以前靠数组里那两行挨着保证，现在靠这里的拼接顺序保证。
+      // `diff`（P5c）也搭在这一片上：它的 `/diff` 应答者要在 session-commands 之前，
+      // 不过那一对今天靠 `paneLoaded` 二选一，不靠先后 —— 顺序是双保险。
       // 座位不在这里给（默认 builtin），只有 `sec-default` 例外，见下面 seating。
       ...deps.mods,
       ...firstParty,

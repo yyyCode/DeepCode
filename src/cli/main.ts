@@ -8,7 +8,8 @@ import { createEngine } from '../core/create';
 import { runTurn } from '../core/loop';
 import { createProvider } from '../providers';
 import { cliPlugins } from './plugins';
-import { builtinMods, describeMods, loadMods } from './mods';
+import { builtinMods, describeMods, loadMods, paneUnavailable } from './mods';
+import { formatPane } from './diff-render';
 import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
@@ -267,9 +268,14 @@ async function main(): Promise<void> {
       policyRules: policy.policyRules,
       managedInstructions: policy.instructions,
     },
-    builtinMods(),
+    // 渲染器从这儿注入：`Palette` 与 `changes` 都住在这边，而 mod 不许认识它们
+    // （`mods/diff/index.ts` 顶部那段）。`changes.list()` 每次现取，快照会过期。
+    builtinMods((model) => formatPane(model, palette, changes.list(), root)),
   );
   for (const line of describeMods(report)) warnLine(line);
+  // ⚠️ `/diff` 的应答者由内建 mod `diff` 与 CLI **二选一**。这一行就是那个开关：
+  // 装了 mod 就 CLI 不注册，没装（这台机器没有 git）就 CLI 接管并说出原因。
+  const paneMiss = paneUnavailable(report);
 
   const bundle = cliPlugins({
     render,
@@ -288,6 +294,8 @@ async function main(): Promise<void> {
     // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。
     baseSystemPrompt: SYSTEM_PROMPT,
     mods: modPlugins,
+    paneLoaded: paneMiss === undefined,
+    ...(paneMiss === undefined ? {} : { paneUnavailable: paneMiss }),
     discovered: thirdParty,
     pluginDeny: policy.plugins.deny,
     compact: async () => {

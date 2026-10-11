@@ -68,7 +68,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>923</b><span>用例全绿 · 53 个文件</span></li>
+    <li><b>968</b><span>用例全绿 · 57 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
     <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
   </ul>
@@ -343,8 +343,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>923</b>
-      <p>用例，53 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>968</b>
+      <p>用例，57 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -411,7 +411,7 @@
     </li>
     <li>
       <div class="road__head"><span class="pill pill--doing">进行中</span><h3>P5 内建与分发</h3></div>
-      <p>目标：四个内建 mod（diff / telemetry / agents-md / sec-default）各自通过测试套件，可选依赖缺失时主流程无损。P5 收口其中三个 —— P5a 已完成：四个 mod 住进 <code>mods/</code>，各带自己的测试套件。P5b 已完成：指令文件五层（项目 / 本机 / 用户 / 托管 / 嵌套），托管层能下发指令内容，个人层写了会被丢掉并被告知。</p>
+      <p>目标：四个内建 mod（diff / telemetry / agents-md / sec-default）各自通过测试套件，可选依赖缺失时主流程无损。P5 收口其中三个 —— P5a 已完成：四个 mod 住进 <code>mods/</code>，各带自己的测试套件。P5b 已完成：指令文件五层（项目 / 本机 / 用户 / 托管 / 嵌套），托管层能下发指令内容，个人层写了会被丢掉并被告知。P5c 已完成：<code>/diff</code> 分成两块 —— 本会话改动归 CLI、工作区未提交归内建 mod <code>diff</code>，而 <code>git</code> 是这个项目第一个真的可选依赖：把 <code>git</code> 从 <code>PATH</code> 里拿掉，启动时有一句人话，<code>/diff</code> 照旧给出本会话改动，其余一切照常。</p>
     </li>
   </ol>
 </section>

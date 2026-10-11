@@ -49,6 +49,10 @@ function bundle(overrides: Partial<Parameters<typeof cliPlugins>[0]> = {}) {
     // 这一组钉的是**转盘结构**（谁在外层、座位、豁免名单），内建 mod 的名册
     // 由下面那条真装的用例单独钉 —— 两边各管各的，谁也不假装覆盖了对方。
     mods: [],
+    // 默认这一组钉的是**转盘结构**，内建 mod 一个都不在场 ——
+    // 于是 `/diff` 由 CLI 自己应答（这正是没有 git 的那台机器上的形状）。
+    // 真装的那两条用例会把它改成 `true`。
+    paneLoaded: false,
     ...overrides,
   });
 }
@@ -88,7 +92,7 @@ describe('指令文件真的是从链上来的', () => {
     try {
       await writeFile(join(root, 'AGENTS.md'), '这个项目只用 pnpm。', 'utf8');
       // `mods` 要按这条用例自己的 root / home 真装一次 —— 指令文件的路径就从它来。
-      const b = bundle({ root, home, mods: await modPlugins({ root, home }) });
+      const b = bundle({ root, home, mods: await modPlugins({ root, home }), paneLoaded: true });
       expect(b.plugins.map((plugin) => plugin.name)).toContain('instructions');
 
       const { dispatch } = await createEngine({
@@ -125,6 +129,7 @@ describe('指令文件真的是从链上来的', () => {
           home,
           managedInstructions: [{ label: '/etc/deepcode/policy.md', text: '组织下发的口令：Zx9' }],
         }),
+        paneLoaded: true,
       });
 
       const { dispatch } = await createEngine({
@@ -226,9 +231,9 @@ describe('内建 mod：真的装进来了，且是第一方', () => {
     // 2. 都不在 `thirdParty` 里 —— 第一方豁免成立，否则一份个人配置里的
     //    `plugins.deny: ["sec-default"]` 就能把权限模型的承重墙拆了（P2 的 C3 实测过）。
     const mods = await modPlugins();
-    const b = bundle({ mods });
+    const b = bundle({ mods, paneLoaded: true });
 
-    for (const name of ['sec-default', 'instructions', 'agents-md', 'telemetry']) {
+    for (const name of ['sec-default', 'instructions', 'agents-md', 'telemetry', 'diff-pane']) {
       expect(b.plugins.map((plugin) => plugin.name)).toContain(name);
       expect(b.thirdParty).not.toContain(name);
     }
@@ -237,7 +242,7 @@ describe('内建 mod：真的装进来了，且是第一方', () => {
   it('sec-default 仍坐 prepend，且排在 plugin-guard 之后', async () => {
     // 归位到 mods/ 是**纯物理移动**，这条钉住它没有顺手改掉座位。
     // 它是权限模型那一侧的承重墙，P2 的 C3 变异测试专门验过这一条。
-    const b = bundle({ mods: await modPlugins() });
+    const b = bundle({ mods: await modPlugins(), paneLoaded: true });
     expect(b.plugins[0]?.name).toBe('plugin-guard');
     expect(b.plugins[1]?.name).toBe('sec-default');
     expect(b.seating['sec-default']).toBe('prepend');

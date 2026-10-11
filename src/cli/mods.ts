@@ -1,6 +1,7 @@
 import type { ModDeps, ModOutcome, ModReport, ModSpec } from '../contract/mod';
 import type { Plugin } from '../contract/plugin';
 import { spec as agentsMd } from '../../mods/agents-md/index';
+import { diffSpec, type PaneRenderer } from '../../mods/diff/index';
 import { spec as secDefault } from '../../mods/sec-default/index';
 import { spec as telemetry } from '../../mods/telemetry/index';
 
@@ -111,7 +112,34 @@ export function describeMods(report: ModReport): readonly string[] {
  *
  * 这两条都由 `cliPlugins` 的拼接顺序保证，不靠这张表碰巧排对 —— 表里的顺序只在
  * 同 tier 内部起作用。
+ *
+ * `diff` 排最后（P5c）：它**不裁决任何动作**，只贡献 `/diff` 那一条命令的应答者，
+ * 与谁在外面无关。它要一个渲染器（`Palette` 归 CLI），所以这个表是个**函数**而不是
+ * 一个常量 —— 别的三个 mod 都还是常量。
  */
-export function builtinMods(): readonly ModSpec[] {
-  return [secDefault, agentsMd, telemetry];
+export function builtinMods(render: PaneRenderer): readonly ModSpec[] {
+  return [secDefault, agentsMd, telemetry, diffSpec(render)];
+}
+
+/**
+ * `/diff` 的"工作区未提交"那一块看不成了时要说的话；装上了返回 `undefined`。
+ *
+ * P5c 的 §5.3 判据一（"把 git 从 PATH 里拿掉 → `/diff` 降级、其余一切照常"）要的就是
+ * 这一句。做法上刻意**不硬编码"缺 git"**：从报告里读，于是换一个可选依赖、
+ * 或者以后多一个 mod，这句话自动是对的。
+ *
+ * 四态的判词与 `describeMods` 同一口径 —— 两处说法漂开的话，
+ * 启动时说的和 `/diff` 时说的会不一样，而那是同一件事。
+ */
+export function paneUnavailable(report: ModReport): string | undefined {
+  const outcome = report.outcomes.find((o) => o.name === 'diff');
+  if (outcome === undefined || outcome.status === 'loaded') return undefined;
+  switch (outcome.status) {
+    case 'missing':
+      return `工作区那一块看不成了：这台机器上没有 ${outcome.dep}（会话改动照常）。`;
+    case 'probe-failed':
+      return `工作区那一块看不成了：检查 ${outcome.dep} 的那段自己坏了（${outcome.error}）—— 这是 DeepCode 的 bug。`;
+    case 'broken':
+      return `工作区那一块看不成了：diff 装配失败（${outcome.error}）—— 这是 DeepCode 的 bug。`;
+  }
 }

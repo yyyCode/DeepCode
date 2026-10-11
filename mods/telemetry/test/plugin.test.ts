@@ -293,6 +293,7 @@ describe('装配级', () => {
   it('cliPlugins 的清单里有 telemetry，且它是第一方（不在第三方名单里）', async () => {
     const bundle = cliPlugins({
       mods: await modPlugins(),
+      paneLoaded: true,
       render: createRenderer(),
       changes: createSessionChanges(),
       messages: [],
@@ -318,6 +319,7 @@ describe('装配级', () => {
     // 关着的时候这个插件在链上存在，但一个系统调用都不发。
     const bundle = cliPlugins({
       mods: await modPlugins(),
+      paneLoaded: true,
       render: createRenderer(),
       changes: createSessionChanges(),
       messages: [],
