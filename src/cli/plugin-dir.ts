@@ -233,9 +233,10 @@ export async function installPlugins(
         warn(
           `插件 ${item.name} 的入口 ${file} 装不上（${error instanceof Error ? error.message : String(error)}）—— 整个插件不装。`,
         );
-        continue;
       }
-      // 入口在但不合格：readRegister 已经吼过，整个插件不装 —— 没有半个插件。
+      // 一个出口管两条路：import 抛异常时 entryRegister 压根没被赋值，
+      // 入口在但不合格时 readRegister 已经吼过 —— 两条都是"整个插件不装，没有半个插件"。
+      // （原先 catch 里还有一条自己的 `continue`，与这一句完全等价，删了。）
       if (entryRegister === undefined) continue;
     }
 

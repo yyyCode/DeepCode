@@ -130,8 +130,12 @@ describe('uses 越界：整个插件不装', () => {
       on('tool.call', { tool: 'Ok' }, () => ({ value: 'ran' })); // 越界：uses 里没有 tool.call
     });
     const { registry } = await build([overreach], ['overreach']);
-    expect(registry.hooksFor('tool.describe', {})).toEqual([]);
-    expect(registry.hooksFor('tool.call', {})).toEqual([]);
+    // ⚠️ 这里的事件参数必须**让 matcher 命中**（`{ tool: 'Ok' }`，不是 `{}`）。
+    // 传空对象的话 `matchesMatcher({tool:'Ok'}, {})` 本来就是 false，于是
+    // "撤掉了"与"没撤掉"两种实现都返回空数组 —— 这条断言就成了摆设。
+    // 变异测试（把 revoke 换成 removed = 0）发现的就是这一点。
+    expect(registry.hooksFor('tool.describe', { tool: 'Ok' })).toEqual([]);
+    expect(registry.hooksFor('tool.call', { tool: 'Ok' })).toEqual([]);
   });
 
   it('越界之后同一插件的后续注册一概不作数', async () => {

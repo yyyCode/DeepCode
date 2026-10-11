@@ -69,13 +69,16 @@ export function makeThirdPartyOn(deps: ThirdPartyOnDeps): On {
   const wrap = (hook: EventHook): EventHook => {
     return ($, e, next) => {
       const returned = hook($, e, next);
-      // 流式返回值在包装之前就原样交出去。今天内核里没有任何 hook 从钩子点返回
-      // 生成器（`turn.step` 的应答者返回的是 `{}`），所以这一支是**守着一个假设**，
-      // 不是一条承重路径 —— 留着它是因为它便宜，而去掉它需要"未来不会有流式 hook"这个承诺。
-      if (isAsyncIterable(returned)) return returned;
+      // ⚠️ 曾经这里还有一条 `if (isAsyncIterable(returned)) return returned;`，
+      // 变异测试证明它是**死代码**：`await` 一个异步生成器得到的还是它自己，
+      // 下面那个形状判断照样接得住。删掉它，少一行没人守得住的代码。
 
       return (async () => {
         const out = await returned;
+        // 流式返回值原样交出去。今天内核里没有任何 hook 从钩子点返回生成器
+        // （`turn.step` 的应答者返回的是 `{}`），所以这一支是**守着一个假设**，
+        // 不是一条承重路径：删掉它也不会有测试变红。留着是因为它便宜，
+        // 而去掉它需要"未来不会有流式 hook"这个承诺。
         if (isAsyncIterable(out)) return out;
         if (
           typeof out === 'object' &&
