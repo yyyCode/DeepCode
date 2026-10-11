@@ -65,7 +65,13 @@ MVP §9.2 的 P4 列里，本轮吃掉的是前六项。逐项落点：
 
 // EventResult 新增
 'agent.offer': {
-  readonly agents: readonly { readonly name: string; readonly description: string }[];
+  // `tools` 是**我们多加的**（参考实现的 AgentOfferInput 只有 name + description）：
+  // 白名单是承重的东西，让用户与模型都看得见比藏起来好（§7）。
+  readonly agents: readonly {
+    readonly name: string;
+    readonly description: string;
+    readonly tools?: readonly string[];
+  }[];
   readonly skills: readonly { readonly name: string; readonly description: string }[];
 };
 'agent.spawn': Record<string, never>;
@@ -123,6 +129,13 @@ export type SkillSpec = {
   readonly description: string;
   /** SKILL.md 的正文（第二层披露）。 */
   readonly body: string;
+  /**
+   * 这个技能自己的目录。
+   *
+   * **第三层要靠它**（§10.1）：披露的第三层是"模型自己去读 `references/`"，
+   * 而模型得先知道那个目录在哪。`Skill` 工具的结果里会把路径一块儿给它。
+   */
+  readonly dir: string;
 };
 ```
 
@@ -135,13 +148,27 @@ export type SkillSpec = {
 多半是照那边抄的；一条「不认识 `color`，已忽略」比「文件坏了，整个 agent 不装」有用得多。
 警告只在装载时出一次。
 
-### 2.3 `$` 上多一个名词
+### 2.3 `$` 上多两个名词
 
 `src/contract/engine.ts`：
 
 ```ts
 export type AgentNoun = {
   spawn(req: AgentSpawnRequest): Promise<AgentSpawnResult>;
+};
+
+/**
+ * 技能正文在经过 `skill.prompt` 这道缝之后的样子。
+ *
+ * 为什么这也得是个名词：**插件拿不到 `dispatch`**（`contract/plugin.ts` 的 hook 签名是
+ * `($, e, next)`），所以"派一次 `skill.prompt` 让别的插件有机会改写"这件事，
+ * 插件自己做不到 —— 和子代理要 `$.agent.spawn` 是同一个原因。
+ *
+ * 这一对名词是本轮"插件拿不到 dispatch"这条约束的**全部**代价：
+ * 内核为此多开两个口子，而不是把 dispatch 漏给插件。
+ */
+export type SkillNoun = {
+  load(req: { readonly name: string; readonly text: string }): Promise<{ readonly text: string }>;
 };
 
 export type AgentSpawnRequest = {
@@ -168,30 +195,61 @@ export type AgentSpawnResult = {
 `model` 省略算不算 `inherit` —— 全是**策略**，全在插件里；内核收到的是一张已经算好的清单。
 内核因此永远不需要知道"省略 `tools` 是什么意思"。
 
-**`dispatch` 怎么给到名词。** `createCoreNouns(deps, registry)` 在 `createEngine` 里跑在
-`createDispatcher` **之前**，所以那时 `dispatch` 还不存在。用**已经有的那个套路**
-（`core/dispatch.ts:19` 的 `engine: () => EngineInterface`，注释写着"延迟取 `$`：`$` 要到
-engine.create 折叠完成之后才存在"）：
+**`dispatch` 与 `$` 怎么给到名词。** `createCoreNouns(deps, registry)` 在 `createEngine` 里
+跑在 `createDispatcher` **之前**、更跑在 `engine.create` 折叠**之前**，所以那时这两样都还不存在。
+用**已经有的那个套路**（`core/dispatch.ts:19` 的 `engine: () => EngineInterface`，注释写着
+"延迟取 `$`：`$` 要到 engine.create 折叠完成之后才存在"）。
+
+**这两个延迟取的东西不进 `CoreNounsDeps`，走第三个参数** —— 因为 `CoreNounsDeps` 是
+`CreateEngineDeps` 的一部分，而调用方（`cli/main.ts`）不该也不可能有 `dispatch`。
+这和 `registry` 是第二个参数的理由一字不差（`nouns/index.ts:26-29` 的注释）：
+
+```ts
+// core/nouns/index.ts
+export function createCoreNouns(
+  deps: CoreNounsDeps,
+  registry: Registry,
+  refs: {
+    /** 折叠完成之后才有值。 */
+    readonly engine: () => EngineInterface;
+    /** createDispatcher 返回之后才有值。 */
+    readonly dispatch: () => DispatchFn;
+  },
+): CoreEngineInterface {
+  return {
+    // …既有十个名词
+    agent: createAgentNoun({ engine: refs.engine, provider: deps.provider, signal: deps.signal, dispatch: refs.dispatch }),
+    skill: createSkillNoun({ dispatch: refs.dispatch }),
+  };
+}
+```
 
 ```ts
 // core/create.ts
+let engine: EngineInterface | undefined;
 let dispatchFn: DispatchFn | undefined;
-const coreNouns = createCoreNouns(
-  {
-    ...deps,
-    dispatch: () => {
-      if (!dispatchFn) throw new Error('dispatch 尚未构建完成');
-      return dispatchFn;
-    },
+
+const coreNouns = createCoreNouns(deps, registry, {
+  engine: () => {
+    if (!engine) throw new Error('$ 尚未构建完成');
+    return engine;
   },
-  registry,
-);
+  dispatch: () => {
+    if (!dispatchFn) throw new Error('dispatch 尚未构建完成');
+    return dispatchFn;
+  },
+});
+
 const { dispatch } = createDispatcher({ /* … */ });
 dispatchFn = dispatch;
+
+const folded = (await dispatch('engine.create', /* … */)) as EngineInterface;
+engine = folded;
 ```
 
-`CoreNounsDeps` 因此多一个 `dispatch: () => DispatchFn`。**与 `signal: () => AbortSignal`
-是同一个形状**：不是"现在就要一个东西"，而是"用的时候现取一个"。
+两个 getter 与 `signal: () => AbortSignal` 是**同一个形状**：不是"现在就要一个东西"，
+而是"用的时候现取一个"。`engine` 那个 getter 的第一行与 `create.ts` 里那个同名的
+`engine` getter 一字不差地重复了一遍 —— 它们守的是同一条时序约束，抄同一句话是有意的。
 
 ### 2.4 `LoopContext` 多三个可选字段
 
@@ -278,6 +336,17 @@ export function parseFrontmatter(text: string): Frontmatter;
 
 **`tools` 两种写法都要认** —— 参考笔记里实测两种各占一半（逗号串 3 个、JSON 数组 5 个），
 而我们多半是照抄的。这是解析器里唯一一处"为了兼容参考实现而多做的"。
+
+**但逗号切分不能长在 `parseFrontmatter` 里。** 它是个通用解析器，不知道哪个字段是列表；
+而参考实现的 `description` 常含逗号（"review code for adherence to project guidelines,
+style guides, and best practices"）—— 一刀切下去会把一句描述变成 `['…guidelines', 'style guides', …]`。
+
+所以分工是：
+
+- `parseFrontmatter` 只产出**标量**与**JSON 数组**（`[...]`）两种值。
+- `readScalar(fm, key)` 取字符串；`readList(fm, key)` 取列表 —— **逗号切分在 `readList` 里**，
+  由"我知道 `tools` 是个列表"的那一方负责。顺带也认 `[Read, Grep]` 这种没加引号的方括号写法
+  （JSON.parse 失败就退回逗号切分，不报错）。
 
 ---
 
@@ -488,6 +557,49 @@ P3 的 `todo` 插件栽过一次：只做"看不见"不够，模型可以照样�
 **这不是一个漏洞**：hook 不能自己发起工具调用，循环是唯一的调用者，
 而循环已经按 `ctx.tools` 拒过了。记进 §14，免得有人照着"hook 里看得见"推错结论。
 
+### 6.7 `Task` 与 `Skill` 必须先被确认器认识 —— 否则它们一出生就是死的
+
+**写实施计划逐行对照 `builtins/confirm.ts` 时发现的，是个真窟窿。**
+
+`confirm` 坐 `builtin`，它的 `tool.check` **不带 matcher、不调 `next`**，而且：
+
+```ts
+if (!MUTATING_TOOLS.has(tool)) {
+  // 不认识的工具：拒绝，不是放行。
+  return { decision: 'deny', rule: `未知工具 ${tool}，不在确认器的白名单里` };
+}
+```
+
+于是 `Task` 与 `Skill` 注册上来的**第一件事就是被 `confirm` 当"未知工具"拒掉** ——
+`tool.describe` 一切正常、模型看得见它们、调了就吃一句 `ERROR: 已拒绝 —— 未知工具 Task`。
+
+这是 P3 的 `todo` 插件踩过的同一个坑，它留下的注释（`plugins/todo/main.mjs`）写得很清楚：
+插件工具要么**自己在 `builtin` 之外答一次 `tool.check`**，要么确认器得认识它。
+
+`Task` / `Skill` 是第一方工具，所以走第二条路 —— 判定归 `confirm`（它是"哪些工具要问"这件事
+的主人，六个 MVP 工具名本来就硬编码在它里面）。新增一类：
+
+```ts
+/** 只读工具，不需要确认。 */
+const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep']);
+
+/**
+ * 不碰磁盘、不执行命令，但也不是"读一个文件"的：借道放行，不问。
+ *
+ * - `Skill`：把一段文本加载进上下文 —— 与 `Read` 同类。
+ * - `Task`：派一个子代理。**放过它绝不等于免确认**：子代理内部每一次工具调用都要
+ *   再走一遍这条链（`core/loop.ts` 是同一个 `runTurn`），它要写文件照样弹 y/N。
+ *   在 `Task` 上再问一次只是让用户多按一次 y，还会误导出"我批准了 Task
+ *   就是批准了它接下来做的一切"。
+ */
+const PASS_THROUGH_TOOLS = new Set(['Skill', 'Task']);
+
+const MUTATING_TOOLS = new Set(['Write', 'Edit', 'Bash']);
+```
+
+**第三方的插件工具不走这条**：它们坐在 `append`（在 `builtin` 之外），自己答一次 `tool.check`
+就结束了 —— 那条路 P3 已经建好并且有测试。这里只补第一方那两个。
+
 ---
 
 ## 7. 路由：`agent.offer` → system prompt
@@ -686,8 +798,10 @@ const model = callModel ?? (spec.model === 'inherit' ? undefined : spec.model);
 | `src/contract/model-provider.ts` | 改 | `StreamRequest.model?` |
 | `src/core/loop.ts` | 改 | `LoopContext.tools?` / `maxHops?` / `onText?`；两个落点；`max_hops` |
 | `src/core/nouns/agent.ts` | **新** | `createAgentNoun`：内层 `runTurn` + 静音包装 |
-| `src/core/nouns/index.ts` | 改 | 装配 `agent` 名词；`CoreNounsDeps.dispatch` 懒取 |
-| `src/core/create.ts` | 改 | `dispatchFn` 懒取的接线；两条 coreImpl；`agent.offer` 的默认答复 |
+| `src/core/nouns/skill.ts` | **新** | `createSkillNoun`：把正文过一遍 `skill.prompt` |
+| `src/core/nouns/index.ts` | 改 | 装配 `agent` / `skill` 两个名词；多一个 `refs` 参数（`engine` / `dispatch` 的延迟取） |
+| `src/core/create.ts` | 改 | 两个延迟取的接线；两条 coreImpl（`agent.offer` / `skill.prompt` 的默认答复） |
+| `src/builtins/confirm.ts` | 改 | 新增「借道放行」一类：`Task` / `Skill`（§6.7） |
 | `src/providers/anthropic.ts` | 改 | `model: req.model ?? config.model` |
 | `src/providers/openai.ts` | 改 | 同上 |
 | `src/cli/walkdir.ts` | **新** | 从 `plugin-dir.ts` 抽出的目录遍历（三处共用） |
@@ -756,6 +870,25 @@ const model = callModel ?? (spec.model === 'inherit' ? undefined : spec.model);
 ---
 
 ## 14. 已知偏差与存疑
+
+### 计划期纠正（写实施计划时逐行对照源码，发现设计稿有错，改的是设计稿本身）
+
+1. **`Task` 与 `Skill` 会被 `confirm` 当"未知工具"拒掉** —— 设计稿原先只字未提。
+   `builtins/confirm.ts` 对不在两张表里的工具一律 `deny`，所以两个新工具**一出生就是死的**。
+   改法见新的 §6.7（`confirm` 新增「借道放行」一类）。
+2. **`skill.prompt` 没人派得动** —— 插件拿不到 `dispatch`，所以"派一次让别的插件改写"
+   这件事插件自己做不了。设计稿原先写的是 `Skill` 工具直接派，那是做不到的。
+   改成多一个 `$.skill.load` 名词（§2.3）。
+3. **`LoopContext` 是三个可选字段，不是两个**（`model` 与 `onText` 上一版都漏在字段清单外）——
+   `loop.ts:54` 直接调 `ctx.provider.stream(...)`，不经过 `$.model.stream`，
+   所以 `model` 只能从 ctx 走。改的是 §2.4。
+4. **`agent.offer` 的 agent 条目要带 `tools`** —— 设计稿 §7 的渲染样张里印了工具清单，
+   而 §2.1 的结果类型里没有这个字段，两处对不上。按 §7 的样张补上（§2.1）。
+5. **`SkillSpec` 要带 `dir`** —— 第三层披露是"模型自己用 `Read` 去读 `references/`"，
+   而模型得先知道那个目录在哪。补进 §2.2。
+6. **逗号切分不能放在通用 frontmatter 解析器里** —— 参考实现里的 `description` 常含逗号
+   （"…guidelines, style guides, and best practices"），一刀切下去会把一句描述切成数组。
+   解析器只认标量与 JSON 数组，**逗号串由"取列表字段"的那个读取器负责**（§3 末）。
 
 ### 偏差（与参考实现或与本项目既有约定不一致）
 
