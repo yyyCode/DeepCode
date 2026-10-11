@@ -17,7 +17,12 @@ process.stdin.on('end', () => {
   try {
     event = JSON.parse(raw);
   } catch {
-    // 读不懂输入就别说"没问题"。退出码 1 = 非阻断错误，走过去。
+    // 读不懂输入就别说"没问题"。
+    //
+    // 退出码 1 = **fail = deny**，不是"走过去"：classify 只认 0 与 2
+    // （src/cli/hook-run.ts:180-195），其余一律 fail，而 fail 与 block 一样翻成 deny
+    // （src/cli/classic-hooks.ts:75-79）。这里原来写的是参考实现的语义
+    // （那边 exit 1 是非阻断错误），在我们的框架里不成立 —— 留着会让下一个照抄的人判错方向。
     process.exit(1);
   }
 
