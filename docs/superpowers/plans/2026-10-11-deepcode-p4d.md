@@ -1394,3 +1394,28 @@ dispatch 是**无条件**取 `deps.engine()` 的，没有 `$` 会让每一次注
 `test/dispatch.test.ts` 新增三条用例把它钉住（名词进得来且内核名词一个不少、
 两个插件供同名名词时靠外的赢、座位抬到 `prepend` 就压过 `builtin`）。
 
+### Task 15：全量三绿与九条反向验证（汇总）—— 2026-10-11
+
+- `pnpm typecheck` 绿；`pnpm lint` 绿；`pnpm test` **52 文件 / 891 用例全绿**
+  （P4d 开始前是 44 / 738）。
+- 历史遗留的过期计数也一并清了：官网首屏那格写着 `16/39`（比 README 的 44/738 还旧），
+  连同 README / 项目简介 / `site` 三处的"只桥了 3 个 classic 事件"一起改成现值。
+- 九条反向验证**没有在这里重跑**。理由不是省事，是它们的目标文件在那之后**一个字节都没动过**
+  —— 逐条核对（`git log` 各文件的最后一次改动，均早于各自检查点）：
+
+| # | 变异 | 目标文件最后改动 | 红了几条（记在） |
+| --- | --- | --- | --- |
+| 1 | `withContext` 的空判 | `contract/prompt-channel.ts` @ C1 | 2（C1） |
+| 2 | `tool.result` 派发提前到 `tool.check` 之前 | `core/loop.ts` @ C1 | 6（C1） |
+| 3 | `MAX_STOP_BLOCKS` 的 `continue` → `break` | `core/loop.ts` @ C1 | 3（C1） |
+| 4 | `PostToolUse` 的 `tool_response` 换成 `e.input` | `cli/classic-hooks.ts` @ C2 | 1（C2） |
+| 5 | `runGroup` 的 `exit 2` 降级分支 | `cli/classic-hooks.ts` @ C2 | 1（C2） |
+| 6 | `plugin.json` 的 `uses` 去掉 `"turn.stop"` | `plugins/hookify/` @ C2 | 3（C2） |
+| 7 | `validateEntry` 的字符串分支放宽 | `cli/telemetry-rows.ts` @ C3 | 4（C3） |
+| 8 | 托管层那条 `!== false` 去掉 | `cli/settings.ts` @ C3 | 1（C3） |
+| 9 | sink 的 `if (!enabled) return;`（`record` 那处） | `cli/telemetry-sink.ts` @ C3 | 1（C3） |
+
+第 7–9 条是本次跑的新结果，逐条记在 C3 一节里（含第 9 条那个"两处同名、只有一处承重"的发现）。
+第 1–6 条的结果在 C1 / C2 一节里，连同各自的变异手法与"计划预估的红点与实际红点不一致"
+那两处偏差。**九条各自的断言都是有效的**：没有一条出现"变异落上了却全绿"。
+
