@@ -49,13 +49,18 @@ const PATH_TOOLS: ReadonlySet<string> = new Set(['Read', 'Write', 'Edit']);
 /** 工具名：字母开头，之后字母 / 数字 / 下划线。 */
 const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
 
-/** 连续空白折成单空格、去首尾。规则侧与调用侧都要做，`git  push` 才等于 `git push`。 */
-function squeeze(text: string): string {
+/**
+ * 连续空白折成单空格、去首尾。规则侧与调用侧都要做，`git  push` 才等于 `git push`。
+ *
+ * **导出给沙箱用**（`contract/sandbox.ts` 的 `sandboxRule`）。P4b 那一道路径闸必须与
+ * 权限链用**同一套**归一 —— 两套分叉的那天，症状是"同一条规则在权限链认、在沙箱不认"。
+ */
+export function squeeze(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
 }
 
-/** 反斜杠统一成正斜杠，免得同一个路径因为写法不同而匹配不上。 */
-function slashes(text: string): string {
+/** 反斜杠统一成正斜杠，免得同一个路径因为写法不同而匹配不上。**导出给沙箱用**，理由同 `squeeze`。 */
+export function slashes(text: string): string {
   return text.replace(/\\/g, '/');
 }
 
@@ -64,8 +69,12 @@ function slashes(text: string): string {
  *
  * 规则侧的 `~` 由调用方在解析时展开；**调用侧不展开** —— 模型给 `Read` 传 `~/.ssh/id_rsa`
  * 本来就该由 fs 名词去管，绕到这里来只会让匹配和真实行为对不上。
+ *
+ * 沙箱**调用侧要展开它**：权限链的调用侧不展开是刻意的（同上），而沙箱的候选来自命令行文本，
+ * 跟 fs 名词隔了一整条工具链 —— 不展开的话一条 `~/.ssh/**` 的 deny 会**永远不命中**，
+ * 安静地失效。
  */
-function expandHome(text: string, home: string): string {
+export function expandHome(text: string, home: string): string {
   if (text === '~') return home;
   if (text.startsWith('~/') || text.startsWith('~\\')) return home + text.slice(1);
   return text;
