@@ -1,3 +1,4 @@
+import type { AgentSpawnRequest, AgentSpawnResult } from './agent';
 import type { Message, ModelProvider, StreamEvent, ToolSpec } from './model-provider';
 
 export type UiNoun = {
@@ -45,6 +46,27 @@ export type CommandNoun = { list(): readonly string[] };
 export type ModelNoun = { stream(req: Parameters<ModelProvider['stream']>[0]): AsyncIterable<StreamEvent> };
 
 /**
+ * 子代理名词。
+ *
+ * **插件拿不到 `dispatch`**（hook 签名是 `($, e, next)`），而"跑一个内层 turn"
+ * 必须要它 —— 所以这只能是名词。与 `$.model.stream` 同一个先例：
+ * 名词是"内核能力的直接实现，不是事件"（MVP 设计 §10 偏差 5）。
+ */
+export type AgentNoun = {
+  spawn(req: AgentSpawnRequest): Promise<AgentSpawnResult>;
+};
+
+/**
+ * 技能名词：把正文过一遍 `skill.prompt` 这道缝。
+ *
+ * 这一对名词是"插件拿不到 dispatch"这条约束的**全部**代价：内核为此多开两个口子，
+ * 而不是把 dispatch 漏给插件。
+ */
+export type SkillNoun = {
+  load(req: { readonly name: string; readonly text: string }): Promise<{ readonly text: string }>;
+};
+
+/**
  * 内核名词。
  *
  * 注意：MVP 的 $ 是这些名词的**直接实现，不是事件** —— 架构文档里
@@ -56,6 +78,8 @@ export interface CoreEngineInterface {
   readonly tool: ToolNoun;
   readonly command: CommandNoun;
   readonly model: ModelNoun;
+  readonly agent: AgentNoun;
+  readonly skill: SkillNoun;
   readonly fs: FsNoun;
   readonly process: ProcessNoun;
   readonly store: StoreNoun;

@@ -276,7 +276,7 @@ describe('链语义', () => {
 
   it('落到未实现的事件抛 NotImplementedError', async () => {
     const h = createHarness();
-    await expect(h.dispatch('agent.spawn', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
+    await expect(h.dispatch('config.set', {}, CORE_ORIGIN)).rejects.toBeInstanceOf(
       NotImplementedError,
     );
   });

@@ -34,6 +34,27 @@ export type EventArgs = {
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   'tool.describe': { readonly tool: string };
   'command.run': { readonly name: string; readonly args: readonly string[] };
+
+  // ── P4a 转正的三个（原先在 UnimplementedEvent 那族里）──
+
+  /**
+   * 把"这个会话能派什么、能加载什么"报给拼 system prompt 的那一处。
+   *
+   * 名字偏窄：它顺带报了技能清单。消费者是**同一个**，拆成 `skill.offer` 就是
+   * 多一个第 40 个事件、多派一次、拼两份 —— 而事件目录是这个架构里最不该随手
+   * 加东西的地方（见本文件顶部那段）。记为已知偏差。
+   */
+  'agent.offer': Record<string, never>;
+  /** 即将启动一个子代理。**纯通知**，不带改写能力。 */
+  'agent.spawn': { readonly name: string; readonly task: string; readonly model?: string };
+  /**
+   * 技能正文展开成文本的那一刻。
+   *
+   * ⚠️ **这是缝，不是闸**：链尾无人应答 = **原文通过**（默认实现在 coreImpls 里）。
+   * 别把它"统一"成 fail-closed —— 在缝上 deny 会让一个没被任何插件碰过的技能
+   * 彻底不可用。详细理由见设计 §10.3。
+   */
+  'skill.prompt': { readonly name: string; readonly text: string };
 };
 
 export type EventResult = {
@@ -49,6 +70,18 @@ export type EventResult = {
   'tool.check': { readonly decision: 'allow' | 'ask' | 'deny'; readonly rule?: string };
   'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
   'command.run': { readonly handled?: boolean };
+  'agent.offer': {
+    // `tools` 是**我们多加的**（参考实现的 offer 只有 name + description）：
+    // 白名单是承重的东西，让用户与模型都看得见比藏起来好。
+    readonly agents: readonly {
+      readonly name: string;
+      readonly description: string;
+      readonly tools?: readonly string[];
+    }[];
+    readonly skills: readonly { readonly name: string; readonly description: string }[];
+  };
+  'agent.spawn': Record<string, never>;
+  'skill.prompt': { readonly text: string };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -97,8 +130,6 @@ export type UiEventName = keyof UiEventArgs;
 
 /** 除 `ui.*` 之外的声明-only 事件：`ui.*` 已有精确类型，见 UiEventArgs。 */
 export type UnimplementedEvent =
-  | 'agent.offer'
-  | 'agent.spawn'
   | 'prompt.fill'
   | 'prompt.suggest'
   | 'prompt.edit'
@@ -109,7 +140,6 @@ export type UnimplementedEvent =
   | 'command.describe'
   | 'config.set'
   | 'config.describe'
-  | 'skill.prompt'
   | 'attribution.text'
   | 'session.receive'
   | 'session.compact'
@@ -159,6 +189,9 @@ export const NOTIFICATION_EVENTS = [
   'turn.start',
   'turn.step',
   'turn.complete',
+  // P4a：派子代理也是"让插件看得见"这一类 —— 没有任何一条需要内核答复，
+  // 链尾 `{}` 兜底正是它该有的语义。将来的 SubagentStart 桥、telemetry 挂这里。
+  'agent.spawn',
 ] as const;
 
 const NOTIFICATION_SET: ReadonlySet<string> = new Set(NOTIFICATION_EVENTS);

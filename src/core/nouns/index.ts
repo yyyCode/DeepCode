@@ -44,6 +44,9 @@ export function createCoreNouns(deps: CoreNounsDeps, registry: Registry): CoreEn
     store: createStoreNoun(),
     clock: createClockNoun(),
     ui: createUiNoun(deps.ui),
+    // ⚠️ 临时桩：Task 5 会用真正的实现替换掉这两行。
+    agent: { spawn: async () => ({ text: '', stopReason: 'error' }) },
+    skill: { load: async (req) => ({ text: req.text }) },
     logger: createLoggerNoun(deps.env),
   };
 }
