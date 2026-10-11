@@ -42,7 +42,13 @@ function spyRenderer(): { render: Renderer; written: () => string } {
   };
 }
 
-const NO_POLICY: ResolvedPolicy = { sources: [], policyRules: [], personalRules: [] };
+const NO_PLUGINS = { enable: [], deny: [] } as const;
+const NO_POLICY: ResolvedPolicy = {
+  sources: [],
+  policyRules: [],
+  personalRules: [],
+  plugins: NO_PLUGINS,
+};
 /** 真实清单里的 confirm 会问 `$.ui.ask`，不给 engine 桩的话整条链会炸。 */
 const NOOP_UI = {
   ui: { log: () => {}, notice: () => {}, ask: async () => 'n' },
@@ -150,7 +156,11 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       home: process.cwd(),
     });
 
-    expect(bundle.seating).toEqual({ 'sec-default': 'prepend', permissions: 'user' });
+    expect(bundle.seating).toEqual({
+      'plugin-guard': 'prepend',
+      'sec-default': 'prepend',
+      permissions: 'user',
+    });
   });
 });
 
@@ -242,6 +252,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
           { raw: 'Bash(git push:*)', tool: 'Bash', content: 'git push:*', decision: 'deny' },
         ],
         personalRules: [{ raw: 'Bash', tool: 'Bash', decision: 'allow' }],
+        plugins: NO_PLUGINS,
       },
       NOOP_UI,
       // 真实内核的 tool.check 兜底是 fail-closed 的 deny，这里照抄一份：
@@ -252,7 +263,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     expect(
       await h.dispatch(
         'tool.check',
-        { tool: 'Bash', input: { command: 'git push origin main' } },
+        { tool: 'Bash', input: { command: 'git push origin main' }, toolUseId: 'tu_1' },
         CORE_ORIGIN,
       ),
     ).toEqual({ decision: 'deny', rule: 'Bash(git push:*)' });
@@ -537,24 +548,25 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       sources: [
         { source: 'user', path: 'C:\\Users\\x\\.deepcode\\settings.json', state: 'ok',
           counts: { allow: 1, ask: 0, deny: 0 },
-          problems: [], rules: [{ raw: 'Read', tool: 'Read', decision: 'allow' }] },
+          problems: [], rules: [{ raw: 'Read', tool: 'Read', decision: 'allow' }], plugins: NO_PLUGINS },
         { source: 'project', path: 'F:\\p\\.deepcode\\settings.json', state: 'missing',
-          counts: { allow: 0, ask: 0, deny: 0 }, problems: [], rules: [] },
+          counts: { allow: 0, ask: 0, deny: 0 }, problems: [], rules: [], plugins: NO_PLUGINS },
         { source: 'local', path: 'F:\\p\\.deepcode\\settings.local.json', state: 'ok',
           counts: { allow: 0, ask: 0, deny: 1 },
           problems: ['deny: "Bash(git push" —— 括号不配对'],
-          rules: [deny('Bash(git push:*)', 'Bash', 'git push:*')] },
+          rules: [deny('Bash(git push:*)', 'Bash', 'git push:*')], plugins: NO_PLUGINS },
         { source: 'flag', path: undefined, state: 'missing',
-          counts: { allow: 0, ask: 0, deny: 0 }, problems: [], rules: [] },
+          counts: { allow: 0, ask: 0, deny: 0 }, problems: [], rules: [], plugins: NO_PLUGINS },
         { source: 'policy', path: 'C:\\Program Files\\DeepCode\\managed-settings.json', state: 'ok',
           counts: { allow: 0, ask: 0, deny: 2 },
-          problems: [], rules: [deny('Bash(git push:*)', 'Bash', 'git push:*'), deny('WebSearch', 'WebSearch')] },
+          problems: [], rules: [deny('Bash(git push:*)', 'Bash', 'git push:*'), deny('WebSearch', 'WebSearch')], plugins: NO_PLUGINS },
       ],
       policyRules: [deny('Bash(git push:*)', 'Bash', 'git push:*'), deny('WebSearch', 'WebSearch')],
       personalRules: [
         { raw: 'Read', tool: 'Read', decision: 'allow' },
         deny('Bash(git push:*)', 'Bash', 'git push:*'),
       ],
+      plugins: NO_PLUGINS,
     };
   }
 
@@ -583,7 +595,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
     const lines: string[] = [];
     const engine = { ui: { log: (line: string) => lines.push(line) } } as unknown as EngineInterface;
     const h = createHarness({ engine });
-    const empty: ResolvedPolicy = { sources: [], policyRules: [], personalRules: [] };
+    const empty: ResolvedPolicy = { sources: [], policyRules: [], personalRules: [], plugins: NO_PLUGINS };
     seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');
 
     await h.dispatch('command.run', { name: 'permissions', args: [] }, CORE_ORIGIN);

@@ -300,6 +300,42 @@ Windows 上就是 `C:\Users\<你>\.deepcode\projects\<工作目录>\sessions\<id
 `Read`/`Write`/`Edit`/`Bash`/`Glob`/`Grep` 走的接口与未来的第三方插件**完全相同** ——
 内核里没有一张硬编码的工具表：模型看得见的工具清单来自注册面上 `tool.call` 的 matcher 取值。
 
+## 插件
+
+装一个插件 = 把目录放进去。用户级 `~/.deepcode/plugins/<名字>/` 自动装载；
+项目级 `<工作目录>/.deepcode/plugins/<名字>/` 要在设置里 `plugins.enable` 之后才装
+（"我自己装的"与"这个仓库要求我装什么"是两件事）。
+
+```bash
+deepcode plugin list                # 装上了哪些、跳过了哪些、为什么
+deepcode plugin validate <目录>      # 只校验一份清单，不执行任何代码
+```
+
+一份插件至少要有 `plugin.json`（`name` / `version`），可以再带：
+
+- 一个入口模块（`main.mjs`）—— `export default { register(on) }`，用与内建工具完全相同的接口
+  注册 hook。仓库里的 [`plugins/todo`](plugins/todo/) 是这样加了一个新工具。
+- 一份 `hooks/hooks.json` —— Claude Code 风格的 classic 钩子。仓库里的
+  [`plugins/secret-guard`](plugins/secret-guard/) 用它拦下了往仓库里写密钥。
+
+**第三方插件只能拧紧，不能拧松。** 这不是约定，是结构：
+
+- 它返回 `{ decision: 'allow' }` 会被丢弃 —— 那个判定连它自己那一层都出不去；
+- 座位永远是 `append`（内层）：`prepend` 与 `user` 是策略层与个人规则层，不该由一个
+  掉进目录的东西占着；`builtin` 及更内层够不着（`confirm` 在那儿结束链）；
+- 注册的事件必须在清单的 `uses` 里，越界则**整个插件不装**（不是丢掉越界那一条）；
+- 它没法扩展 `$`（往 `engine.create` 挂 hook 会被当场拒绝并告知）。
+
+准入闸门认五层 settings 合并出来的 `plugins.deny`。这份名单只能关掉**掉进目录的**插件：
+点到 CLI 自带的任何一个（`sec-default`、`plugin-guard`、`permissions` …）会被忽略并出声 ——
+一份禁用名单不该有拆承重墙的能力。**它管的是链上权威，不是代码执行** ——
+`import` 一个入口模块就是在你的进程里跑它，装一个插件就是信任它。`plugin validate`
+会把钩子要跑的命令原文打出来，那是在装之前你能看见的全部。
+
+已知偏差见 [P3 设计 §11](docs/superpowers/specs/2026-10-11-deepcode-p3-design.md)：
+只桥了 3 个 classic 事件（`PreToolUse` / `SessionStart` / `SessionEnd`），
+`type: "prompt"` 型钩子与正则 matcher 不支持，`commands/agents/skills/mcpServers` 只校验不加载。
+
 ## 安全
 
 MVP 的安全底线是 `tool.check` 事件上的最小确认：
@@ -339,19 +375,43 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   `createInterface` 之后就开始读，而 `main()` 到 `startRepl` 挂上第一个监听之间还隔着好几个
   `await`（找或建会话转录、建引擎、`session.start`、读指令文件）—— 管道里的那几行就在这段
   空窗里被读掉、扔了。要脚本化请用一次性模式 `deepcode "..."`，那条路是好的。
+- **插件只桥了 3 个 classic 事件**（`PreToolUse` / `SessionStart` / `SessionEnd`）。
+  参考实现有 33 个事件名；其余 30 个在 `hooks.json` 里会被跳过并点名，不是静默忽略 ——
+  它们要的是我们还没有的钩子点（比如 `PostToolUse` 要一个 `tool.result` 事件）。
+- **`uses` 只在事件级别校验**：`tool.check` 这一个名字是粗粒度的，一个声明了它的插件
+  对每个工具都能说上话。细到 matcher 一级的声明排在 P4。
 
 ## 开发
 
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，15 个文件 257 个用例
+pnpm test        # 测试，26 个文件 439 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
 ## 设计文档
 
+- 项目简介（一页纸，给第一次听说的人）：[`docs/项目简介.md`](docs/项目简介.md)
 - 设计：[`docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md`](docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md)
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
 - P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
+- P3 设计（插件系统）：[`docs/superpowers/specs/2026-10-11-deepcode-p3-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p3-design.md)
 - 架构参考：`claude-code-架构分析/`
+
+## 官网（静态页面）
+
+[`site/index.html`](site/index.html) 是这个项目的门面：一屏讲完「是什么、凭什么信它、走到哪一步」，
+再逐段展开。纯静态，一个 HTML / 一个 CSS / 一个 JS，没有框架、没有构建、不请求任何外部资源 ——
+**双击就能看**（`file://` 下也完整可用）：
+
+```bash
+start site/index.html      # Windows；macOS 用 open，Linux 用 xdg-open
+```
+
+页面里的每个数字与断言都能追到本文件或 `docs/` 里的具体位置；`site/` 不在 `tsconfig.json`
+的 `include` 里，也不被 `check-boundaries.mjs` 扫描，对上面三条命令零影响。
+
+**部署**：产物就是 `site/` 这**一整个目录**，拷到任意静态主机即可（GitHub Pages / Netlify / 任意 nginx），
+没有构建步骤。页面里没有一处绝对路径，放在域名根或子路径下行为一致；文档类链接指向 GitHub 上的文件，
+不依赖仓库内的相对路径 —— 所以**部署 `site/` 时不需要连 `docs/` 一起带**。

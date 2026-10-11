@@ -1,0 +1,8 @@
+{
+  "name": "secret-guard",
+  "version": "0.1.0",
+  "description": "写文件之前扫一眼内容里有没有密钥形状的东西 —— 一个只会拧紧的插件",
+  "author": "DeepCode",
+  "uses": ["tool.check"],
+  "hooks": "./hooks/hooks.json"
+}

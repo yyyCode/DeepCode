@@ -5,6 +5,7 @@ import { CORE_ORIGIN } from '../contract/next';
 import { Registry } from './registry';
 import { createDispatcher, type CoreImpls, type DispatchFn } from './dispatch';
 import { createCoreNouns, type CoreNounsDeps } from './nouns';
+import { makeThirdPartyOn } from './third-party';
 
 export type CreateEngineDeps = CoreNounsDeps & {
   plugins: readonly Plugin[];
@@ -17,6 +18,13 @@ export type CreateEngineDeps = CoreNounsDeps & {
    * 一行都不用改。
    */
   seating?: Readonly<Record<string, Tier>>;
+  /**
+   * 第三方插件的名字。**名单由调用方给**（生产里是 `cliPlugins` 从 `installPlugins`
+   * 的结果推出来的），不是插件自述的 —— 与座位同一条道理：插件自己说了不算。
+   *
+   * 列进来的插件：座位强制 `append`、`on` 走 `makeThirdPartyOn`（剥 allow / 查 uses / 拒挂 $）。
+   */
+  thirdParty?: readonly string[];
   /** 覆盖 CoreNounsDeps 里同名的工厂，类型一致。 */
   signal: () => AbortSignal;
 };
@@ -82,8 +90,17 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
   engine = folded;
 
   // 准入 + 注册。座位读的是 deps.seating 这张表，不是插件自己说的。
+  const thirdParty = new Set(deps.thirdParty ?? []);
   for (const plugin of deps.plugins) {
-    const tier: Tier = deps.seating?.[plugin.name] ?? 'builtin';
+    const third = thirdParty.has(plugin.name);
+    // 第三方插件的座位是**强制** append，seating 表对它无效 —— 连 CLI 都钉不动它。
+    // 理由是推导出来的，不是选的（设计 §4.2）：
+    //   - `prepend` / `user` 是策略层与个人规则层的座位，一个掉进目录的东西不该坐在那里；
+    //   - `builtin` 及更深够不着 —— `confirm` 就在 `builtin`，它注册了一条不调 next 的
+    //     `tool.check`，链到它那儿就结束了，坐在它里面等于永远不被调用。
+    // 于是"够得着 + 不占别人座位"的层只剩 `append`。
+    const tier: Tier = third ? 'append' : (deps.seating?.[plugin.name] ?? 'builtin');
+
     const verdict = await dispatch(
       'plugin.register',
       { name: plugin.name, tier, uses: plugin.uses },
@@ -93,7 +110,18 @@ export async function createEngine(deps: CreateEngineDeps): Promise<BuiltEngine>
       coreNouns.logger.warn(`插件 ${plugin.name} 被拒绝加载：${verdict.refuse}`);
       continue;
     }
-    plugin.register(makeOn(registry, plugin.name, tier));
+
+    plugin.register(
+      third
+        ? makeThirdPartyOn({
+            registry,
+            plugin: plugin.name,
+            tier,
+            uses: plugin.uses,
+            log: (line) => coreNouns.logger.warn(line),
+          })
+        : makeOn(registry, plugin.name, tier),
+    );
   }
 
   return { $: engine, registry, dispatch };
