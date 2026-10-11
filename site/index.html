@@ -29,8 +29,8 @@
     <nav class="nav" id="nav" aria-label="页面目录">
       <a href="#demo">现场演示</a>
       <a href="#highlights">亮点</a>
-      <a href="#permissions">权限</a>
       <a href="#architecture">架构</a>
+      <a href="#permissions">权限</a>
       <a href="#quality">质量</a>
       <a href="#roadmap">路线图</a>
       <a href="#limits">已知限制</a>
@@ -50,15 +50,17 @@
   <p class="eyebrow">终端 CLI · TypeScript · 零运行时依赖</p>
   <h1>DeepCode</h1>
   <p class="lede">一个终端里的 agentic 编码助手。给它一句自然语言，它会读文件、改文件、跑命令。</p>
-  <p class="sub">引擎在每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，按 tier 权威序串成一条链。
-    内建工具与将来的第三方插件走<strong>完全相同</strong>的接口 —— 内核里没有一张硬编码的工具表。</p>
 
   <div class="install">
     <div class="install__row">
       <code class="install__cmd">git clone https://github.com/yyyCode/DeepCode &amp;&amp; cd DeepCode &amp;&amp; pnpm install &amp;&amp; npm link</code>
       <button class="copy" type="button" data-copy="git clone https://github.com/yyyCode/DeepCode &amp;&amp; cd DeepCode &amp;&amp; pnpm install &amp;&amp; npm link">复制</button>
     </div>
-    <p class="install__note">需要 Node ≥ 20 与 pnpm。之后在任意项目目录里：<code>deepcode "跑一下测试，把失败的那条修掉"</code></p>
+    <div class="install__row">
+      <code class="install__cmd">deepcode "跑一下测试，把失败的那条修掉"</code>
+      <button class="copy" type="button" data-copy='deepcode "跑一下测试，把失败的那条修掉"'>复制</button>
+    </div>
+    <p class="install__note">需要 Node ≥ 20 与 pnpm。不带参数就是交互式 REPL，<code>--resume</code> 接上上次的会话。</p>
   </div>
 
   <p class="hero__cta">
@@ -77,8 +79,7 @@
 <!-- ─────────────────────────── 现场演示 ─────────────────────────── -->
 <section class="wrap band" id="demo">
   <h2>现场看一眼</h2>
-  <p class="section__lede">下面这段会话按程序真实的输出形状写：提示符、工具预览、<code>y/N</code>、那行 <code>[安全]</code>，
-    都是固定的格式，不是我编的排版。中间两句是模型自己的话。</p>
+  <p class="section__lede">一次按 <code>y</code> 放行的删除，一次被<strong>托管策略</strong>拦下的推送。</p>
 
   <div class="term" data-demo>
     <div class="term__bar">
@@ -97,62 +98,39 @@
   </div>
 
   <ul class="beats">
-    <li>
-      <b>会写盘、会跑命令的动作，先打预览再停下等你。</b>
-      按别的键都算拒绝 —— 只有 <code>y</code> / <code>yes</code> 是同意。
-    </li>
-    <li>
-      <b>那行 <code>[安全]</code> 不是提示，是拦截。</b>
-      个人设置里写 <code>allow: ["Bash"]</code> 最多把「问一次」变成「直接做」；
-      托管策略里的 <code>deny</code> 不受影响。
-    </li>
-    <li>
-      <b>全程没有 <code>--yes</code>。</b>
-      想省掉某一次询问，只能去改托管策略 —— 而托管策略必须来自文件，
-      没有环境变量能顶掉它。
-    </li>
+    <li><b>要写盘、要跑命令的动作，先打预览再停下等你。</b>
+      按别的键都算拒绝 —— 只有 <code>y</code> / <code>yes</code> 是同意。</li>
+    <li><b>那行 <code>[安全]</code> 不是提示，是拦截。</b>
+      个人设置里的 <code>allow</code> 最多把「问一次」变成「直接做」，托管策略里的 <code>deny</code> 不受影响。</li>
+    <li><b>全程没有 <code>--yes</code>。</b>
+      想省掉某一次询问，只能去改托管策略 —— 而托管策略必须来自文件。</li>
   </ul>
 </section>
 
-<!-- ─────────────────────────── 为什么再写一个 ─────────────────────────── -->
-<section class="wrap band" id="why">
-  <h2>为什么再写一个</h2>
-  <div class="prose">
-    <p>这不是第 N 个「AI 帮你写代码」。它更接近一份<strong>能跑起来的架构答卷</strong>：把所有 agent 行为收进一张事件目录，
-      每个调用点抛出一个事件，插件注册的 hook 是中间件。于是「这个动作会不会被拦下、被谁拦下、拦下之后发生了什么」
-      能在代码里指出来，而不是靠读日志猜。</p>
-    <p>边界不靠自觉。往 <code>contract/</code> 里加一个 import，<code>pnpm lint</code> 直接红 ——
-      哪一层能看见哪一层，是一张写死在脚本里的表。</p>
-    <p>做不到的事写在文档里，不藏在心里。下面「我们没做什么」一节列的就是，
-      包括一个会让 <code>deny</code> 规则安静失效的写法。</p>
-  </div>
-</section>
-
-<!-- ─────────────────────────── 八个设计决定 ─────────────────────────── -->
+<!-- ─────────────────────────── 六个设计决定 ─────────────────────────── -->
 <section class="wrap band" id="highlights">
-  <h2>八个设计决定</h2>
+  <h2>六个设计决定</h2>
   <p class="section__lede">每一条后面都跟着它换来的代价 —— 没有免费的纪律。</p>
 
   <div class="grid">
     <article class="card">
       <h3>零运行时依赖</h3>
-      <p><code>package.json</code> 里只有 <code>devDependencies</code>。跑起来不下载任何东西，
+      <p><code>package.json</code> 里只有 <code>devDependencies</code>，跑起来不下载任何东西，
         也没有「上游某个包被删了」这类事故。</p>
-      <p class="card__cost">代价：参数解析、配置校验、unified diff、ANSI 着色，全是自己写的。</p>
+      <p class="card__cost">参数解析、配置校验、unified diff、ANSI 着色，全是自己写的。</p>
     </article>
 
     <article class="card">
       <h3>更严的永远赢</h3>
-      <p>固定优先级 <code>deny &gt; ask &gt; allow</code>。规则写在哪一层、在同一数组里排第几都不影响结果 ——
-        重排一下配置文件不会换行为。</p>
-      <p class="card__cost">代价：没有「后写的覆盖先写的」，做例外得靠改托管策略。</p>
+      <p>固定优先级 <code>deny &gt; ask &gt; allow</code>，与规则写在哪一层、在同一数组里排第几都无关 ——
+        重排配置文件不会换行为。</p>
+      <p class="card__cost">没有「后写的覆盖先写的」，做例外得靠改托管策略。</p>
     </article>
 
     <article class="card">
       <h3>fail-closed 到底</h3>
-      <p>非 TTY（管道、CI）默认拒绝；不认识的工具拒绝；<code>tool.check</code> 走到链尾无人应答也是
-        <code>deny</code>，不是 <code>allow</code>。</p>
-      <p class="card__cost">为什么：方向一旦定成 fail-open，后面补不回来。</p>
+      <p>非 TTY 默认拒绝；不认识的工具拒绝；<code>tool.check</code> 走到链尾无人应答也是 <code>deny</code>。</p>
+      <p class="card__cost">方向一旦定成 fail-open，后面补不回来。</p>
     </article>
 
     <article class="card">
@@ -162,43 +140,73 @@
     </article>
 
     <article class="card">
-      <h3>个人规则掀不翻托管策略</h3>
-      <p><code>policy</code> 层的规则由守门器持有：跑完整条链后，若下游把策略的更严判定放宽了，
-        直接拿策略原文推翻它。个人 <code>allow</code> 的效力上限是把 <code>ask</code> 变成 <code>allow</code>。</p>
-      <p class="card__cost">策略层刻意没有环境变量来源 —— 一个环境变量就能改权限，等于开了个后门。</p>
-    </article>
-
-    <article class="card">
       <h3>依赖边界由脚本守</h3>
-      <p><code>pnpm lint</code> 就是 <code>scripts/check-boundaries.mjs</code>：<code>contract/</code>
-        不许 import 任何东西，<code>builtins/</code> 只许 import <code>contract/</code>。</p>
-      <p class="card__cost">破坏架构不是靠 code review 拦，是直接红。</p>
+      <p><code>contract/</code> 不许 import 任何东西，<code>builtins/</code> 只许 import <code>contract/</code> ——
+        哪一层能看见哪一层是一张写死的表。</p>
+      <p class="card__cost">破坏架构不是靠 code review 拦，是 <code>pnpm lint</code> 直接红。</p>
     </article>
 
     <article class="card">
       <h3>内建工具不是特例</h3>
-      <p>模型看得见的工具一共<strong>八个</strong>：<code>Read</code> / <code>Write</code> / <code>Edit</code> /
-        <code>Bash</code> / <code>Glob</code> / <code>Grep</code> 六个内建，加上第一方插件提供的
-        <code>Task</code>（派子代理）与 <code>Skill</code>（加载技能）—— 它们走<strong>同一条</strong>接口。
+      <p>模型看得见的八个工具 —— 六个内建加 <code>Task</code> / <code>Skill</code> —— 走<strong>同一条</strong>接口。
         清单来自注册面上 <code>tool.call</code> 的 matcher 取值。</p>
-      <p class="card__cost">内核里没有一张硬编码的工具表 —— 藏掉一个工具，是让它的 matcher 不再应答。</p>
+      <p class="card__cost">内核里没有一张硬编码的工具表。</p>
     </article>
+  </div>
+</section>
 
-    <article class="card">
-      <h3>反向验证</h3>
-      <p>每个里程碑收尾时把实现<strong>改坏一次</strong>，确认对应的测试真的会红。不红就说明那条断言是摆设，
-        先修断言本身。</p>
-      <p class="card__cost">收尾那次评审里逮到过一条「无效变异」（改坏了但行为其实没变），
-        也逮到过一次「改了但钉不住」的修改 —— 后者连同理由写进了文档，没有让它看起来有覆盖。</p>
-    </article>
+<!-- ─────────────────────────── 架构 ─────────────────────────── -->
+<section class="wrap band" id="architecture">
+  <h2>一条链，没有特例</h2>
+  <p class="section__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，
+    按 tier 权威序串成一条链。一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。</p>
+
+  <h3>运行时：权威序</h3>
+  <ol class="tiers">
+    <li><code>prepend</code><span>托管策略的守门器坐在这里</span></li>
+    <li><code>user</code><span>个人设置里的规则</span></li>
+    <li><code>append</code><span>后挂的扩展 —— 第三方插件永远在这一层</span></li>
+    <li><code>builtin</code><span>六个内建工具、最小确认</span></li>
+    <li><code>core</code><span>没人在意时的兜底</span></li>
+  </ol>
+  <p class="muted"><code>next(e)</code> 是 Koa 式续体，不是事件发射器：不调 <code>next</code> = 结束链并应答；
+    调 <code>next({...e, field})</code> = 带改写下行。链尾只有一处，没有第二个地方可以漏。</p>
+
+  <h3 class="h3-sample">构建时：目录分层</h3>
+<pre class="term__body term__body--sample">src/
+  contract/    事件目录与契约类型 —— 不 import 任何东西
+  core/        引擎：dispatch、链、tier                 → contract
+  providers/   anthropic / openai 两种协议              → contract
+  builtins/    六个内建工具                             → contract
+  cli/         装配、REPL、渲染、设置、权限解析          → 上面全部
+mods/          四个内建 mod（与第三方插件同一个接口）     → node: 内建 + contract + 自己
+plugins/       第三方插件 —— 不 import 内核，只拿到注册回调</pre>
+  <p class="muted">这张表就是 <code>scripts/check-boundaries.mjs</code> 里的那条规则表；方向对了才放行，
+    破坏边界 <code>pnpm lint</code> 直接红。</p>
+
+  <h3 class="h3-sample">八个工具，一条接口</h3>
+  <table class="deps">
+    <caption class="sr">工具的实现位置</caption>
+    <thead><tr><th scope="col">工具</th><th scope="col">谁提供的</th></tr></thead>
+    <tbody>
+      <tr><td><code>Read</code> <code>Write</code> <code>Edit</code> <code>Bash</code> <code>Glob</code> <code>Grep</code></td><td>六个<strong>内建</strong>工具（<code>builtins/</code>）</td></tr>
+      <tr><td><code>Task</code>（派子代理）<code>Skill</code>（加载技能）</td><td><strong>第一方插件</strong>（<code>src/cli/subagents.ts</code>）</td></tr>
+      <tr><td><code>TodoWrite</code> 之类</td><td><strong>第三方插件</strong>（仓库里 <code>plugins/todo</code> 就是加了一个）</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">三者走完全相同的接口 —— 加一个工具不需要改引擎，也不需要在那张清单里登记。</p>
+
+  <div class="callout">
+    <p><strong>41 个事件已声明，22 个已实现。</strong>其余 19 个在类型里躺着，
+      用到时会抛 <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
   </div>
 </section>
 
 <!-- ─────────────────────────── 权限 ─────────────────────────── -->
 <section class="wrap band" id="permissions">
   <h2>权限：谁能放宽，谁不能</h2>
-  <p class="section__lede">配置管连接（<code>config.json</code>），权限是另一套（<code>.deepcode/settings.json</code>）。
-    三组数组 <code>allow</code> / <code>ask</code> / <code>deny</code>，都可以省略。</p>
+  <p class="section__lede">配置管连接（<code>config.json</code>），权限是另一套（<code>.deepcode/settings.json</code>），
+    三组数组 <code>allow</code> / <code>ask</code> / <code>deny</code> 都可以省略。</p>
 
   <div class="tabs">
     <input type="radio" name="permtab" id="ptab-1" checked>
@@ -218,21 +226,21 @@
           <tr><td><code>project</code></td><td><code>&lt;工作目录&gt;/.deepcode/settings.json</code></td></tr>
           <tr><td><code>local</code></td><td><code>&lt;工作目录&gt;/.deepcode/settings.local.json</code></td></tr>
           <tr><td><code>flag</code></td><td><code>deepcode --settings=&lt;路径&gt;</code></td></tr>
-          <tr><td><code>policy</code></td><td>托管文件，见下</td></tr>
+          <tr><td><code>policy</code></td><td>托管，见下</td></tr>
         </tbody>
       </table>
-      <p><strong><code>policy</code> 这一层刻意没有环境变量来源。</strong>
-        <code>config.json</code> 有，是因为「别把 key 写进文件」是真需求；权限不一样 ——
-        一个环境变量就能改掉权限，等于在规则引擎上开了个后门。托管策略必须来自文件：</p>
+      <p><strong><code>policy</code> 这一层刻意没有环境变量来源。</strong>托管策略必须来自文件，
+        或由文件派生的 MDM 通道（注册表 / 托管偏好域 / 平台默认文件，第一个有内容的赢）——
+        一个环境变量就能改掉权限，等于在规则引擎上开了个后门。</p>
       <ul class="ticks">
         <li>Windows：<code>%ProgramFiles%\DeepCode\managed-settings.json</code></li>
         <li>其它平台：<code>/etc/deepcode/managed-settings.json</code></li>
       </ul>
       <div class="callout callout--warn">
-        <p><strong>托管文件存在、却读不了或解析不了时，这一层按空处理</strong> —— 大声警告一行，
-          并且在 <code>/permissions</code> 里标出来。这是整个设计里唯一一条
-          真正的 fail-open，而且消不掉：策略文件按定义是可选的，不存在时安静是对的；存在却读不了时，
-          「拒绝启动」对一个个人 CLI 是过度反应。<strong>看到那行警告，就是此刻没有守护。</strong></p>
+        <p><strong>托管文件存在、却读不了或解析不了时，这一层按空处理</strong> —— 大声警告一行。
+          这是整个设计里唯一一条真正的 fail-open，而且消不掉：策略文件按定义是可选的，
+          不存在时安静是对的；存在却读不了时，「拒绝启动」对一个个人 CLI 是过度反应。
+          <strong>看到那行警告，就是此刻没有守护。</strong></p>
       </div>
     </div>
 
@@ -256,13 +264,10 @@
       <div class="callout callout--warn">
         <p><strong>前缀匹配不懂 shell 语法，「藏在后面」的命令它看不见。</strong>
           规则比的是命令行<strong>串的开头</strong>：<code>Bash(git push:*)</code> 拦得住
-          <code>git push origin main; rm -rf ~</code>（开头就是 <code>git push&nbsp;</code>），
-          但拦不住 <code>true &amp;&amp; git push origin main</code> —— 开头是 <code>true</code>，规则不命中。</p>
-        <p>所以 <code>deny</code> 是给手滑与误操作加的一道闸，<strong>不是反对抗手段</strong>：写得出绕开写法的东西照样绕得过去。
-          真要封死得靠进程权限或操作系统级的隔离 —— <code>Bash</code> 另有一道可选的路径闸，但它在同一个局限里。</p>
+          <code>git push origin main; rm -rf ~</code>，但拦不住 <code>true &amp;&amp; git push origin main</code>。</p>
+        <p>所以 <code>deny</code> 是给手滑与误操作加的一道闸，<strong>不是反对抗手段</strong>。
+          路径规则按<strong>绝对路径</strong>匹配（<code>~</code> 会展开），相对路径不会命中。</p>
       </div>
-      <p class="muted">路径规则按<strong>绝对路径</strong>匹配（<code>~</code> 会展开成主目录），相对路径不会命中。
-        大小写按平台原样比较，不替文件系统做归一 —— 猜错的症状是一条防御规则悄悄不命中。</p>
     </div>
 
     <div class="tabs__panel" id="panel-3">
@@ -271,15 +276,13 @@
         <code>prepend</code>，个人规则坐在 <code>user</code>，而<strong>个人规则掀不翻任何一条
         <code>deny</code></strong>。</p>
       <p><strong>没有 <code>--yes</code>，托管策略里也不写 <code>allow</code>。</strong>
-        策略说「不用问」会被当成自动放行开关，与安全底线冲突 —— 守门器只在策略<strong>更严</strong>时才插手。</p>
-      <p>会话里随时用 <code>/permissions</code> 看当前生效的规则、每条来自哪一层、哪些工具被隐藏、
-        哪些规则没生效。</p>
+        守门器只在策略<strong>更严</strong>时才插手。</p>
+      <p>会话里随时用 <code>/permissions</code> 看当前生效的规则与每条的来源。</p>
     </div>
   </div>
 
   <h3 class="h3-sample"><code>/permissions</code> 的输出样张</h3>
-  <p class="muted">下面是<strong>真实代码路径</strong>打出来的（用同一份 <code>renderPermissions</code> 生成，只去掉了颜色），
-    不是照着文档画的。</p>
+  <p class="muted">下面是<strong>真实代码路径</strong>打出来的（同一个 <code>renderPermissions</code> 生成，只去掉了颜色）。</p>
 <pre class="term__body term__body--sample">权限来源（低 → 高）
   user     C:\Users\you\.deepcode\settings.json  3 条（allow 1 / ask 1 / deny 1）
   project  C:\myproject\.deepcode\settings.json  不存在
@@ -299,43 +302,6 @@
 
 规则里的路径按绝对路径匹配（~ 会展开成主目录）；相对路径不会命中。
 更严的永远赢：deny > ask > allow，与规则写在哪一层、写成什么顺序无关。</pre>
-  <p class="muted">样张里的 <code>WebSearch</code> 与 README 的例子一致：这个名字本轮还没实现（见「22/41」），
-    但规则按名字生效 —— 工具真出现的那天，它也会从模型眼前消失。</p>
-</section>
-
-<!-- ─────────────────────────── 架构 ─────────────────────────── -->
-<section class="wrap band" id="architecture">
-  <h2>一条链，没有特例</h2>
-  <p class="section__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，
-    按 tier 权威序串成一条链。一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。</p>
-
-  <ol class="tiers">
-    <li><code>prepend</code><span>托管策略的守门器坐在这里</span></li>
-    <li><code>user</code><span>个人设置里的规则</span></li>
-    <li><code>append</code><span>后挂的扩展</span></li>
-    <li><code>builtin</code><span>六个内建工具、最小确认</span></li>
-    <li><code>core</code><span>没人在意时的兜底</span></li>
-  </ol>
-  <p class="muted"><code>next(e)</code> 是 Koa 式续体，不是事件发射器：不调 <code>next</code> = 结束链并应答；
-    调 <code>next({...e, field})</code> = 带改写下行。链尾只有一处，没有第二个地方可以漏。</p>
-
-  <h3>依赖边界（<code>scripts/check-boundaries.mjs</code> 里的那张表）</h3>
-  <table class="deps">
-    <caption class="sr">各层允许 import 的层</caption>
-    <thead><tr><th scope="col">层</th><th scope="col">允许 import</th></tr></thead>
-    <tbody>
-      <tr><td><code>contract</code></td><td>无 —— 它是纯类型，不 import 任何东西</td></tr>
-      <tr><td><code>core</code></td><td><code>contract</code></td></tr>
-      <tr><td><code>providers</code></td><td><code>contract</code></td></tr>
-      <tr><td><code>builtins</code></td><td><code>contract</code></td></tr>
-      <tr><td><code>cli</code></td><td><code>contract</code> · <code>core</code> · <code>providers</code> · <code>builtins</code></td></tr>
-    </tbody>
-  </table>
-
-  <div class="callout">
-    <p><strong>41 个事件已声明，22 个已实现。</strong>其余 19 个在类型里躺着，
-      用到时会抛 <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
-  </div>
 </section>
 
 <!-- ─────────────────────────── 工程质量 ─────────────────────────── -->
@@ -361,8 +327,7 @@
   <div class="prose">
     <p><strong>反向验证是这里唯一一条「自证」的手段。</strong>测试全绿不能说明什么 —— 一条永远不命中的断言也是绿的。
       所以每个里程碑收尾时要把实现改坏一次，看对应测试红不红；不红就说明那条断言是摆设，先修断言本身。
-      这条纪律在收尾评审里真逮到过东西：一条变异改坏了代码但行为其实没变（算无效变异），
-      一次修复造不出可移植的失败输入（「按构造正确」而非「按测试正确」）——
+      这条纪律真逮到过东西：一条变异改坏了代码但行为其实没变，一次修复造不出可移植的失败输入 ——
       两件都写进了文档，包括后者的那条用例其实钉不住什么。</p>
   </div>
 </section>
@@ -373,49 +338,40 @@
   <ol class="road">
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>MVP</h3></div>
-      <p>跑通「读 → 改 → 跑测试」的闭环。安全底线是每个会写盘或执行命令的动作都要你在终端上按一次 <code>y</code>。</p>
+      <p>跑通「读 → 改 → 跑测试」的闭环；安全底线是每个会写盘或执行命令的动作都要按一次 <code>y</code>。</p>
     </li>
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>P1 会话与体验</h3></div>
-      <p>出口标准：重启后 <code>--resume</code> 能接着上次会话；TUI 下 <code>/diff</code> 能看到本会话的改动；
-        OpenAI 兼容 provider 用配置切换可用。</p>
+      <p><code>--resume</code> 接上上次会话；TUI 下 <code>/diff</code> 能看到本会话改动；OpenAI 兼容 provider 用配置切换可用。</p>
     </li>
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>P2 安全与策略</h3></div>
-      <p>出口标准：个人插件无法放宽组织策略；每个判定路径都有明确的失败行为；<code>deny</code> 结果携带规则名
-        且决策可重放。<strong>「可重放」这一条没做</strong> —— 重放的前提是引擎能按调用者作用域重算裁决，
-        而这个引擎的设置是启动期解析好的不可变数组，重放只会得到与第一遍相同的答案。守门器改成「持有裁决」，
-        比它更强，偏差如实记在文档里。</p>
+      <p>五层设置来源、<code>allow</code> / <code>ask</code> / <code>deny</code>、托管策略掀不翻。
+        出口标准里的「决策可重放」<strong>没做</strong> —— 守门器改成「持有裁决」，比它更强，偏差如实记在文档里。</p>
     </li>
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>P3 扩展面</h3></div>
-      <p>出口标准：一个<strong>不改引擎</strong>的插件能扩展出新的用户能力（仓库里的
-        <code>plugins/todo</code> 加出了一个 <code>TodoWrite</code> 工具，而 <code>src/</code> 里 grep 不到这个名字）；
-        <code>deepcode plugin validate &lt;dir&gt;</code> 能拦住坏清单；classic hook 的 <code>exit 2</code>
-        能真正阻断工具调用（<code>plugins/secret-guard</code> 拦下了往仓库里写密钥）。
-        <strong>第三方插件只能拧紧不能拧松</strong>：放行判定一律被丢弃，座位强制在最内层。
-        仓库里还有第三个：<code>plugins/hookify</code> 把 <code>.deepcode/hookify.*.local.md</code>
-        里的<strong>声明式规则</strong>编译成判定，四个事件可写（省略 <code>event</code> 就是
-        <code>PreToolUse</code>）—— 加的不是一个工具，是<strong>一套语法</strong>。</p>
+      <p>一个<strong>不改引擎</strong>的插件就能加出新能力（<code>plugins/todo</code> 加了个 <code>TodoWrite</code>，
+        而 <code>src/</code> 里 grep 不到这个名字）；<code>plugin validate</code> 能拦住坏清单；
+        classic 钩子的 <code>exit 2</code> 能真正阻断调用。<strong>第三方插件只能拧紧不能拧松</strong> —— 座位强制在最内层。</p>
     </li>
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>P4 组合面</h3></div>
-      <p><strong>五片都已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具与
-        <code>agent.offer</code> 进系统提示；会话压缩、<code>Bash</code> 沙箱、嵌套 <code>AGENTS.md</code>；
-        marketplace 与安装 —— 装 ≠ 启用，只有用户级设置能开闸；<code>plugins/hookify</code>
-        与 <code>config list</code> / <code>config set</code>；以及 P4d 的文本通道与可观测 ——
-        <code>tool.result</code> / <code>turn.stop</code> / <code>prompt.*</code> 四个钩子点，
-        classic 桥从 3 个事件扩到 6 个，遥测把六个事件各记一行到用户级
-        <code>~/.deepcode/telemetry.jsonl</code>（零自由文本，默认关，只有用户层能开）。
-        P4d 的「多 surface」一节<strong>有意未做</strong>（零消费者，见设计 §9）。</p>
+      <p>五片都已落地：<code>Task</code> / <code>Skill</code>、会话压缩、<code>Bash</code> 沙箱、嵌套 <code>AGENTS.md</code>、
+        marketplace 与安装（装 ≠ 启用）、hookify 与 <code>config</code> 命令、文本通道与可观测
+        （classic 桥从 3 个事件扩到 6 个，遥测零自由文本、默认关）。</p>
     </li>
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>P5 内建与分发</h3></div>
-      <p>目标：四个内建 mod（diff / telemetry / agents-md / sec-default）各自通过测试套件，可选依赖缺失时主流程无损。P5 收口其中三个 —— P5a 已完成：四个 mod 住进 <code>mods/</code>，各带自己的测试套件。P5b 已完成：指令文件五层（项目 / 本机 / 用户 / 托管 / 嵌套），托管层能下发指令内容，个人层写了会被丢掉并被告知。P5c 已完成：<code>/diff</code> 分成两块 —— 本会话改动归 CLI、工作区未提交归内建 mod <code>diff</code>，而 <code>git</code> 是这个项目第一个真的可选依赖：把 <code>git</code> 从 <code>PATH</code> 里拿掉，启动时有一句人话，<code>/diff</code> 照旧给出本会话改动，其余一切照常。P5d 已完成：托管策略有三条通道（macOS 托管偏好域 / Windows 注册表 / 平台默认文件），托管层能钉死出网位置，CI 的硬化校验器多出一条「agent job 必须配 firewall runner」—— 把它写坏，<code>pnpm lint</code> 会红。</p>
+      <p>四个内建 mod 住进 <code>mods/</code>；指令文件五层，只有托管层能写；<code>/diff</code> 分成两块 ——
+        而 <code>git</code> 是这个项目第一个真的可选依赖（拿掉它，启动时有句人话，其余一切照常）；
+        托管策略三条通道，且托管层能钉死出网位置。</p>
     </li>
     <li class="road--done">
       <div class="road__head"><span class="pill">已完成</span><h3>P6 界面与交互</h3></div>
-      <p>四片，都是<strong>行内增强</strong>（不占整屏，所以输出照样能被 <code>tee</code>、能被滚回）：活动面让「正在做什么」看得见，结果一到就擦掉、换成永久行；内容面把模型的话按 markdown 子集过一遍，认不出的语法原样留着；改动面每轮落一行摘要、退出再算一次总账；输入面补上上/下键历史（<code>~/.deepcode/history</code>，与转录同一套权限规矩）、<code>Tab</code> 补全、行尾 <code>\</code> 续行、一次粘贴的多行算<strong>一次</strong>提交。顺带修掉 README 那条「非 TTY 下 REPL 收不到输入」。<strong>零新增事件</strong> —— 界面只是既有事件的观察者。</p>
+      <p>四片都是<strong>行内增强</strong>（不占整屏，输出照样能被 <code>tee</code>、能被滚回）：
+        开场那一屏、活动区、内容面、每轮与退出的两份账、上/下键历史与 <code>Tab</code> 补全。
+        <strong>零新增事件</strong> —— 界面只是既有事件的观察者。</p>
     </li>
   </ol>
 </section>
@@ -428,20 +384,16 @@
   <div class="grid">
     <article class="card card--limit">
       <h3>没有路径围栏</h3>
-      <p><code>Read</code> / <code>Write</code> / <code>Edit</code> / <code>Glob</code> / <code>Grep</code> /
-        <code>Bash</code> 能碰到你进程权限内的任何路径，不限工作目录。确认提示拦的是「要不要动手」，
-        不是「动哪里」。</p>
-      <p class="card__cost">所以别在装着重要东西的机器上放它乱跑。<code>Bash</code> 另有一道可选的路径闸，
-        但它只做文本分析 —— 它加的是闸，不是墙。</p>
+      <p>六个工具能碰到你进程权限内的任何路径，不限工作目录。确认提示拦的是「要不要动手」，不是「动哪里」。</p>
+      <p class="card__cost">别在装着重要东西的机器上放它乱跑。<code>Bash</code> 另有一道可选的路径闸，
+        但它只做文本分析 —— 加的是闸，不是墙。</p>
     </article>
 
     <article class="card card--limit">
       <h3>沙箱不是 OS 隔离</h3>
-      <p><code>Bash</code> 命令会过一道路径闸，但它靠切分 token 判路径，不是解析 shell：
-        <code>x=/etc/passwd; rm $x</code>、<code>rm $(echo /etc/passwd)</code> 都绕得过去。
-        Windows 上没有 bubblewrap / sandbox-exec 的对应物，做真隔离等于写一段本机永远跑不到也测不了的代码。</p>
-      <p class="card__cost">它是给手滑加的一道闸，不是反对抗手段 —— 也正因如此，它<b>不是</b>可以放开权限的理由。
-        没有 <code>dangerouslyDisableSandbox</code> 那种逃生阀（那是个放行开关）。</p>
+      <p>路径闸靠切分 token 判路径，不是解析 shell：<code>x=/etc/passwd; rm $x</code>、
+        <code>rm $(echo /etc/passwd)</code> 都绕得过去。Windows 上没有 bubblewrap / sandbox-exec 的对应物。</p>
+      <p class="card__cost">没有 <code>dangerouslyDisableSandbox</code> 那种逃生阀 —— 那是个放行开关。</p>
     </article>
 
     <article class="card card--limit">
@@ -452,44 +404,49 @@
 
     <article class="card card--limit">
       <h3>没有整屏 TUI、没有语法高亮</h3>
-      <p>界面是逐行的纯文本流（P6 的四片都是行内增强，不占整屏），markdown 只认一个子集，
-        代码块不着色，也不走 <code>ui.render</code> 事件。</p>
-      <p class="card__cost">那棵「界面数据树」的结构今天还没有能把它钉住的消费者 ——
-        没有第二个前端、没有 TUI，落地等于把一个猜出来的形状冻进契约。</p>
+      <p>界面是逐行的纯文本流，markdown 只认一个子集，代码块不着色，也不走 <code>ui.render</code> 事件。</p>
+      <p class="card__cost">那棵「界面数据树」今天还没有能把它钉住的消费者 ——
+        落地等于把一个猜出来的形状冻进契约。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3>画面上写着 22/41，不是 41</h3>
+      <p>其余 19 个事件已声明、未实现，用到时会抛 <code>NotImplementedError</code>。
+        classic 钩子也只桥了 6 个事件（参考实现有 33 个名字），其余 27 个会被跳过<strong>并点名</strong>，不是静默忽略。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3><code>uses</code> 只在事件级别校验</h3>
+      <p><code>tool.check</code> 这一个名字是粗粒度的，声明了它的插件对每个工具都能说上话。
+        细到 matcher 一级的声明<strong>仍未做</strong> —— 它是 P3 预登记的一条偏差，不是「排到某一阶段」。</p>
     </article>
 
     <article class="card card--limit">
       <h3><code>/help</code> 不反映工具隐藏</h3>
-      <p>整工具 <code>deny</code> 会让工具从<strong>模型可见清单</strong>里消失，但 <code>/help</code>
-        仍把它列出来。要准确的去看 <code>/permissions</code>。</p>
+      <p>整工具 <code>deny</code> 会让工具从<strong>模型可见清单</strong>里消失，但 <code>/help</code> 仍把它列出来。
+        要准确的去看 <code>/permissions</code>。</p>
     </article>
 
     <article class="card card--limit">
       <h3>会话转录里是代码</h3>
-      <p>转录落成 JSONL，放在<strong>用户级</strong>目录（不进项目目录，免得被跟着仓库提交出去），
-        文件权限 <code>0600</code>。删掉那个文件就等于删掉那次会话 —— 没有别的副本，也不做过期清理。</p>
+      <p>转录落成 JSONL，放在<strong>用户级</strong>目录（不进项目目录），文件权限 <code>0600</code>。
+        删掉那个文件就等于删掉那次会话 —— 没有别的副本，也不做过期清理。</p>
     </article>
 
     <article class="card card--limit">
-      <h3>hookify 的规则写坏了，工具会全停（只在 PreToolUse 上）</h3>
-      <p>规则词汇逐事件不同，且只有兑现得了的词才许写：<code>PreToolUse</code> 上是
-        <code>deny</code> / <code>ask</code>，另外三个事件（<code>PostToolUse</code> /
-        <code>UserPromptSubmit</code> / <code>Stop</code>）上没有可拦的动作。写 <code>allow</code>
-        是<strong>错误</strong>，会当场点名 —— 插件返回的放行判定在这个框架里一律被丢弃。
-        而任何说不清的规则文件 —— 缺字段、算子写错、正则编译不过、钩子进程崩了 ——
-        一律非零退出。</p>
+      <h3>hookify 的规则写坏了，工具会全停</h3>
+      <p><code>decision: allow</code> 是规则文件的<strong>错误</strong>，会当场点名；而任何说不清的规则文件
+        —— 缺字段、算子写错、正则编译不过、钩子进程崩了 —— 一律非零退出。</p>
       <p class="card__cost">于是 <code>PreToolUse</code> 上的非零就是 <code>deny</code>：
-        一个写坏的规则文件会让 <code>Write</code> / <code>Edit</code> / <code>Bash</code>
-        <strong>全部被拒绝</strong>，直到修好它。另外三个事件上只是一句 <code>notice</code>。
+        <code>Write</code> / <code>Edit</code> / <code>Bash</code> <strong>全部被拒绝</strong>，直到修好它。
         我们接受这个代价 —— 一个读不懂自己规则的守卫，比一个假装没事的守卫危险。</p>
     </article>
 
     <article class="card card--limit">
       <h3>marketplace 只做本地索引</h3>
-      <p><code>plugin add</code> 从一份<strong>本地</strong>索引把插件拷进落点
-        <code>~/.deepcode/installed/</code>：不 fetch、不 clone、不 HTTP，没有签名与校验和。</p>
-      <p class="card__cost">没有可信密钥体系时，做一个假的签名比不做更糟 —— 它会让人以为校验过。
-        也没有版本解析与升级：升级 = <code>remove</code> + <code>add</code>。</p>
+      <p><code>plugin add</code> 从一份<strong>本地</strong>索引把插件拷进落点：不 fetch、不 clone、不 HTTP，
+        没有签名与校验和，也没有版本与升级（升级 = <code>remove</code> + <code>add</code>）。</p>
+      <p class="card__cost">没有可信密钥体系时，做一个假的签名比不做更糟 —— 它会让人以为校验过。</p>
     </article>
   </div>
 </section>
@@ -521,9 +478,8 @@ EOF">复制</button>
   </div>
   <p class="muted">key 也可以放环境变量（<code>ANTHROPIC_API_KEY</code>），或者换成任何 Anthropic / OpenAI
     兼容的端点 —— 改 <code>apiKey</code> / <code>baseUrl</code> / <code>model</code> 三样就行。
-    <code>config list</code> 把每一项的值与来源（env / user / project / default）打出来；
-    <code>config set</code> <strong>只有 <code>model</code> 可写</strong>，写进用户级
-    <code>config.json</code>，而权限 / 沙箱 / 插件在另一份 <code>settings.json</code> 里，它一个都不碰。</p>
+    <code>config set</code> <strong>只有 <code>model</code> 可写</strong>，权限 / 沙箱 / 插件在另一份
+    <code>settings.json</code> 里，它一个都不碰。</p>
 </section>
 
 </main>
@@ -539,11 +495,11 @@ EOF">复制</button>
       <h3>文档</h3>
       <ul>
         <li><a href="https://github.com/yyyCode/DeepCode">GitHub 仓库</a></li>
-        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README</a></li>
+        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README（安装 / 启动 / 使用）</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/%E9%A1%B9%E7%9B%AE%E7%AE%80%E4%BB%8B.md">项目简介（一页纸）</a></li>
+        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md">MVP 设计文档</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/superpowers/specs/2026-10-11-deepcode-p2-design.md">P2 设计（安全内核）</a></li>
-        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/superpowers/plans/2026-10-11-deepcode-p2.md">P2 执行记录</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/claude-code-%E6%9E%B6%E6%9E%84%E5%88%86%E6%9E%90/00-overview.md">架构参考笔记</a></li>
       </ul>
       <p class="muted">这几条都指向 GitHub 上的文件 —— 这个页面本身只有 <code>site/</code> 一个目录，

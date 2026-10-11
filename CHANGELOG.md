@@ -39,7 +39,7 @@
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
-`#10 p6-design`、`#11 p6a-activity`、`#12 p6b-content`、`#13 p6c-changes`（P6c + P6d 同一条）、`#14 p6d-banner`（收口后补的开场那一屏）。
+`#10 p6-design`、`#11 p6a-activity`、`#12 p6b-content`、`#13 p6c-changes`（P6c + P6d 同一条）、`#14 p6d-banner`（收口后补的开场那一屏）、`#16 p6d-banner-fix`（那一屏第一版没画出来）、`#17 readme-site-trim`（README 与官网重写）。
 
 ---
 
@@ -321,3 +321,24 @@ interactive)`，并把"`parseArgs([]).text` 就是空串"也钉一条测试。�
 
 **刻意不做**：`p6-design.md:293` §7 —— 全屏 alternate screen、语法高亮、鼠标、`ui.render`
 数据树、多 surface、进度条、表格渲染、主题系统、打字机动画、任何形态的自动放行开关、没接上的 `esc` 键。
+
+---
+
+## 文档重写：README 与官网（`#17`）
+
+**范围**：`README.md`（758 → 416 行）、`site/index.html`（563 → 519 行，但解释了整节、换成了两处架构可视化）。
+两者都从"解释为什么"改成"说清怎么用 / 亮出设计"。
+
+**README** 只留四件事：**安装 / 启动 / 会话里怎么用**，加上一份「已知限制」。
+深水区（MDM 三通道的注册表类型映射、遥测事件字段表、工作流硬化 H1–H7、
+`hookify` 算子全表、内建 mod 的探针口径）本来就在各阶段的设计文档里，README 不再重抄一遍，
+改成一句话加一个指路。
+
+**官网**去掉了解释性的整节（「为什么再写一个」），把版面让给设计本身：
+新增两处架构可视化 —— **运行时**的 tier 权威序，与**构建时**的目录分层
+（`contract` / `core` / `providers` / `builtins` / `cli` / `mods` / `plugins`，谁许 import 谁）
+加一张「八个工具，一条接口」的实现位置表。旧版那条 4 行的路线图长段落压成一两句，
+「亮点」从 8 张卡收到 6 张（反向验证并进「工程质量」）。
+
+**这一改没有动任何事实**：页面上每个数字仍能追到 README 或设计文档；
+`site/` 依然零外部请求、`file://` 下完整可用、关掉 JS 也完整。
