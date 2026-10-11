@@ -193,7 +193,7 @@ dispatchFn = dispatch;
 `CoreNounsDeps` 因此多一个 `dispatch: () => DispatchFn`。**与 `signal: () => AbortSignal`
 是同一个形状**：不是"现在就要一个东西"，而是"用的时候现取一个"。
 
-### 2.4 `LoopContext` 多两个可选字段
+### 2.4 `LoopContext` 多三个可选字段
 
 `src/core/loop.ts`：
 
@@ -204,11 +204,19 @@ export type LoopContext = {
   tools?: ReadonlySet<string>;
   /** 覆盖 MAX_HOPS。子代理的 maxTurns 落在这里。 */
   maxHops?: number;
+  /** 覆盖适配器配置里的 model（§2.5）。省略 = 用配置的那个。 */
+  model?: string;
+  /** 每一轮模型说的话。主循环不传（它直接走 turn.step 就出去了）。 */
+  onText?: (text: string) => void;
 };
 ```
 
-**两个都是可选的，所以主循环一行都不用改。** 这是刻意的：白名单不是"子代理专用的分支"，
-而是循环本来就该有的一个参数，只是默认不限。
+**三个都是可选的，所以主循环一行都不用改。** 这是刻意的：白名单与模型分层不是
+"子代理专用的分支"，而是循环本来就该有的参数，只是默认不限、不覆盖。
+
+`model` 之所以必须**经过 `LoopContext`**：`loop.ts:54` 是直接调 `ctx.provider.stream(...)` 的，
+**不经过 `$.model.stream`** —— 所以模型分层没有一个"从名词绕过去"的路径，
+它只能从 ctx 走。
 
 顺带修一处既有缺陷：`loop.ts:37` 的 `for` 循环**跑满 MAX_HOPS 时是静默退出的** ——
 `stopReason` 停在上一次 provider 说的值上，调用方分不清"模型说完了"和"撞墙了"。
@@ -391,14 +399,10 @@ const silent = <N extends EventName>(event: N, args: Args<N>, origin: Origin) =>
 ### 5.3 回传
 
 **只有本次 turn 里模型最后一段文本。** `runTurn` 的返回值目前只有 `stopReason`，
-所以在 `core/loop.ts` 的 `LoopContext` 之外，`runTurn` 需要能给出"最后那段文本"。
-最小改法：`LoopContext` 加一个可选回调
-
-```ts
-/** 每一轮模型说的话。主循环不传（它直接 turn.step 就出去了）。 */
-onText?: (text: string) => void;
-```
-在 `loop.ts:111`（`assistantBlocks` 组装处）调一次。子代理名词传一个只保留最后一份的收集器。
+所以 `LoopContext` 加了 §2.4 里那个 `onText` 回调：在 `loop.ts:111`（`assistantBlocks`
+组装处）调一次，传进去的是**这一轮**模型说的话。子代理名词传一个只保留最后一份的收集器
+（`(chunk) => { text = chunk; }`）—— 覆盖而不是累加，因为要的就是"最后一段"。
+主循环不传它，一个字都不受影响。
 
 **中间的工具结果一个字都不回流** —— 它们留在子代理自己那本 `messages` 里，随它一起丢掉。
 这就是"隔离"的全部含义。
