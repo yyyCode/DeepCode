@@ -1038,10 +1038,16 @@ Run:
 ```bash
 grep -rn "installPlugins" src/ test/
 ```
-Expected: 恰好 10 处 —— `src/cli/main.ts:20`（import）、`:211`（调用）；
-`src/cli/plugin-dir.ts:16`、`:21`（头部注释）、`:199`（函数声明）；
-`src/core/create.ts:22`（注释）；`test/plugin-dir.test.ts:6`、`:159`、`:182`、`:200`、`:218`、`:238`；
-`test/plugin-e2e.test.ts:11`、`:46`。
+Expected: **恰好 14 处**（计划初稿写「10 处」，但那串枚举本身就有 14 个，是写错了），
+按文件分布：`src/cli/main.ts` 2、`src/cli/plugin-dir.ts` 3、`src/core/create.ts` 1、
+`test/plugin-dir.test.ts` 6、`test/plugin-e2e.test.ts` 2。
+
+⚠️ **行号会漂，别照着数行**：Task 2 往 `plugin-dir.ts` 里插了约 50 行
+（`INSTALLED_DIR` / `STAGING_DIR` / 新闸门），所以本任务的行号相对计划初稿整体后移
+（函数声明 `:199` → `:250`，`main.ts` 的调用 `:211` → `:213`，
+`plugin-dir.test.ts` 的五处调用各后移约 80 行）。`grep -rn` 会告诉你真实位置，
+按**符号**找而不是按行号找。
+
 （`docs/superpowers/plans/2026-10-11-deepcode-p3.md` 与 `p4a.md` 里的命中是**历史记录，不改**。）
 
 - [ ] **Step 2: 改**
@@ -1111,12 +1117,20 @@ git commit -m "refactor(p4c): installPlugins → loadPlugins，把装载与安�
 ## ══ 检查点 C1 ══
 
 - [ ] `pnpm typecheck` ✓ / `pnpm lint` ✓ / `pnpm test` ✓（记下文件数与用例数，Task 7 要用）
+      —— **实测：41 个文件 / 639 个用例**（基线 40 / 609，增量 = 22 + 5 + 3）
 - [ ] 逐条核 spec §8 的 C1：
-  - `test/marketplace.test.ts` 里 `M1`–`M8` **每条至少一正一反**，反向那条**钉具体判词**
-    （不是「非空即过」）—— 用 `grep -c "code: 'M" 无关` 之外的办法核：
-    `grep -o "'M[1-8]'" test/marketplace.test.ts | sort -u` 应输出 `M1`…`M8` 八条。
-  - `test/plugin-dir.test.ts` 的既有用例**一条不改**（`git diff HEAD~3 -- test/plugin-dir.test.ts`
-    里除了新增块之外没有删改）。
+  - `test/marketplace.test.ts` 里每条判据至少一正一反，反向那条**钉具体判词**（不是「非空即过」）。
+    核法：`grep -o "'M[1-8]'" test/marketplace.test.ts | sort -u`
+    —— 预期输出 **七**条：`M1 M2 M3 M4 M5 M7 M8`。
+    ⚠️ **`M6` 不会出现，这是对的**：它按设计**没有自己的编号**，而是把 `validatePlugin` 的
+    结论（`E2`/`E3`…）原样转发上去，所以文件里不可能有 `'M6'` 这个字面量。
+    要核 M6 就看那两条用例的名字 —— 「M6 直接吃 validatePlugin 的结论」与
+    「M6 清单坏了（E3 名字）时也带 source 路径」。（计划初稿写的「应输出八条」是错的。）
+  - `test/plugin-dir.test.ts` 的既有用例**行为一条不改**（改的是名字，不是断言）。
+    核法分两步，别用跨多个提交的区间 —— 那会把 Task 3 的改名churn 一起算进来：
+    ① `git show <Task 2 的提交> -- test/plugin-dir.test.ts | grep -c "^-[^-]"` → **0**；
+    ② `git diff <Task 2 之前的提交>..HEAD -- test/plugin-dir.test.ts | grep "^-[^-]"` 里
+       删掉的每一行都必须只含 `installPlugins` → `loadPlugins` 这一处改名，没有别的。
   - `pnpm lint` 两句判词都在。
 - [ ] 提交已推上去（或至少本地干净）：`git status --short` 无输出
 
