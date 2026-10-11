@@ -206,6 +206,8 @@ async function main(): Promise<void> {
     home,
     root,
     enabled: policy.plugins.enable.map((rule) => rule.name),
+    // 落点只认用户层的名单 —— 与上面那行**不是同一个东西**，别合并（设计 §0 决策 3）。
+    enabledInstalled: policy.plugins.enableByUser,
     warn: (line) => process.stderr.write(`${line}\n`),
   });
   const thirdParty = await installPlugins(found.loaded, {

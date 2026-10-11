@@ -128,4 +128,28 @@ describe('plugins 的五层合并', () => {
     const { warnings } = await run({ [PATHS.project]: JSON.stringify({ plugins: { enabl: ['x'] } }) });
     expect(warnings).toContain('不认识');
   });
+
+  it('user 层的 enable 虽然不进 enable，但会进 enableByUser —— 落点只认这一层', async () => {
+    const { policy } = await run({
+      [PATHS.user]: JSON.stringify({ plugins: { enable: ['installed-one'] } }),
+      [PATHS.project]: JSON.stringify({ plugins: { enable: ['from-project'] } }),
+    });
+    expect(policy.plugins.enable.map((r) => r.name)).toEqual(['from-project']);
+    expect(policy.plugins.enableByUser).toEqual(['installed-one']);
+  });
+
+  it('用户层没写就是空 —— 默认什么都不开', async () => {
+    const { policy } = await run({
+      [PATHS.project]: JSON.stringify({ plugins: { enable: ['todo'] } }),
+    });
+    expect(policy.plugins.enableByUser).toEqual([]);
+  });
+
+  it('enableByUser 只取用户层：项目级写的名字不在里面', async () => {
+    const { policy } = await run({
+      [PATHS.project]: JSON.stringify({ plugins: { enable: ['from-project'] } }),
+      [PATHS.local]: JSON.stringify({ plugins: { enable: ['from-local'] } }),
+    });
+    expect(policy.plugins.enableByUser).toEqual([]);
+  });
 });

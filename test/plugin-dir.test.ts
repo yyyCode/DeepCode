@@ -44,6 +44,26 @@ async function putPlugin(
   return dir;
 }
 
+/** 与 putPlugin 同形，只是落在 `~/.deepcode/installed/`。 */
+async function putInstalled(
+  world: { home: string },
+  name: string,
+  files: Record<string, string>,
+): Promise<string> {
+  const dir = join(world.home, '.deepcode', 'installed', name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, 'plugin.json'),
+    JSON.stringify({ name, version: '0.1.0', ...JSON.parse(files['plugin.json'] ?? '{}') }),
+  );
+  for (const [relative, content] of Object.entries(files)) {
+    if (relative === 'plugin.json') continue;
+    await mkdir(join(dir, relative, '..'), { recursive: true });
+    await writeFile(join(dir, relative), content);
+  }
+  return dir;
+}
+
 const NO_WARN = (): void => {};
 
 describe('发现', () => {
@@ -137,6 +157,66 @@ describe('发现', () => {
     expect(found.loaded[0]?.entry).toBe('./main.mjs');
     await expect(readFile(join(world.home, 'EXECUTED'), 'utf8')).rejects.toThrow();
     expect(dir).toContain('sneaky');
+  });
+
+  it('落点里的一律不装载，除非给了 enabledInstalled —— 默认值必须是"什么都不开"', async () => {
+    const world = await makeWorld();
+    await putInstalled(world, 'todo', { 'plugin.json': MANIFEST });
+    const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
+    expect(found.loaded).toEqual([]);
+    expect(found.skipped[0]?.origin).toBe('installed');
+    expect(found.skipped[0]?.reason).toContain('用户级设置');
+    // 这一句是承重的那半：理由必须点明"项目级写同一个名字不算数"，
+    // 否则人会照着它去改 project 那份，然后还是不动。
+    expect(found.skipped[0]?.reason).toContain('项目级设置里写同一个名字不算数');
+  });
+
+  it('给了 enabledInstalled 就装载，origin 是 installed', async () => {
+    const world = await makeWorld();
+    await putInstalled(world, 'todo', { 'plugin.json': MANIFEST });
+    const found = await discoverPlugins({
+      ...world,
+      enabled: [],
+      enabledInstalled: ['todo'],
+      warn: NO_WARN,
+    });
+    expect(found.loaded.map((p) => [p.name, p.origin])).toEqual([['todo', 'installed']]);
+  });
+
+  it('**项目级名单管不着落点** —— enable 里写了同一个名字，落点那份照样不装', async () => {
+    // 决策 3 的单元级可执行形式。反过来（enabledInstalled 能点亮项目级）不存在：
+    // 项目级那份只看 deps.enabled。
+    const world = await makeWorld();
+    await putInstalled(world, 'todo', { 'plugin.json': MANIFEST });
+    const found = await discoverPlugins({ ...world, enabled: ['todo'], warn: NO_WARN });
+    expect(found.loaded).toEqual([]);
+    expect(found.skipped[0]?.origin).toBe('installed');
+  });
+
+  it('同名时 user 赢过 installed —— 更直接的那个来源赢', async () => {
+    const world = await makeWorld();
+    await putPlugin('home', world, 'todo', { 'plugin.json': MANIFEST });
+    await putInstalled(world, 'todo', { 'plugin.json': MANIFEST });
+    const found = await discoverPlugins({
+      ...world,
+      enabled: [],
+      enabledInstalled: ['todo'],
+      warn: NO_WARN,
+    });
+    expect(found.loaded.map((p) => [p.name, p.origin])).toEqual([['todo', 'user']]);
+    expect(found.skipped[0]?.reason).toContain('同名插件');
+  });
+
+  it('落点里的坏清单照旧是"跳过的"，与启不启用无关', async () => {
+    const world = await makeWorld();
+    // putInstalled 与 putPlugin 同形：`plugin.json` 这一项是**文本**（要 JSON.parse），
+    // 不是对象 —— 计划里写的 `{ name: 'BadName' } as never` 会让 JSON.parse 吃到
+    // "[object Object]" 当场抛，测试连现场都建不起来。
+    await putInstalled(world, 'bad', { 'plugin.json': JSON.stringify({ name: 'BadName' }) });
+    const found = await discoverPlugins({ ...world, enabled: [], warn: NO_WARN });
+    expect(found.loaded).toEqual([]);
+    expect(found.skipped[0]?.origin).toBe('installed');
+    expect(found.skipped[0]?.reason).toContain('E3');
   });
 });
 

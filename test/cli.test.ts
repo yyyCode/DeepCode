@@ -43,13 +43,15 @@ function spyRenderer(): { render: Renderer; written: () => string } {
 }
 
 const NO_PLUGINS = { enable: [], deny: [] } as const;
+/** policy 级的 plugins 段：比 SourceInfo 里那个 `PluginsLayer` 多一个 enableByUser。 */
+const NO_PLUGIN_POLICY = { ...NO_PLUGINS, enableByUser: [] } as const;
 const NO_POLICY: ResolvedPolicy = {
   sources: [],
   policyRules: [],
   personalRules: [],
   sandbox: EMPTY_SANDBOX,
   compact: DEFAULT_COMPACT,
-  plugins: NO_PLUGINS,
+  plugins: NO_PLUGIN_POLICY,
 };
 /** 真实清单里的 confirm 会问 `$.ui.ask`，不给 engine 桩的话整条链会炸。 */
 const NOOP_UI = {
@@ -265,7 +267,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
         personalRules: [{ raw: 'Bash', tool: 'Bash', decision: 'allow' }],
         sandbox: EMPTY_SANDBOX,
         compact: DEFAULT_COMPACT,
-        plugins: NO_PLUGINS,
+        plugins: NO_PLUGIN_POLICY,
       },
       NOOP_UI,
       // 真实内核的 tool.check 兜底是 fail-closed 的 deny，这里照抄一份：
@@ -581,7 +583,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       ],
       sandbox: EMPTY_SANDBOX,
       compact: DEFAULT_COMPACT,
-      plugins: NO_PLUGINS,
+      plugins: NO_PLUGIN_POLICY,
     };
   }
 
@@ -616,7 +618,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       personalRules: [],
       sandbox: EMPTY_SANDBOX,
       compact: DEFAULT_COMPACT,
-      plugins: NO_PLUGINS,
+      plugins: NO_PLUGIN_POLICY,
     };
     seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');
 
