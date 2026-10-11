@@ -859,11 +859,28 @@ git commit -m "docs: 删掉「没有 CI」这条限制，同步用例数与官�
 
 ## ══ 检查点 C2 ══
 
-- [ ] `pnpm typecheck` ✓ / `pnpm lint` ✓ / `pnpm test` ✓
-- [ ] 推分支、开 PR
-- [ ] 两个 Node 版本的 job 都绿（**只能在推上去之后才算数**）
-- [ ] 若 Linux 上红了：按 P4e 设计 §7 的口径处理 —— **那是它逮到了真东西**，
-      修实现或修那条测试的平台假设，不是把断言改松
+- [x] `pnpm typecheck` ✓ / `pnpm lint` ✓ / `pnpm test` ✓（40 个文件 609 个用例）
+- [x] 推分支、开 PR —— [#4](https://github.com/yyyCode/DeepCode/pull/4)
+- [x] 两个 Node 版本的 job 都绿（**只能在推上去之后才算数**）——
+      `check (node 20)` 与 `check (node 22)` 各 20s 全绿
+- [x] 若 Linux 上红了 …… —— **没红**，见上表第四行
+
+C2 实测（`gh run view --job=<id> --log` 逐步骤核过，不是只看那个绿勾）：
+
+| | node 20 | node 22 |
+| --- | --- | --- |
+| 八个 step 的结论 | 全 success | 全 success |
+| `pnpm lint` 输出 | 依赖边界检查通过 / 工作流硬化检查通过 | 同左 |
+| `pnpm test` | 40 个文件 609 个用例 | 40 个文件 609 个用例 |
+| pnpm | 10.34.6（本机 10.33.0） | 10.34.6 |
+
+**20 秒跑完一整轮**这件事本身回查过：不是因为哪个 step 被跳过，而是这个仓库只有
+4 个 devDependencies、没有 native 构建。逐 step 的 `conclusion` 与日志里的判词都点过了。
+
+**一条非阻塞的观察**：运行器报 `Node.js 20 is deprecated`，指的是
+`actions/setup-node` / `pnpm/action-setup` 这两个 action **自身**跑在 Node 20 上被强制升级到 24 ——
+不是我们的 matrix（我们的 matrix 是 20 / 22，两个都真跑到了）。修法是升那两个 action 的版本
+（即换 SHA），不阻塞本轮，留给下次例行升级。
 
 ---
 
@@ -874,4 +891,4 @@ git commit -m "docs: 删掉「没有 CI」这条限制，同步用例数与官�
 | 补 `export ... from` 不会误伤（只有 `contract/index.ts` 六行同级 re-export） | **成立**。真仓库 `pnpm lint` 通过，六行同级 re-export 全部落在 src 区域规则内，没有一条被新正则误伤。 |
 | 两个自带插件 `import` 数为 0，所以 plugins 规则在真仓库上必然过 | **成立**（`find plugins -name '*.mjs'` → 只有 `todo/main.mjs` 与 `secret-guard/scan.mjs`，两个都零 import）。所以 plugins 规则在真仓库上是**绿的但没被真正行使** —— 它被行使的地方是 `test/tooling.test.ts` 的六棵临时树，以及写这条规则时的反向验证。 |
 | `pnpm lint` 串第二个检查器后，输出仍含「依赖边界检查通过」 | **成立**（`依赖边界检查通过` + `工作流硬化检查通过`）。 |
-| Linux 上测试套件可能露出 Windows-only 假设 | **待 C2 推上去才知道**。 |
+| Linux 上测试套件可能露出 Windows-only 假设 | **没露出来**。PR [#4](https://github.com/yyyCode/DeepCode/pull/4) 两个 leg 都绿，且 **Linux 上同样是 40 个文件 / 609 个用例** —— 数与 Windows 本机逐个相同，说明没有一条用例在 Linux 上被跳过（跳过的会少）。预登记里担心的那种"平台假设"（临时目录、路径分隔符、`chmod 0600`、行尾）这一轮都没咬人。 |
