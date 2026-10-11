@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BATCH_SIZE, createTelemetrySink, type TelemetrySinkDeps } from '../src/cli/telemetry-sink';
-import { telemetryPath } from '../src/cli/telemetry-rows';
+import { BATCH_SIZE, createTelemetrySink, type TelemetrySinkDeps } from '../sink';
+import { telemetryPath } from '../rows';
 
 const made: string[] = [];
 afterEach(async () => {

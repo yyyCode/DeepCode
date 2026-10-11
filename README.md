@@ -54,7 +54,7 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
 | 输入 | 效果 |
 |---|---|
 | `/help` | 列出可用命令与工具 |
-| `/diff` | 看本会话改过哪些文件（unified 格式，带着色） |
+| `/diff` | 两块：本会话改过哪些文件、工作区还有什么没提交（unified 格式，带着色） |
 | `/clear` | 清空上下文（磁盘上的转录保留） |
 | `/compact` | 手动压缩上下文（自动压缩默认关） |
 | `/permissions` | 看当前生效的权限规则、每条来自哪一层 |
@@ -64,6 +64,16 @@ node /path/to/DeepCode/bin/deepcode.mjs "..."
 | `Ctrl-C` | 掐断当前这一回合（正在跑的模型请求与命令一起断），进程不退，可以接着聊；空闲时按 = 退出，同一回合里连按两次 = 强制退出 |
 
 工具要写盘或跑命令时，终端会打出预览并停下等你一行 `y/N`。**按别的键都算拒绝**。
+
+`/diff` 的两块**来源不同**，这件事决定了它在没有 `git` 的机器上会怎样：
+
+| 段 | 数据在谁手里 | 没有 `git` 时 |
+|---|---|---|
+| `[本会话改动]` | CLI 自己（进程内记录） | 照常 |
+| `[工作区未提交]` | 内建 mod `diff`（`git status` / `git diff`） | 整个消失 |
+
+所以拿掉 `git` 之后 `/diff` 不会变成"未知命令"，也不会打一半 —— 它照旧打出本会话改动，
+上面那一块换成一句人话。下面「内建 mod」一节说的是同一件事的机制。
 
 ## 配置
 
@@ -117,8 +127,25 @@ deepcode config set model <名字>     # 写进用户级 ~/.deepcode/config.json
 | `DEEPCODE_PROVIDER` | 选后端协议：`anthropic` / `openai`，默认 `anthropic`。写别的直接报错，**不静默退回默认值** |
 | `DEEPCODE_DEBUG` | 打开调试轨迹（走 stderr）：每次 dispatch 一行，说明这个事件被哪些 hook 应答、谁被跳过了。流式事件 `turn.step` 不打，否则会刷屏 |
 
-此外还会读取项目指令文件，拼进系统提示：`<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md`、
-`~/.deepcode/AGENTS.md`。
+此外还会读取指令文件，按**五层**拼进系统提示。顺序就是这张表自上而下 —— 越贴近这个仓库的
+越靠前，托管那份压在最末（它是权威，所以它最后说话）：
+
+| 层 | 文件 | 谁写 |
+| --- | --- | --- |
+| 项目 | `<工作目录>/AGENTS.md`、`<工作目录>/CLAUDE.md` | 这个仓库 |
+| 本机 | `<工作目录>/.deepcode/AGENTS.md`、`<工作目录>/.deepcode/CLAUDE.md` | 你，在这台机器上（`.deepcode/` 在 `.gitignore` 里） |
+| 用户 | `~/.deepcode/AGENTS.md` | 你，所有仓库通用 |
+| 托管 | 托管设置里的 `instructions` 段 | 组织 |
+| 嵌套 | 更深目录里的 `AGENTS.md`，被读到那个目录的文件时才附上 | 约定 |
+
+托管那层与其余各层有一点不同，而这一点是全部：**只有它能写**（别的四层写了会被丢掉并告诉你）。
+`instructions` 段可以给一段文本、也可以点名几个文件：
+
+```json
+{ "instructions": { "text": "组织的一句话", "files": ["/etc/deepcode/policy.md"] } }
+```
+
+点名的文件读不动或不存在会**吼一声**然后跳过那一段 —— 但不会让 CLI 起不来。
 
 ### 换成别的后端（例如 DeepSeek）
 
@@ -227,17 +254,57 @@ reg delete "HKCU\Environment" /v ANTHROPIC_AUTH_TOKEN /f
 | `project` | `<工作目录>/.deepcode/settings.json` |
 | `local` | `<工作目录>/.deepcode/settings.local.json` |
 | `flag` | `deepcode --settings=<路径>` |
-| `policy` | 托管文件，见下 |
+| `policy` | 托管通道，见下 |
 
 **`policy` 这一层刻意没有环境变量来源。** `config.json` 有（"别把 key 写进文件"是真需求），
-权限不一样 —— 一个环境变量就能改掉权限，等于在规则引擎上开了个后门。托管策略必须来自文件：
+权限不一样 —— 一个环境变量就能改掉权限，等于在规则引擎上开了个后门。托管策略必须来自文件
+或由文件派生的 MDM 通道：
 
-- Windows：`%ProgramFiles%\DeepCode\managed-settings.json`
-- 其它平台：`/etc/deepcode/managed-settings.json`
+| 顺序 | 通道 | 位置 |
+|---|---|---|
+| 1 | 环境变量 `DEEPCODE_MANAGED_SETTINGS` | 一个 JSON 文件的绝对路径 |
+| 2 | Windows 注册表 | `HKLM\SOFTWARE\DeepCode`（`reg query … /s`） |
+| 3 | macOS 托管偏好域 | `com.deepcode.settings`（`defaults export … -`） |
+| 4 | 平台默认文件 | Windows `%ProgramFiles%\DeepCode\managed-settings.json`；其它平台 `/etc/deepcode/managed-settings.json` |
 
-> 托管文件存在但**读不了**时，这一层按空处理，只打一行醒目的警告。这是本设计里唯一一条
+**第一个有内容的赢。** 注册表 / 偏好域排在默认文件之前：MDM 是正规通道，一个散落的文件
+不该盖过它。环境变量仍然最高 —— 那是给开发与排查用的口子。
+
+> 托管策略存在但**读不了**时，这一层按空处理，只打一行醒目的警告。这是本设计里唯一一条
 > 真正的 fail-open，且无法消除：策略文件按定义是可选的，不存在时静默是正确行为；
 > 存在却读不了时，"拒绝启动"对一个个人 CLI 是过度反应。**看到那行警告就是没有守护。**
+
+托管策略里能写的顶层块：`permissions`、`plugins`、`sandbox`、`compact`、`telemetry`、
+`instructions`（指令文件那一节的托管层，见上）、`gateway`（见下）。写别的会告诉你
+"不认识的顶层键（已忽略）"，而不是把整份文件丢掉 —— 将来加块时，旧版本读新文件不该整份失效。
+
+### 托管策略从哪来（MDM 三通道）
+
+三条通道最后都归一成**同一段 JSON 文本**，交给同一个解析器 —— 判据因此是"三个通道逐字节
+相同"，不是"深比较相等"。
+
+**macOS**：`defaults export com.deepcode.settings -` 出来的 XML plist。我们**自己写了一个
+最小的整 XML 读取器**，不借 `plutil` 转换 —— 把"能不能读托管策略"绑到另一个外部程序的
+版本上，就多一个只能在真机上才发现的外部依赖。它读不了：二进制 plist（`bplist00`）、
+`<date>` 的时间戳语义、`<data>` 的 base64 解码（后两个当字符串原样给）。
+
+**Windows**：注册表的类型映射是一条**写死的口径**，不是随手做的强制转换：
+
+| 注册表类型 | 变成什么 |
+|---|---|
+| `REG_SZ` / `REG_EXPAND_SZ` | 字符串 —— **但 `true` / `false`（忽略大小写）转布尔** |
+| `REG_DWORD` / `REG_QWORD` | 数字（`0x` 前缀按 16 进制） |
+| `REG_MULTI_SZ` | 字符串数组（按 `\0` 拆，也兼容"同名多行"的旧版输出） |
+| 别的 | 字符串原样 |
+
+值名按 `.` 拆成嵌套路径（`permissions.deny` → `{"permissions":{"deny":…}}`）。代价说清楚：
+**想要一个字面量的字符串 `"true"` 就表达不出来**，而我们的设置面里没有一个字段想要它
+（`permissions.deny` 是数组，走 `REG_MULTI_SZ`，不受影响）。另外注册表按系统 OEM 代码页
+输出，非 ASCII 的值（比如中文的 `instructions.text`）在某些区域设置下可能乱码。
+
+**三条通道都不许安静地少读东西**：不认识的标签、对不上的闭合、读不懂的一行、两份策略
+抢同一个键，一律抛错 —— 读得动却读不懂的托管策略，比没有托管策略危险得多。但这个异常
+会被**接住**：吼一声、按空处理、照旧启动（上面那条 fail-open）。
 
 ### 规则怎么写
 
@@ -273,6 +340,21 @@ reg delete "HKCU\Environment" /v ANTHROPIC_AUTH_TOKEN /f
 
 **没有 `--yes` / 自动放行。** 托管策略里也不写 `allow`：策略说"不用问"会被当成自动放行开关，
 与下面「安全」一节那条底线冲突 —— 守门器只在策略**更严**时才插手。
+
+### 出网位置：`gateway`（只有托管层能钉）
+
+托管策略能钉死请求发去哪：
+
+```json
+{ "gateway": { "baseUrl": "https://gateway.example.com", "model": "org-standard" } }
+```
+
+- **只有托管层能写。** 其余四层写了整块丢弃并出声 —— 让一份克隆下来的仓库文件把
+  你每一次模型请求改道到一个你没听说过的端点，是这条规矩要防的那件事。策略还在、
+  只是不再决定你连哪儿，是"个人配置掀翻托管策略"里最锋利的一种。
+- **改不动的只有端点。** `apiKey` 仍然按原样解析 —— 托管层钉的是"发给哪"，不是"发给谁"。
+- **真的改了才会说一声。** 钉住的值与你本来就配的一样时一个字都不多说（每次启动吼一遍
+  只会训练人忽略它）；不一样时启动打一行通知：**请求被改道这件事必须看得见**。
 
 ## 沙箱（只有 `Bash`）
 
@@ -383,6 +465,29 @@ Windows 上就是 `C:\Users\<你>\.deepcode\projects\<工作目录>\sessions\<id
 
 `Read`/`Write`/`Edit`/`Bash`/`Glob`/`Grep` 走的接口与未来的第三方插件**完全相同** ——
 内核里没有一张硬编码的工具表：模型看得见的工具清单来自注册面上 `tool.call` 的 matcher 取值。
+
+## 内建 mod
+
+`mods/` 下住着四个**内建 mod**：`sec-default`（权限裁决）、`agents-md`（指令文件）、
+`telemetry`（遥测）、`diff`（`/diff` 的应答者）。它们**不是特权代码**：走的接口与第三方插件
+完全相同，`src/cli/` 只是替它们挑好座位。边界由 `pnpm lint` 强制 —— mod 只许 import
+`node:` 内建、`src/contract/**` 与自己的目录，反过来只有 `src/cli/` 许 import mod。
+
+它们比第三方插件多一样东西：**可选依赖**。一个 mod 可以先探一下环境（"这台机器上有没有
+`git`"），没有就整个不装，而不是装上去再在运行时报错。今天只有一个真的消费者：
+
+| mod | 可选依赖 | 缺了会怎样 |
+|---|---|---|
+| `diff` | `git` | 不装载。启动时**出声**（`内建 mod diff 没装：这台机器上没有 git。`），`/diff` 改由 CLI 自己应答 —— 本会话改动照常打出，工作区那一块换成一句人话。其余一切照常 |
+
+三条口径：
+
+- **降级必须看得见** —— 缺了东西却安静地少一块，比装不上还坏。四个 mod 全都"装配失败不阻塞启动"。
+- **探针失败 ≠ 依赖缺失** —— 前者是 DeepCode 的 bug，后者是你的环境，两句话分开写，不混成一句。
+- **两条应答者不许同时在** —— mod 装上了，CLI 就**不注册**自己那条 `/diff`。否则同一条命令会打两遍。
+
+这几条都由测试钉住（`test/mods.test.ts`、`test/plugin-wiring.test.ts`、`mods/diff/test/`），
+不靠读代码相信。
 
 ## 插件
 
@@ -562,33 +667,58 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
   参考实现有 33 个事件名；其余 27 个在 `hooks.json` 里会被跳过并点名，不是静默忽略 ——
   它们要的是我们还没有的钩子点。
 - **`uses` 只在事件级别校验**：`tool.check` 这一个名字是粗粒度的，一个声明了它的插件
-  对每个工具都能说上话。细到 matcher 一级的声明排在 P4。
+  对每个工具都能说上话。细到 matcher 一级的声明**仍未做** —— 它是 P3 预登记的一条偏差
+  （`p3-design.md:571`），不是"排到某一阶段"。写进来是因为一句"排在 P4"会让人以为 P4
+  做完它就没了。
 
 ## 开发
 
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，52 个文件 891 个用例
+pnpm test        # 测试，59 个文件 1016 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
 三条命令在 [GitHub Actions](.github/workflows/ci.yml) 上也跑（Node 20 与 22 两个版本）。
 CI 不需要任何密钥 —— 测试全是桩：假 `fetch`、临时目录。
 
+### CI 里的 agent job
+
+`ci.yml` 的第二个 job 是 `agent-smoke`：它在一个**防火墙 runner**（`ubuntu-24.04-firewall`）
+上跑 [`scripts/agent-smoke.ts`](scripts/agent-smoke.ts) —— 真引擎、假 provider、一个真 turn，
+落在"非 TTY 下没人能确认 → 拒绝"这条 fail-closed 上。它**默认跳过**
+（`if: vars.DEEPCODE_AGENT_CI == 'on'`）：这个仓库的账号上没有那个 runner，
+真让它排队会得到一条永远红的流水线，而永远是红的流水线等于没有流水线。规则管的是**形状**，
+形状不跑也在那儿 —— `pnpm lint` 每一趟都扫它。有那个 runner 的组织在
+Settings → Variables 里设 `DEEPCODE_AGENT_CI = on` 即可。
+
+出网白名单在 [`.github/egress-firewall.yaml`](.github/egress-firewall.yaml)：`mode: enforce`，
+只有一条 `registry.npmjs.org:443`（装依赖用）。那个 job 里的模型响应是脚本化的，不联网。
+
+`pnpm lint` 里的工作流硬化检查一共七条：H1 第三方 action 钉 commit SHA、H2 显式顶层
+`permissions:`、H3 禁 `pull_request_target`、H4 checkout 关掉 `persist-credentials`、
+H5 agent job 必须跑在防火墙 runner 上、H6 白名单存在且 `enforce` 且不含 `*`、
+H7 agent job 的权限姿态必须显式写一行 `# deepcode:permission-mode deny-by-default`，
+且整份工作流里不许出现 `--yes` / `--dangerously-skip-permissions` / `--permission-mode auto`。
+第七条与参考实现**方向相反**，是刻意的：谁加自动放行开关谁就是在开倒车。
+
 > ⚠️ **工作流硬化检查是文本扫描，不是 YAML 解析器。** 它认不出动态拼出来的 `uses:`、
-> 写在 YAML 锚点里的引用、以及 job 之间的包含关系。它是尽力而为的护栏，不是完备证明 ——
-> 新工作流仍要人看一眼。
+> 写在 YAML 锚点里的引用、以及 job 之间的包含关系。H5/H7 说的"agent job"是**猜**出来的
+> （有标记、或某个 `run:` 里出现 `deepcode`、或写了那行权限姿态），猜不到就等于不管它。
+> 它是尽力而为的护栏，不是完备证明 —— 新工作流仍要人看一眼。
 
 ## 设计文档
 
 - 项目简介（一页纸，给第一次听说的人）：[`docs/项目简介.md`](docs/项目简介.md)
+- 变更记录（每个阶段的范围 / 出口标准 / 偏差索引）：[`CHANGELOG.md`](CHANGELOG.md)
 - 设计：[`docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md`](docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md)
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
 - P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
 - P3 设计（插件系统）：[`docs/superpowers/specs/2026-10-11-deepcode-p3-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p3-design.md)
 - P4c 设计（分发与治理）：[`docs/superpowers/specs/2026-10-11-deepcode-p4c-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4c-design.md)
 - P4e 设计（CI 与工程化）：[`docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md)
+- P5 设计（内建与分发）：[`docs/superpowers/specs/2026-10-11-deepcode-p5-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p5-design.md)
 - 架构参考：`claude-code-架构分析/`
 
 ## 官网（静态页面）

@@ -142,7 +142,7 @@ describe('check-boundaries：plugins/', () => {
   });
 });
 
-/** 一份**完全合规**的工作流。 */
+/** 一份**完全合规**的工作流：一个普通 job + 一个合规的 agent job。 */
 function cleanWorkflow(): string {
   return [
     'name: x',
@@ -158,25 +158,67 @@ function cleanWorkflow(): string {
     '        with:',
     '          persist-credentials: false',
     '      - run: echo hi',
+    '  smoke:',
+    '    # deepcode:agent-job',
+    '    # deepcode:permission-mode deny-by-default',
+    "    if: ${{ vars.X == 'on' }}",
+    '    runs-on: ubuntu-24.04-firewall',
+    '    permissions:',
+    '      contents: read',
+    '    steps:',
+    '      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
+    '        with:',
+    '          persist-credentials: false',
+    '      - run: pnpm exec tsx scripts/agent-smoke.ts',
     '',
   ].join('\n');
 }
 
-describe('check-workflow-hardening', () => {
+/** 一份**完全合规**的出口白名单。 */
+const CLEAN_EGRESS = [
+  '# 出口白名单',
+  'mode: enforce',
+  'allow:',
+  '  - host: registry.npmjs.org      # pnpm install',
+  '    port: 443',
+  '',
+].join('\n');
+
+/**
+ * 一棵 `.github/`：一份工作流 + 一份白名单。
+ *
+ * 两样都给全，是因为各条违规用例都要**只改一处** —— 白名单缺了会让每一条都红，
+ * 于是那条红说明不了它想说明的事。
+ */
+function github(over: { workflow?: string; egress?: string | null } = {}): Record<string, string> {
+  const egress = over.egress === undefined ? CLEAN_EGRESS : over.egress;
+  return {
+    '.github/workflows/ci.yml': over.workflow ?? cleanWorkflow(),
+    ...(egress === null ? {} : { '.github/egress-firewall.yaml': egress }),
+  };
+}
+
+/** agent job 里那两行标记 —— 违规用例要按行摘掉它们。 */
+const AGENT_MARKER_LINE = '    # deepcode:agent-job\n';
+const POSTURE_LINE = '    # deepcode:permission-mode deny-by-default\n';
+
+describe('check-workflow-hardening：H1–H4（P4e）', () => {
   it('干净工作流 → 通过', async () => {
-    const dir = await tree({ '.github/workflows/ci.yml': cleanWorkflow() });
+    const dir = await tree(github());
     const { code, stdout } = await run(HARDENING, dir);
     expect(code).toBe(0);
     expect(stdout).toContain('工作流硬化检查通过');
   });
 
   it('注释掉的 uses: 不误报 —— 剥注释这一条不能省', async () => {
-    const dir = await tree({
-      '.github/workflows/ci.yml': cleanWorkflow().replace(
-        '      - run: echo hi',
-        '      # - uses: someone/thing@v1\n      - run: echo hi',
-      ),
-    });
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace(
+          '      - run: echo hi',
+          '      # - uses: someone/thing@v1\n      - run: echo hi',
+        ),
+      }),
+    );
     const { code } = await run(HARDENING, dir);
     expect(code).toBe(0);
   });
@@ -189,21 +231,23 @@ describe('check-workflow-hardening', () => {
   });
 
   it('缺顶层 permissions: → 红', async () => {
-    const dir = await tree({
-      '.github/workflows/ci.yml': cleanWorkflow().replace('permissions:\n  contents: read\n', ''),
-    });
+    const dir = await tree(
+      github({ workflow: cleanWorkflow().replace('permissions:\n  contents: read\n', '') }),
+    );
     const { code, stderr } = await run(HARDENING, dir);
     expect(code).toBe(1);
     expect(stderr).toContain('缺顶层 permissions:');
   });
 
   it('action 没钉 commit SHA → 红', async () => {
-    const dir = await tree({
-      '.github/workflows/ci.yml': cleanWorkflow().replace(
-        'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
-        'actions/checkout@v5',
-      ),
-    });
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace(
+          'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09',
+          'actions/checkout@v5',
+        ),
+      }),
+    );
     const { code, stderr } = await run(HARDENING, dir);
     expect(code).toBe(1);
     expect(stderr).toContain('没钉 commit SHA');
@@ -211,26 +255,265 @@ describe('check-workflow-hardening', () => {
   });
 
   it('pull_request_target → 红', async () => {
-    const dir = await tree({
-      '.github/workflows/ci.yml': cleanWorkflow().replace(
-        'on: [push]',
-        'on:\n  pull_request_target:',
-      ),
-    });
+    const dir = await tree(
+      github({ workflow: cleanWorkflow().replace('on: [push]', 'on:\n  pull_request_target:') }),
+    );
     const { code, stderr } = await run(HARDENING, dir);
     expect(code).toBe(1);
     expect(stderr).toContain('禁 pull_request_target');
   });
 
   it('checkout 没写 persist-credentials: false → 红', async () => {
-    const dir = await tree({
-      '.github/workflows/ci.yml': cleanWorkflow().replace(
-        '        with:\n          persist-credentials: false\n',
-        '',
-      ),
-    });
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace('        with:\n          persist-credentials: false\n', ''),
+      }),
+    );
     const { code, stderr } = await run(HARDENING, dir);
     expect(code).toBe(1);
     expect(stderr).toContain('persist-credentials');
+  });
+});
+
+/**
+ * H5–H7（P5d 的 CI 硬化三件套）。
+ *
+ * 这三条与前四条有一个根本区别：它们约束的是**跑 agent 的那个 job**，所以先得回答
+ * "哪个 job 是 agent job"。那个判定本身也要被验 —— 否则"H5 通过了"可能只是
+ * "压根没认出这是 agent job"。
+ */
+describe('check-workflow-hardening：H5–H7（agent job）', () => {
+  it('没有那两行标记也认得出 —— 靠 `run:` 里的 deepcode 命令（H5 的第二次判定）', async () => {
+    // 两行标记都摘掉，只剩一条含 `deepcode` 的 run 命令。若判定只认标记，
+    // 这个 job 会整个溜过 H5/H7 —— 于是下面的红恰恰证明它被认出来了。
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow()
+          .replace(AGENT_MARKER_LINE, '')
+          .replace(POSTURE_LINE, '')
+          .replace('      - run: pnpm exec tsx scripts/agent-smoke.ts', '      - run: pnpm exec tsx scripts/deepcode-smoke.ts')
+          .replace('runs-on: ubuntu-24.04-firewall', 'runs-on: ubuntu-22.04-firewall'),
+      }),
+    );
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('agent job smoke');
+    // **恰好**是那个 runner，不是"含 firewall 就行"。
+    expect(stderr).toContain('ubuntu-22.04-firewall');
+    expect(stderr).toContain('防火墙');
+  });
+
+  it('runs-on 不是防火墙 runner → 红，且说得清"防火墙 runner"这几个字', async () => {
+    const dir = await tree(
+      github({ workflow: cleanWorkflow().replace('runs-on: ubuntu-24.04-firewall', 'runs-on: ubuntu-latest') }),
+    );
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('agent job smoke');
+    expect(stderr).toContain('防火墙');
+  });
+
+  it('普通 job 不受 H5/H7 约束 —— 判词里不许出现它', async () => {
+    // job `a` 跑在 ubuntu-latest、没有标记、run 里没有 deepcode：三条规则都不该碰它。
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace(
+          /  smoke:[\s\S]*$/, // 只留普通 job
+          '',
+        ),
+      }),
+    );
+    const { code, stdout } = await run(HARDENING, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('工作流硬化检查通过');
+  });
+
+  it('删掉 deny-by-default 那行标记 → 红', async () => {
+    const dir = await tree(github({ workflow: cleanWorkflow().replace(POSTURE_LINE, '') }));
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('deny-by-default');
+    expect(stderr).toContain('现在 0 行');
+  });
+
+  it('两行标记 → 也红（"只有一行"不是洁癖：另一行是死的，读的人不知道信哪行）', async () => {
+    const dir = await tree(github({ workflow: cleanWorkflow().replace(POSTURE_LINE, POSTURE_LINE + POSTURE_LINE) }));
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('现在 2 行');
+  });
+
+  it('某个 step 写了 --permission-mode auto → 红', async () => {
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace(
+          '      - run: echo hi',
+          "      - run: pnpm exec tsx src/cli/main.ts --permission-mode auto 'x'",
+        ),
+      }),
+    );
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--permission-mode auto');
+    expect(stderr).toContain('开倒车');
+  });
+
+  it('某个 step 写了 --yes → 红', async () => {
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace(
+          '      - run: echo hi',
+          "      - run: pnpm exec tsx src/cli/main.ts --yes 'x'",
+        ),
+      }),
+    );
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('--yes');
+  });
+
+  it('注释里提到 --yes 不算 —— 能被执行的是命令，注释不会放行任何东西', async () => {
+    const dir = await tree(
+      github({
+        workflow: cleanWorkflow().replace(
+          '      - run: echo hi',
+          '      # 这一行**不许**加 --yes，理由见 check-workflow-hardening.mjs\n      - run: echo hi',
+        ),
+      }),
+    );
+    const { code, stdout } = await run(HARDENING, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('工作流硬化检查通过');
+  });
+
+  it('没有 .github/egress-firewall.yaml → 红（没写与"一个都不许"分得开才叫白名单）', async () => {
+    const dir = await tree(github({ egress: null }));
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('egress-firewall.yaml');
+    expect(stderr).toContain('不存在');
+  });
+
+  it('白名单 mode: report → 红（report 只是看着像在管）', async () => {
+    const dir = await tree(github({ egress: CLEAN_EGRESS.replace('mode: enforce', 'mode: report') }));
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('mode 必须是 enforce');
+  });
+
+  it('白名单 allow: 是空的 → 红', async () => {
+    const dir = await tree(
+      github({ egress: ['mode: enforce', 'allow:', ''].join('\n') }),
+    );
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('allow: 是空的');
+  });
+
+  it('白名单条目含 `*` → 红（`*` 不是宽规则，是一条会自己往后放宽的规则）', async () => {
+    const dir = await tree(
+      github({ egress: CLEAN_EGRESS.replace('registry.npmjs.org', "'*.npmjs.org'") }),
+    );
+    const { code, stderr } = await run(HARDENING, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('不许含 *');
+  });
+
+  it('白名单里的注释不参与判定 —— `- host: x  # 用途` 这种行照常通过', async () => {
+    const dir = await tree(
+      github({ egress: CLEAN_EGRESS.replace('# pnpm install', '# pnpm install（唯一一条）') }),
+    );
+    const { code } = await run(HARDENING, dir);
+    expect(code).toBe(0);
+  });
+});
+
+
+/**
+ * `mods/` 那一支（P5a 加）。
+ *
+ * 这条规则是 README 那句"内建与第三方走同一条接口"从口号变成强制的那一步 ——
+ * 所以它必须**真的拦得住**：每条"不红"的用例都配一条"必须红"的，且后者钉具体判词。
+ */
+const CLEAN_MOD = {
+  'mods/t/index.ts':
+    "import { join } from 'node:path';\n" +
+    "import type { Plugin } from '../../src/contract/plugin';\n" +
+    "export const x = join('a', 'b');\n" +
+    'export type P = Plugin;\n',
+};
+
+describe('check-boundaries：mods/', () => {
+  it('干净：node: + 契约 + 自身目录 → 通过', async () => {
+    const dir = await tree(CLEAN_MOD);
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+
+  it('mod import 引擎实现（src/core）→ 红，判词点名"只许 import src/contract"', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/index.ts': "import { dispatch } from '../../src/core/dispatch';\n",
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('mod 只许 import src/contract/');
+  });
+
+  it('mod import 裸包名 → 红', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/index.ts': "import { describe } from 'vitest';\n",
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('不允许裸包名');
+  });
+
+  it('mod 跨到另一个 mod → 红', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/index.ts': "import { x } from '../u/index';\n",
+      'mods/u/index.ts': 'export const x = 1;\n',
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('跨到了 mods/u/');
+  });
+
+  it('**测试豁免**：mod 的测试 import src/core → 通过（测试本来就要用真引擎）', async () => {
+    const dir = await tree({
+      ...CLEAN_MOD,
+      'mods/t/test/x.test.ts':
+        "import { describe } from 'vitest';\n" +
+        "import { createEngine } from '../../../src/core/create';\n" +
+        'export const y = [describe, createEngine];\n',
+    });
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+});
+
+describe('check-boundaries：src/cli → mods/ 这条单向依赖', () => {
+  it('cli/ 可以 import 内建 mod → 通过', async () => {
+    const dir = await tree({
+      'src/cli/mods.ts': "import { spec } from '../../mods/t/index';\nexport const s = spec;\n",
+      'mods/t/index.ts': 'export const spec = 1;\n',
+    });
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+
+  it('内核（core/）import 内建 mod → 红：内核不认识 mod', async () => {
+    const dir = await tree({
+      'src/core/x.ts': "import { spec } from '../../mods/t/index';\nexport const s = spec;\n",
+      'mods/t/index.ts': 'export const spec = 1;\n',
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('只有 cli/ 可以 import 内建 mod');
   });
 });

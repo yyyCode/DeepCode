@@ -1,5 +1,6 @@
-import { evaluate, fullyDeniedTools, isLooser, type Rule } from '../contract/policy';
-import type { Plugin } from '../contract/plugin';
+import { evaluate, fullyDeniedTools, isLooser, type Rule } from '../../src/contract/policy';
+import type { ModSpec } from '../../src/contract/mod';
+import type { Plugin } from '../../src/contract/plugin';
 
 /** 检查没跑完时用的规则名。它会被原样报给用户，所以写成一句话而不是一个代号。 */
 export const UNCHECKED_DENY = 'sec-default: 检查未完成，按拒绝处理';
@@ -70,3 +71,13 @@ export function createSecDefaultPlugin(deps: SecDefaultDeps): Plugin {
     },
   };
 }
+
+/**
+ * P5a 的 mod 描述符。它**只**拿 policy 源那份规则（`ModDeps.policyRules`）——
+ * 与 `createSecDefaultPlugin` 的构造参数一样宽，一个字段都不多。
+ */
+export const spec: ModSpec = {
+  name: 'sec-default',
+  summary: '守门器：只持有托管策略，个人规则一个字都不读',
+  create: (deps) => [createSecDefaultPlugin({ rules: deps.policyRules })],
+};

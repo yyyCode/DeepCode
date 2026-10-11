@@ -269,6 +269,8 @@ table.deps td:first-child { white-space: nowrap; }
 .road p { color: var(--ink-2); font-size: 0.95rem; max-width: 72ch; margin: 0; }
 .pill { font: 500 0.74rem/1 var(--mono); padding: 0.3rem 0.5rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
 .pill--todo { background: var(--surface); color: var(--ink-3); }
+/* 进行中：琥珀（与 ⚠️ 那几处实话同一个色），一眼分得开"做完了"与"正在做" */
+.pill--doing { background: var(--warn-soft); color: var(--warn); }
 
 /* ── 收尾 ───────────────────────────────────────────── */
 .band--cta { padding-bottom: clamp(2.6rem, 6vw, 4.6rem); }

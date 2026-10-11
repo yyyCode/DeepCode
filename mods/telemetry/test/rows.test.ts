@@ -5,7 +5,7 @@ import {
   telemetryPath,
   validateEntry,
   type TelemetryEntry,
-} from '../src/cli/telemetry-rows';
+} from '../rows';
 
 /**
  * 这一组测的是**这份功能唯一的隐私闸门**：什么算"不是自由文本"。

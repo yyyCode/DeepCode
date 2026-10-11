@@ -79,6 +79,7 @@ function full() {
     messages: [] as Message[],
     root: process.cwd(),
     palette: createPalette(false),
+    paneLoaded: false,
     compact: async () => {},
     describeCommand: (name) => describer(h)(name),
   });
@@ -218,6 +219,7 @@ describe('/help：三种 describe 结果分得开', () => {
         messages: [] as Message[],
         root: process.cwd(),
         palette: createPalette(false),
+        paneLoaded: false,
       }),
       'builtin',
     );

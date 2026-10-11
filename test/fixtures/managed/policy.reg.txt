@@ -1,0 +1,5 @@
+HKEY_LOCAL_MACHINE\SOFTWARE\DeepCode
+    permissions.deny    REG_MULTI_SZ    Bash(git push:*)
+    telemetry.enabled    REG_SZ    false
+    instructions.text    REG_SZ    所有改动都要跑测试
+    instructions.files    REG_MULTI_SZ    /etc/deepcode/policy.md

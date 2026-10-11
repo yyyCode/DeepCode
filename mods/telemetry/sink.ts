@@ -6,7 +6,7 @@ import {
   validateEntry,
   type TelemetryEntry,
   type TelemetryRow,
-} from './telemetry-rows';
+} from './rows';
 
 /**
  * 遥测的写盘面 —— 全项目**第二处**直接写文件的地方（第一处是转录）。

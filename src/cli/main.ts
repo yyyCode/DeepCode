@@ -8,13 +8,15 @@ import { createEngine } from '../core/create';
 import { runTurn } from '../core/loop';
 import { createProvider } from '../providers';
 import { cliPlugins } from './plugins';
+import { builtinMods, describeMods, loadMods, paneUnavailable } from './mods';
+import { formatPane } from './diff-render';
 import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
 import { createSessionChanges } from './changes';
 // 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
 import type { CommandDescription } from './commands';
-import { loadConfig, resolveSettings } from './config';
+import { applyManagedGateway, loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
@@ -123,7 +125,7 @@ async function main(): Promise<void> {
   const projectConfigPath = join(root, '.deepcode', 'config.json');
 
   const settings = resolveSettings(process.env, config, (line) => process.stderr.write(`${line}\n`));
-  const { apiKey, model, baseUrl, debug, provider } = settings;
+  const { apiKey, debug, provider } = settings;
   if (!apiKey) {
     process.stderr.write(
       '缺少 API key。几种给法，优先级从高到低：\n' +
@@ -149,6 +151,17 @@ async function main(): Promise<void> {
   const turns = createTurnSignals();
   const palette = createPalette();
   const render = createRenderer();
+
+  // 托管层把出网位置钉死（P5d）。放在 `resolvePolicy` 之后、建引擎之前 ——
+  // 这块内容只有读设置时才存在，而引擎一建就拿着 `baseUrl` 了。
+  // 个人配置能改"发给谁"（apiKey），"发给哪"是组织的事：与 sandbox 白名单、托管指令同一条。
+  const gateway = applyManagedGateway(settings, policy.gateway);
+  const { model, baseUrl } = gateway.config;
+  if (gateway.pinned.length > 0) {
+    // **必须看得见** —— 与托管指令、托管遥测同一条：一条被悄悄改掉的端点，
+    // 会让人对着 401 查半天，而真正发生的事是"你的请求根本没发去你以为的地方"。
+    render.notice(`⚠️ 托管策略钉住了出网位置：${gateway.pinned.join('、')}（个人配置改不动）。`);
+  }
   // readline 全进程只建这一次：REPL 的行输入与工具确认提示共用同一个实例。
   const rl = createInterface({
     input: process.stdin,
@@ -253,6 +266,28 @@ async function main(): Promise<void> {
   // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
   // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
   const engineEnv = debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env;
+
+  // 内建 mod：`loadMods` 自己不认识任何一个 mod（清单是参数），于是"缺依赖会怎样"
+  // 这条路是**被测试覆盖的**而不是靠人记得。降级必须看得见 —— 下面这几行就是那个出口。
+  const { plugins: modPlugins, report } = await loadMods(
+    {
+      root,
+      home,
+      sessionId,
+      warn: warnLine,
+      telemetry: policy.telemetry,
+      policyRules: policy.policyRules,
+      managedInstructions: policy.instructions,
+    },
+    // 渲染器从这儿注入：`Palette` 与 `changes` 都住在这边，而 mod 不许认识它们
+    // （`mods/diff/index.ts` 顶部那段）。`changes.list()` 每次现取，快照会过期。
+    builtinMods((model) => formatPane(model, palette, changes.list(), root)),
+  );
+  for (const line of describeMods(report)) warnLine(line);
+  // ⚠️ `/diff` 的应答者由内建 mod `diff` 与 CLI **二选一**。这一行就是那个开关：
+  // 装了 mod 就 CLI 不注册，没装（这台机器没有 git）就 CLI 接管并说出原因。
+  const paneMiss = paneUnavailable(report);
+
   const bundle = cliPlugins({
     render,
     changes,
@@ -269,6 +304,9 @@ async function main(): Promise<void> {
     skills,
     // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。
     baseSystemPrompt: SYSTEM_PROMPT,
+    mods: modPlugins,
+    paneLoaded: paneMiss === undefined,
+    ...(paneMiss === undefined ? {} : { paneUnavailable: paneMiss }),
     discovered: thirdParty,
     pluginDeny: policy.plugins.deny,
     compact: async () => {

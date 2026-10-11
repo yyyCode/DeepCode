@@ -1,7 +1,8 @@
-import type { Plugin } from '../contract/plugin';
-import type { TelemetryPolicy } from './settings';
-import { createTelemetrySink, type TelemetrySink } from './telemetry-sink';
-import type { TelemetryEntry } from './telemetry-rows';
+import type { ModSpec } from '../../src/contract/mod';
+import type { Plugin } from '../../src/contract/plugin';
+import type { TelemetryPolicy } from '../../src/contract/telemetry';
+import { createTelemetrySink, type TelemetrySink } from './sink';
+import type { TelemetryEntry } from './rows';
 
 /**
  * 遥测名词 —— 插件通过 `engine.create` 折叠往 `$` 上加东西
@@ -13,7 +14,7 @@ import type { TelemetryEntry } from './telemetry-rows';
  */
 export type TelemetryNoun = { log(entry: TelemetryEntry): void };
 
-declare module '../contract/engine' {
+declare module '../../src/contract/engine' {
   interface EngineInterface {
     telemetry: TelemetryNoun;
   }
@@ -138,3 +139,23 @@ export function createTelemetryPlugin(deps: TelemetryPluginDeps): Plugin {
     },
   };
 }
+
+/**
+ * P5a 的 mod 描述符。
+ *
+ * `optionalDeps` **是空的**，这不是"忘了写"：遥测真的不挑环境 —— 关着的时候一个系统
+ * 调用都不发；开着的时候写不进去也只由 sink 自己咽成一句 warn。没有"这台机器上没有它"
+ * 这种情形，就没有探针。
+ */
+export const spec: ModSpec = {
+  name: 'telemetry',
+  summary: '本地行为记录（默认关，一行一条 JSONL，只记零自由文本的行）',
+  create: (deps) => [
+    createTelemetryPlugin({
+      home: deps.home,
+      policy: deps.telemetry,
+      sessionId: deps.sessionId,
+      warn: deps.warn,
+    }),
+  ],
+};

@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { PROVIDER_KINDS, isProviderKind } from '../providers';
 import type { ProviderKind } from '../contract/model-provider';
+import type { GatewayConfig } from './settings';
 
 /** 配置文件里认识的字段。写错的字段名会被点名，不会静默失效。 */
 export type CliConfig = {
@@ -47,9 +48,12 @@ export const WRITABLE_KEYS: readonly (keyof CliConfig)[] = ['model'];
  *
  * `permissions` / `sandbox` / `plugins` 都直接决定"什么动作会被执行"。
  * 一个能在运行时改权限来源的入口，就是第二个自动放行开关（见 README 那句原话）。
+ *
+ * `gateway`（P5d）是同一族里最晚进来的一个：它不决定"什么动作会被执行"，而是决定
+ * **这些动作发去哪**。它同样只有托管层能写，所以由命令行去改它既不生效、还会给出
+ * 一句"不认识的字段"这种答错问题的错。
  */
-export const FORBIDDEN_PREFIXES = ['permissions', 'sandbox', 'plugins'] as const;
-
+export const FORBIDDEN_PREFIXES = ['permissions', 'sandbox', 'plugins', 'gateway'] as const;
 export type ResolvedSettings = {
   apiKey: string | undefined;
   model: string;
@@ -437,6 +441,38 @@ export async function setConfigValue(deps: SetConfigDeps): Promise<SetConfigResu
     return { ok: false, error: `写 ${path} 失败：${String(error)}` };
   }
   return { ok: true, path };
+}
+
+/**
+ * 托管层把出网位置钉死（P5d）。
+ *
+ * 与 `sandbox.paths.allow`（白名单只有托管层能设）、`instructions`（只有托管层能下发）
+ * 同一条规矩 —— 只不过这里钉的是**请求发去哪**：组织把所有人指到自己的网关上，
+ * 员工绕不过去。能改的只有"发给谁"（凭据），那是 `apiKey`，这里一个字都不碰。
+ *
+ * 纯函数，不碰 `main.ts` 的装配：这条规则值得被单独钉住，而 `main.ts` 是个
+ * 一跑就建 readline、连网的脚本。
+ *
+ * `pinned` 只报**值真的变了**的字段 —— 与 `resolveSettings` 里那条环境变量覆盖告警
+ * 同一个口径（两边值相同时每次启动吼一遍，只会训练人忽略它）。
+ */
+export function applyManagedGateway(
+  config: ResolvedSettings,
+  gateway: GatewayConfig,
+): { readonly config: ResolvedSettings; readonly pinned: readonly string[] } {
+  const pinned: string[] = [];
+  const out = { ...config };
+
+  if (gateway.baseUrl !== undefined && out.baseUrl !== gateway.baseUrl) {
+    out.baseUrl = gateway.baseUrl;
+    pinned.push('baseUrl');
+  }
+  if (gateway.model !== undefined && out.model !== gateway.model) {
+    out.model = gateway.model;
+    pinned.push('model');
+  }
+
+  return { config: out, pinned };
 }
 
 /**

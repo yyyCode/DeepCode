@@ -1,5 +1,10 @@
-import { isAbsolute, relative } from 'node:path';
-import type { Palette } from './ansi';
+/**
+ * 行级 diff 的算法。**纯数据、纯函数、不认识颜色**（P5c 从 `src/cli/diff.ts` 搬来的）。
+ *
+ * 上色（`Palette`）留在了 `src/cli/diff-render.ts` —— 边界规则不许 mod import `cli/ansi`，
+ * 而"把 `ansi.ts` 也搬进 mod"是绕开规则，不是遵守它（P5 设计 §3.2）。
+ * 于是这个 mod 只能**产出模型**，渲染归引擎：`formatUnified` 拿这些 `DiffLine` 去上色。
+ */
 
 export type DiffLine = { readonly kind: 'context' | 'del' | 'add'; readonly text: string };
 
@@ -24,13 +29,6 @@ export function splitLines(text: string): string[] {
   const lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   return lines;
-}
-
-/** 落在 root 里就给相对路径；出不去就别拿一串 ../ 糊弄人，直接给绝对路径。 */
-export function displayPath(path: string, root: string): string {
-  const rel = relative(root, path);
-  if (rel === '') return path;
-  return rel.startsWith('..') || isAbsolute(rel) ? path : rel;
 }
 
 /**
@@ -185,29 +183,4 @@ function hunkStart(
     if (lines[i]!.kind !== skip) before++;
   }
   return count === 0 ? before : before + 1;
-}
-
-export type FormatOptions = { readonly isNew?: boolean };
-
-export function formatUnified(
-  path: string,
-  hunks: readonly Hunk[],
-  palette: Palette,
-  options: FormatOptions = {},
-): string {
-  const out = [
-    palette.bold(`--- ${options.isNew ? '/dev/null' : `a/${path}`}`),
-    palette.bold(`+++ b/${path}`),
-  ];
-
-  for (const hunk of hunks) {
-    out.push(palette.cyan(`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`));
-    for (const line of hunk.lines) {
-      if (line.kind === 'add') out.push(palette.green(`+${line.text}`));
-      else if (line.kind === 'del') out.push(palette.red(`-${line.text}`));
-      else out.push(` ${line.text}`);
-    }
-  }
-
-  return out.join('\n');
 }

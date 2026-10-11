@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { Plugin } from '../src/contract/plugin';
-import { createEngine } from '../src/core/create';
-import { createTelemetryPlugin } from '../src/cli/telemetry';
-import { createTelemetrySink, type TelemetrySink } from '../src/cli/telemetry-sink';
-import { telemetryPath, type TelemetryEntry } from '../src/cli/telemetry-rows';
-import { cliPlugins } from '../src/cli/plugins';
-import { createPalette } from '../src/cli/ansi';
-import { createRenderer } from '../src/cli/render';
-import { createSessionChanges } from '../src/cli/changes';
+import { CORE_ORIGIN } from '../../../src/contract/next';
+import type { Plugin } from '../../../src/contract/plugin';
+import { createEngine } from '../../../src/core/create';
+import { createTelemetryPlugin } from '../index';
+import { createTelemetrySink, type TelemetrySink } from '../sink';
+import { telemetryPath, type TelemetryEntry } from '../rows';
+import { cliPlugins } from '../../../src/cli/plugins';
+import { createPalette } from '../../../src/cli/ansi';
+import { createRenderer } from '../../../src/cli/render';
+import { createSessionChanges } from '../../../src/cli/changes';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
   EMPTY_SANDBOX,
   type ResolvedPolicy,
-} from '../src/cli/settings';
-import { scriptedProvider } from './harness';
+} from '../../../src/cli/settings';
+import { modPlugins, scriptedProvider } from '../../../test/harness';
 
 /**
  * 遥测插件的链上行为。
@@ -287,10 +287,14 @@ describe('装配级', () => {
     compact: DEFAULT_COMPACT,
     telemetry: DEFAULT_TELEMETRY,
     plugins: { enable: [], enableByUser: [], deny: [] },
+    instructions: [],
+    gateway: {},
   };
 
-  it('cliPlugins 的清单里有 telemetry，且它是第一方（不在第三方名单里）', () => {
+  it('cliPlugins 的清单里有 telemetry，且它是第一方（不在第三方名单里）', async () => {
     const bundle = cliPlugins({
+      mods: await modPlugins(),
+      paneLoaded: true,
       render: createRenderer(),
       changes: createSessionChanges(),
       messages: [],
@@ -315,6 +319,8 @@ describe('装配级', () => {
     // 与上一个用例同一条装配路径，只是拿 `DEFAULT_TELEMETRY` 去建引擎：
     // 关着的时候这个插件在链上存在，但一个系统调用都不发。
     const bundle = cliPlugins({
+      mods: await modPlugins(),
+      paneLoaded: true,
       render: createRenderer(),
       changes: createSessionChanges(),
       messages: [],
