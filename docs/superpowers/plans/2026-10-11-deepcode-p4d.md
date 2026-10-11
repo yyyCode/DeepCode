@@ -1322,3 +1322,39 @@ export type TelemetryPluginDeps = {
    "拔掉 `cli/plugins.ts` 里那一行，指令就不再进系统提示" —— 否则 Task 5 的意义
    只能靠人肉端到端发现。
 
+### C2（Task 6–9）—— 2026-10-11
+
+- `pnpm typecheck` 绿；`pnpm lint` 绿。
+- `pnpm vitest run test/hook-run.test.ts test/classic-hooks.test.ts test/plugin-manifest.test.ts test/hookify.test.ts test/plugin-e2e.test.ts` 全绿
+  （`hook-run` 34 条、`classic-hooks` 29 条、`hookify` 58 条、`plugin-e2e` 13 条、`plugin-manifest` 59 条）。
+- `pnpm test`：**49 文件 / 818 用例全绿**。
+- `grep -rn "pretooluse" src/ test/ plugins/` 只剩 `test/classic.test.ts:22` 那条
+  `isClassicEvent('pretooluse')` 的反例 —— 与改名无关，是故意的。
+- 反向验证三条，每条都先 `grep` 确认变异落上：
+
+| # | 变异 | 结果 |
+| --- | --- | --- |
+| 1 | `classic-hooks.ts` 的 `tool_response: {ok, output}` → `e.input` | 红 1 条（`classic-hooks` 那条"stdin 里 tool_response 是我们自己的形状"） |
+| 2 | `runGroup` 里删掉 `else said.push(verdict.reason)`（exit 2 的降级） | 红 1 条（"exit 2 在 PostToolUse 上降级成上下文"） |
+| 3 | `plugins/hookify/plugin.json` 的 `uses` 删掉 `"turn.stop"` | 红 3 条（`plugin-e2e` 三条 hookify 真链路用例） |
+
+变异 3 顺带证实了机制真的是 W10 那条：`[warn] hookify 注册了 turn.stop，但清单里的
+uses 只有 … —— 越界，整个插件不装（已撤掉 3 条注册）`。
+
+**计划的两处偏差**（都记下来，因为与计划正文写的不是一回事）：
+
+1. **Task 8 与 Task 9 合成了一次提交**（`f2a42f3`）。理由：`evaluate` 的签名一换成
+   `(rules, event, subject, toolName)`，不跟着改的 `hooks/pretooluse.mjs` 就把工具名当事件传，
+   所有规则都不命中 —— 也就是说 Task 8 单独提交时 hookify 的测试**全红**。
+   计划里"Step 3 写测试"那六条里有两条（逐事件 `field` 取值处、事件必须对上）本来就
+   只有改完脚本才跑得起来。一个测试全红的提交不是我们想要的中间态。
+2. C2 变异 1 的效果与计划写的不一样：计划说"hookify 的 PostToolUse 用例必须红"，
+   实际红的是 `test/classic-hooks.test.ts` 里那条 stdin 形状断言 —— hookify 的测试
+   直接 spawn 脚本，不经过 `classic-hooks.ts`。断言本身是有效的，只是**敏感的位置**
+   与计划预估的不同。
+
+**计划之外的一处改动**：`rules.mjs` 里那条"这个事件上表达不出来"的理由文案**改成逐事件**
+（`DECISIONS_BY_EVENT[event].why`）。计划给的是两句共用的话，但 `Stop` 上被拒的词是
+`allow`/`ask`/`notify` 而不是 `deny`，"工具已经跑完了"那句话在那儿是**错的报错**。
+`test/hookify.test.ts` 里两条用例专门钉这件事（Stop 的理由里不许出现"工具已经跑完"）。
+
