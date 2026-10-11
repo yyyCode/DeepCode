@@ -68,7 +68,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>1016</b><span>用例全绿 · 59 个文件</span></li>
+    <li><b>1112</b><span>用例全绿 · 63 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
     <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
   </ul>
@@ -343,8 +343,8 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>1016</b>
-      <p>用例，59 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>1112</b>
+      <p>用例，63 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
@@ -413,6 +413,10 @@
       <div class="road__head"><span class="pill">已完成</span><h3>P5 内建与分发</h3></div>
       <p>目标：四个内建 mod（diff / telemetry / agents-md / sec-default）各自通过测试套件，可选依赖缺失时主流程无损。P5 收口其中三个 —— P5a 已完成：四个 mod 住进 <code>mods/</code>，各带自己的测试套件。P5b 已完成：指令文件五层（项目 / 本机 / 用户 / 托管 / 嵌套），托管层能下发指令内容，个人层写了会被丢掉并被告知。P5c 已完成：<code>/diff</code> 分成两块 —— 本会话改动归 CLI、工作区未提交归内建 mod <code>diff</code>，而 <code>git</code> 是这个项目第一个真的可选依赖：把 <code>git</code> 从 <code>PATH</code> 里拿掉，启动时有一句人话，<code>/diff</code> 照旧给出本会话改动，其余一切照常。P5d 已完成：托管策略有三条通道（macOS 托管偏好域 / Windows 注册表 / 平台默认文件），托管层能钉死出网位置，CI 的硬化校验器多出一条「agent job 必须配 firewall runner」—— 把它写坏，<code>pnpm lint</code> 会红。</p>
     </li>
+    <li class="road--done">
+      <div class="road__head"><span class="pill">已完成</span><h3>P6 界面与交互</h3></div>
+      <p>四片，都是<strong>行内增强</strong>（不占整屏，所以输出照样能被 <code>tee</code>、能被滚回）：活动面让「正在做什么」看得见，结果一到就擦掉、换成永久行；内容面把模型的话按 markdown 子集过一遍，认不出的语法原样留着；改动面每轮落一行摘要、退出再算一次总账；输入面补上上/下键历史（<code>~/.deepcode/history</code>，与转录同一套权限规矩）、<code>Tab</code> 补全、行尾 <code>\</code> 续行、一次粘贴的多行算<strong>一次</strong>提交。顺带修掉 README 那条「非 TTY 下 REPL 收不到输入」。<strong>零新增事件</strong> —— 界面只是既有事件的观察者。</p>
+    </li>
   </ol>
 </section>
 
@@ -447,16 +451,11 @@
     </article>
 
     <article class="card card--limit">
-      <h3>没有 TUI、没有语法高亮</h3>
-      <p>有 ANSI 着色与单行 spinner，但界面仍是逐行的纯文本流，也不走 <code>ui.render</code> 事件。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>非 TTY 下 REPL 收不到输入</h3>
-      <p><code>echo '/diff' | deepcode</code> 这种喂法<strong>无效</strong>：readline 在
-        <code>createInterface</code> 之后就开始读，而主流程到 REPL 挂上第一个监听之间还隔着好几个 await，
-        管道里的行就在这段空窗里被读掉、扔了。</p>
-      <p class="card__cost">要脚本化请用一次性模式 <code>deepcode "..."</code>，那条路是好的。</p>
+      <h3>没有整屏 TUI、没有语法高亮</h3>
+      <p>界面是逐行的纯文本流（P6 的四片都是行内增强，不占整屏），markdown 只认一个子集，
+        代码块不着色，也不走 <code>ui.render</code> 事件。</p>
+      <p class="card__cost">那棵「界面数据树」的结构今天还没有能把它钉住的消费者 ——
+        没有第二个前端、没有 TUI，落地等于把一个猜出来的形状冻进契约。</p>
     </article>
 
     <article class="card card--limit">
