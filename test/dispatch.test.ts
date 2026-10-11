@@ -216,12 +216,15 @@ describe('链语义', () => {
 
   it('next.signal / origin / budget / is 都挂上了', async () => {
     const controller = new AbortController();
+    // 载体换成 tool.describe：tool.call 现在不上预算，next.budget.ms 是 Infinity，
+    // 钉不住"普通事件拿 10 秒"。这条断言管的是 budget 访问器挂没挂、值对不对，
+    // 与"哪个事件"无关，换个有预算的载体照旧成立。
     const h = createHarness({
-      coreImpls: { 'tool.call': () => ({ value: 'x' }) },
+      coreImpls: { 'tool.describe': () => ({ value: 'x' }) },
       signal: controller.signal,
     });
     let snapshot: any;
-    h.on('builtin', 'probe', CALL, async (_$, e, next) => {
+    h.on('builtin', 'probe', 'tool.describe', async (_$, e, next) => {
       snapshot = {
         signal: next.signal === controller.signal,
         event: next.event,
@@ -234,10 +237,10 @@ describe('链语义', () => {
       return next(e);
     });
 
-    await h.dispatch(CALL, args, CORE_ORIGIN);
+    await h.dispatch('tool.describe', { tool: 'Read' }, CORE_ORIGIN);
     expect(snapshot).toEqual({
       signal: true,
-      event: CALL,
+      event: 'tool.describe',
       plugin: 'probe',
       tier: 'builtin',
       ms: 10_000,

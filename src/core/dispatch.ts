@@ -1,7 +1,7 @@
 import type { Args, EventName, Result } from '../contract/events';
 import { isNotificationEvent, isStreamingEvent } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
-import { HOOK_BUDGET, type Origin, type TraceEntry } from '../contract/next';
+import { HOOK_BUDGET, UNBUDGETED_EVENTS, type Origin, type TraceEntry } from '../contract/next';
 import { tierIndex, type TargetTier } from '../contract/tier';
 import { NotImplementedError, withBudget } from './errors';
 import { matchesPattern, type Registry } from './registry';
@@ -25,6 +25,11 @@ export type DispatcherDeps = {
    * 把"这次调用被谁应答、又被谁跳过"打出来。
    */
   logger: { warn(line: string): void; debug?(line: string): void };
+  /**
+   * hook 的时间预算（毫秒）。**只为测试存在**：把 10 秒缩成几十毫秒，
+   * 才验得了"超时会把这个 hook 摘掉、让下层应答"这条线。生产不传。
+   */
+  hookBudgetMs?: number;
   /** 工厂而非 signal 本身 —— 理由见 CoreNounsDeps.signal。每次 dispatch 现取。 */
   signal: () => AbortSignal;
 };
@@ -49,6 +54,12 @@ function deepFreeze<T>(value: T): T {
 export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn } {
   /** 同一个 (事件, 插件) 只警告一次，避免故障插件刷屏。 */
   const warned = new Set<string>();
+
+  /** 每个 hook 的时间预算。测试可以缩小它；`UNBUDGETED_EVENTS` 里的事件没有闸。 */
+  const budgetFor = (event: string): number =>
+    UNBUDGETED_EVENTS.includes(event)
+      ? Number.POSITIVE_INFINITY
+      : (deps.hookBudgetMs ?? HOOK_BUDGET.ms);
 
   const dispatch: DispatchFn = async (event, args, origin, skipPlugin) => {
     const hooks = deps.registry
@@ -88,10 +99,11 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
       const next = makeNext(index, e, self, startedAt);
 
       try {
-        const returned = await withBudget(
-          Promise.resolve(reg.hook(deps.engine(), deepFreeze(e), next)),
-          HOOK_BUDGET.ms,
-        );
+        const work = Promise.resolve(reg.hook(deps.engine(), deepFreeze(e), next));
+        // 长跑事件不上预算。理由见 contract/next.ts 的 UNBUDGETED_EVENTS ——
+        // 对 tool.call 来说，超时不是"摘掉一个坏 hook"，是"把一个正常工具判死"。
+        const ms = budgetFor(event);
+        const returned = Number.isFinite(ms) ? await withBudget(work, ms) : await work;
         if (returned === undefined) {
           throw new Error('hook returned undefined (什么都不返回 = 失败)');
         }
@@ -140,8 +152,9 @@ export function createDispatcher(deps: DispatcherDeps): { dispatch: DispatchFn }
       next.origin = self;
       next.trace = trace;
       next.budget = {
-        ms: HOOK_BUDGET.ms,
-        remainingMs: Math.max(0, HOOK_BUDGET.ms - (Date.now() - startedAt)),
+        ms: budgetFor(event),
+        // 不上预算的事件里它是 Infinity —— 名义值，别拿它做判断（那里本来就没有闸）。
+        remainingMs: Math.max(0, budgetFor(event) - (Date.now() - startedAt)),
       };
       next.is = (pattern: string) => matchesPattern(pattern, event);
       return next;

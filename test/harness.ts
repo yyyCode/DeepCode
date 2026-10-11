@@ -10,6 +10,8 @@ export type HarnessOptions = {
   coreImpls?: CoreImpls;
   engine?: Partial<EngineInterface>;
   signal?: AbortSignal;
+  /** 缩小 hook 时间预算，供 test/hook-budget.test.ts 用。 */
+  hookBudgetMs?: number;
 };
 
 const NOOP_ENGINE = {} as EngineInterface;
@@ -27,6 +29,7 @@ export function createHarness(options: HarnessOptions = {}) {
     engine: () => (options.engine ?? NOOP_ENGINE) as EngineInterface,
     coreImpls: options.coreImpls ?? {},
     logger: { warn: (line) => warnings.push(line), debug: (line) => debugLines.push(line) },
+    ...(options.hookBudgetMs === undefined ? {} : { hookBudgetMs: options.hookBudgetMs }),
     signal: () => options.signal ?? DEFAULT_SIGNAL,
   });
 
