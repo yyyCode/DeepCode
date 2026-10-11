@@ -871,7 +871,7 @@ git commit -m "docs: 删掉「没有 CI」这条限制，同步用例数与官�
 
 | 预登记 | 实际 |
 | --- | --- |
-| 补 `export ... from` 不会误伤（只有 `contract/index.ts` 六行同级 re-export） | |
-| 两个自带插件 `import` 数为 0，所以 plugins 规则在真仓库上必然过 | |
-| `pnpm lint` 串第二个检查器后，输出仍含「依赖边界检查通过」 | |
-| Linux 上测试套件可能露出 Windows-only 假设 | |
+| 补 `export ... from` 不会误伤（只有 `contract/index.ts` 六行同级 re-export） | **成立**。真仓库 `pnpm lint` 通过，六行同级 re-export 全部落在 src 区域规则内，没有一条被新正则误伤。 |
+| 两个自带插件 `import` 数为 0，所以 plugins 规则在真仓库上必然过 | **成立**（`find plugins -name '*.mjs'` → 只有 `todo/main.mjs` 与 `secret-guard/scan.mjs`，两个都零 import）。所以 plugins 规则在真仓库上是**绿的但没被真正行使** —— 它被行使的地方是 `test/tooling.test.ts` 的六棵临时树，以及写这条规则时的反向验证。 |
+| `pnpm lint` 串第二个检查器后，输出仍含「依赖边界检查通过」 | **成立**（`依赖边界检查通过` + `工作流硬化检查通过`）。 |
+| Linux 上测试套件可能露出 Windows-only 假设 | **待 C2 推上去才知道**。 |

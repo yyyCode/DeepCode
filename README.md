@@ -452,10 +452,17 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 
 ```bash
 pnpm typecheck   # 类型检查
-pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，39 个文件 592 个用例
+pnpm lint        # 两个检查：依赖边界 + 工作流硬化
+pnpm test        # 测试，40 个文件 609 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
+
+三条命令在 [GitHub Actions](.github/workflows/ci.yml) 上也跑（Node 20 与 22 两个版本）。
+CI 不需要任何密钥 —— 测试全是桩：假 `fetch`、临时目录。
+
+> ⚠️ **工作流硬化检查是文本扫描，不是 YAML 解析器。** 它认不出动态拼出来的 `uses:`、
+> 写在 YAML 锚点里的引用、以及 job 之间的包含关系。它是尽力而为的护栏，不是完备证明 ——
+> 新工作流仍要人看一眼。
 
 ## 设计文档
 
@@ -464,6 +471,7 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
 - P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
 - P3 设计（插件系统）：[`docs/superpowers/specs/2026-10-11-deepcode-p3-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p3-design.md)
+- P4e 设计（CI 与工程化）：[`docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md)
 - 架构参考：`claude-code-架构分析/`
 
 ## 官网（静态页面）

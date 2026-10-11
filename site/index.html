@@ -68,7 +68,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>592</b><span>用例全绿 · 39 个文件</span></li>
+    <li><b>609</b><span>用例全绿 · 40 个文件</span></li>
     <li><b>≥ 20</b><span>Node 版本</span></li>
     <li><b>16/39</b><span>事件已实现（如实标注）</span></li>
   </ul>
@@ -343,18 +343,19 @@
   <h2>工程质量</h2>
   <div class="grid">
     <article class="card card--stat">
-      <b>523</b>
-      <p>用例，39 个测试文件，<code>pnpm test</code> 全绿。</p>
+      <b>609</b>
+      <p>用例，40 个测试文件，<code>pnpm test</code> 全绿。</p>
     </article>
     <article class="card card--stat">
       <b>3</b>
       <p>条命令管住质量：<code>pnpm typecheck</code>（<code>strict</code> +
         <code>noUncheckedIndexedAccess</code> + <code>verbatimModuleSyntax</code>）、
-        <code>pnpm lint</code>（依赖边界）、<code>pnpm test</code>。</p>
+        <code>pnpm lint</code>（依赖边界 + 工作流硬化）、<code>pnpm test</code>。</p>
     </article>
     <article class="card card--stat">
-      <b>0</b>
-      <p>CI 流水线。设计文档里明确把它排到 MVP 之后，现在全靠本地跑这三条命令。</p>
+      <b>2</b>
+      <p>个 Node 版本（20 / 22）在 <a href="https://github.com/yyyCode/DeepCode/actions">GitHub Actions</a>
+        上跑这三条命令。动作钉 commit SHA，<code>permissions: contents: read</code>，不需要任何密钥。</p>
     </article>
   </div>
   <div class="prose">
@@ -396,9 +397,9 @@
     </li>
     <li>
       <div class="road__head"><span class="pill">进行中</span><h3>P4 组合面</h3></div>
-      <p>目标：<code>agents/*.md</code> 子代理能被 <code>description</code> 正确路由，且工具白名单生效。
-        <strong>P4a 已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具、名册发现与
-        <code>agent.offer</code> 进系统提示都已在分支上跑通；P4 整体未完。</p>
+      <p><strong>P4a / P4b / P4e 已落地</strong>：<code>Task</code> / <code>Skill</code> 两个工具与
+        <code>agent.offer</code> 进系统提示；会话压缩、<code>Bash</code> 沙箱、嵌套 <code>AGENTS.md</code>；
+        CI 与两个检查器。P4 还剩 P4c（marketplace / hookify）与 P4d（多 surface）。</p>
     </li>
     <li>
       <div class="road__head"><span class="pill pill--todo">未开始</span><h3>P5 内建与分发</h3></div>
