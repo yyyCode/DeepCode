@@ -531,6 +531,7 @@ CI 不需要任何密钥 —— 测试全是桩：假 `fetch`、临时目录。
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
 - P2 计划：[`docs/superpowers/plans/2026-10-11-deepcode-p2.md`](docs/superpowers/plans/2026-10-11-deepcode-p2.md)
 - P3 设计（插件系统）：[`docs/superpowers/specs/2026-10-11-deepcode-p3-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p3-design.md)
+- P4c 设计（分发与治理）：[`docs/superpowers/specs/2026-10-11-deepcode-p4c-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4c-design.md)
 - P4e 设计（CI 与工程化）：[`docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md`](docs/superpowers/specs/2026-10-11-deepcode-p4e-design.md)
 - 架构参考：`claude-code-架构分析/`
 
