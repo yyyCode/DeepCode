@@ -2608,17 +2608,41 @@ describe('hook 时间预算', () => {
     expect(result).toEqual({ description: '来自下层', inputSchema: {} });
     expect(h.warnings.some((line) => line.includes('失败已跳过'))).toBe(true);
   });
+
+  it('next.budget.ms：tool.call 是不上预算的名义值，普通事件拿到 10 秒', async () => {
+    // 这个不对称是这一任务的全部意义 —— 只测"慢工具没被判死"是行为层，
+    // 这一条把它钉在 `next.budget` 这个可观测面上（否则将来有人"顺手统一"回去没人拦得住）。
+    const h = createHarness();
+    let onToolCall: number | undefined;
+    let onDescribe: number | undefined;
+    h.on('builtin', 'probe-call', 'tool.call', async (_$, e, next) => {
+      onToolCall = next.budget.ms;
+      return next(e);
+    });
+    h.on('builtin', 'probe-desc', 'tool.describe', async (_$, e, next) => {
+      onDescribe = next.budget.ms;
+      return next(e);
+    });
+
+    await h.dispatch('tool.call', { tool: 'Bash', input: {}, toolUseId: 'u1' }, CORE_ORIGIN);
+    await h.dispatch('tool.describe', { tool: 'Read' }, CORE_ORIGIN);
+
+    expect(onToolCall).toBe(Number.POSITIVE_INFINITY);
+    expect(onDescribe).toBe(10_000);
+  });
 });
 ```
 
 - [ ] **Step 5: 跑测试，确认它通过**
 
 Run: `pnpm test test/hook-budget.test.ts`
-Expected: PASS —— 2 passed
+Expected: PASS —— 3 passed
 
 > 第一条用例如果拿到的不是 `{ value: '跑完了' }` 而是 `{ deny: 'unknown tool: ...' }`，
 > 说明 `budgetFor` 那一处没接上 `UNBUDGETED_EVENTS`（Step 2 漏了）。改实现，别去改断言。
 > 第二条用例如果拿到的不是"来自下层"，看 `budgetFor` 是不是把 `tool.describe` 也划进了不上预算的那一档。
+> 第三条靠 `h.on(...)` 的 hook 返回 `next(e)` 把链走完 —— 不返回的话链就断在它那儿，
+> 第二个 dispatch 的 `onDescribe` 会是 `undefined`（`undefined !== 10_000`，红）。
 
 - [ ] **Step 6: 反向验证**
 
@@ -2628,7 +2652,23 @@ Expected: **第一条红**（结果是 `{ deny: 'unknown tool: Bash' }` 且有�
 - [ ] **Step 7: 跑全套**
 
 Run: `pnpm test`
-Expected: 全绿（这条改动只对 `tool.call` 生效，其余事件的预算行为一字未变）
+Expected: 全绿。**但会先红一条，那是计划漏掉的牵连，改它。**
+
+> ⚠️ **`test/dispatch.test.ts:217` 那条 `next.signal / origin / budget / is 都挂上了` 会红。**
+> 它用 `CALL`（= `tool.call`）做载体，断言 `ms: 10_000` —— 而 `tool.call` 从这一任务起不上预算，
+> `next.budget.ms` 因此是 `Infinity`。
+>
+> 这条断言是**对的**，只是它的载体该换：它要钉的是"`budget` 这个访问器挂上了、值是对的"，
+> 与"哪个事件"无关。所以：
+>
+> 1. 把那一处的 `tool.call` 载体换成**有预算**的事件（`tool.describe` 最省事：它有内核算实现，
+>    `args` 是 `{ tool: 'Read' }`），`ms: 10_000` 原样留着 —— 它继续钉"普通事件拿到 10 秒"。
+> 2. 顺带在 `test/hook-budget.test.ts` 里补一条：`tool.call` 的 `next.budget.ms` 是 `Infinity`。
+>    这个不对称是这一任务的**全部意义**，值得有断言钉住，而不是只有"慢工具没被判死"这条行为断言。
+>
+> 这与 Task 2 里 `agent.spawn` 转正时捅出 `dispatch.test.ts` 是同一回事：
+> **改一个共享常量的语义之前，先 grep 谁在断言它的值。** 本次已 grep 过：全套里钉 `budget.ms`
+> 的只有 `test/dispatch.test.ts:230,243` 这一处（其余 `10_000` 是 `timeoutMs`，不相干）。
 
 - [ ] **Step 8: 提交**
 
@@ -4090,3 +4130,29 @@ git commit --allow-empty -m "checkpoint: P4a C3 通过（技能与收口）" -m 
   计划里剩下的两处（Task 3 的 Step 1 测试块、Task 5 的 Step 5 测试块）已一并改正，
   免得下次再有人照抄。
 
+
+**T6/T7/T8 —— 三处名册抽取，实现本身零偏差；但 T6 的提交署名错了（执行侧，非计划）。**
+
+- **T6/T7/T8 的实现**：三者都一次通过，没有一条断言需要改（T6 全绿 477；
+  T7 `test/agents.test.ts` 14 passed；T8 `test/skills.test.ts` 10 passed）。
+  `walkdir.ts` 抽出来后 `plugin-dir.ts` 的"读不了"措辞换成了共用版本 —— 那是重构的正当后果，
+  没有任何测试钉着旧措辞（印证了计划里那句"已确认过"）。
+- **T6 的署名**：子代理的宿主指令让它把 trailer 写成 `Co-Authored-By: Claude Haiku 5.5 …`，
+  与本仓库**每一个**提交（以及这份计划每一步）写的 `Co-Authored-By: Claude Code …` 不一致。
+  已 `git commit --amend` 改回；T7/T8 在派活 prompt 里把那一行写死之后就没再犯。
+- **教训**：**署名这类"仓库约定"必须在派活 prompt 里逐字写出**，不能指望子代理从
+  自己的环境里推出正确的那一个 —— 它的环境和这份仓库的约定不是同一套。
+
+**计划的一处"未执行先改"（T9）—— 又是共享常量被断言钉住的老问题。**
+
+- **现象（静态审出来的，不是跑出来的）**：`test/dispatch.test.ts:217` 那条
+  `next.signal / origin / budget / is 都挂上了` 用 `CALL`（= `tool.call`）做载体，
+  断言 `ms: 10_000`。T9 让 `tool.call` 不上预算之后 `next.budget.ms` 是 `Infinity`，
+  **这条必然红** —— 而 T9 的 Step 7 原文写着"Expected: 全绿"。
+- **改成了什么**：Step 7 补上警告与改法（把载体换成有预算的 `tool.describe`，`10_000` 留着），
+  并在 `test/hook-budget.test.ts` 里**加一条**断言 `tool.call` 是 `Infinity`、
+  普通事件是 `10_000` —— 这个不对称是 T9 的全部意义，值得有断言钉住。Step 5 的计数 2 → 3。
+- **为什么这次是好事**：T2 那次是**跑出来**才发现牵连，T3/T5 那次是**同一个错踩两遍**。
+  这次在派活之前先 grep 了 `budget\|10_000\|HOOK_BUDGET`，确认全套里钉 `budget.ms` 的
+  只有那一处（其余 `10_000` 都是 `timeoutMs`，不相干）——
+  **改共享常量的语义之前，先 grep 谁在断言它的值。** 这条已经写进 T9 的 Step 7。
