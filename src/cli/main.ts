@@ -253,6 +253,8 @@ async function main(): Promise<void> {
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
     sessionInfo: { id: sessionId, cwd: root, root },
     env: debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env,
+    // 沙箱：五层设置里读出来的规则 + `~` 展开用的 home。省略 = 没有闸。
+    sandbox: { config: policy.sandbox, home },
     signal: () => turns.current(),
   });
 

@@ -243,3 +243,98 @@ describe('defaultManagedPath', () => {
     expect(defaultManagedPath({}, 'linux')).toBe('/etc/deepcode/managed-settings.json');
   });
 });
+
+describe('沙箱块', () => {
+  const block = (json: unknown): string => JSON.stringify({ sandbox: json });
+
+  it('默认：关着，规则一条都没有', async () => {
+    const { policy } = await load({});
+    expect(policy.sandbox).toEqual({ enabled: false, deny: [], allow: [] });
+  });
+
+  it('`deny` 各层取并集，`allow` 只认托管层', async () => {
+    const { policy, warnings } = await load({
+      [USER]: block({ enabled: true, paths: { deny: ['~/.ssh/**'], allow: ['/home/u/**'] } }),
+      [MANAGED]: block({ paths: { deny: ['/etc/**'], allow: ['/srv/**'] } }),
+    });
+
+    expect(policy.sandbox.enabled).toBe(true);
+    expect(policy.sandbox.deny.map((rule) => rule.raw)).toEqual(['~/.ssh/**', '/etc/**']);
+    expect(policy.sandbox.allow.map((rule) => rule.raw)).toEqual(['/srv/**']);
+    // 丢掉必须有声 —— 静默丢掉一份白名单比拒收更坏。
+    expect(warnings.join('\n')).toContain('白名单只有托管层能设');
+  });
+
+  it('`enabled` 是各层的**或** —— 个人能开，但关不掉托管开的闸', async () => {
+    const opened = await load({ [USER]: block({ enabled: true }) });
+    expect(opened.policy.sandbox.enabled).toBe(true);
+
+    const forced = await load({
+      [USER]: block({ enabled: false }),
+      [MANAGED]: block({ enabled: true }),
+    });
+    expect(forced.policy.sandbox.enabled).toBe(true);
+  });
+
+  it('相对路径的规则被拒收并出声（判定的候选一律是绝对路径）', async () => {
+    const { policy, warnings } = await load({
+      [USER]: block({ enabled: true, paths: { deny: ['out.txt'] } }),
+    });
+    expect(policy.sandbox.deny).toEqual([]);
+    expect(warnings.join('\n')).toContain('不是绝对路径');
+  });
+
+  it('形状写坏：**整块忽略** + 警告，不猜一个更严的', async () => {
+    const { policy, warnings } = await load({ [USER]: block({ enabled: 'yes' }) });
+    expect(policy.sandbox).toEqual({ enabled: false, deny: [], allow: [] });
+    expect(warnings.join('\n')).toContain('sandbox 块整块忽略');
+
+    const broken = await load({ [USER]: block({ paths: { deny: 'x' } }) });
+    expect(broken.policy.sandbox.deny).toEqual([]);
+    expect(broken.warnings.join('\n')).toContain('sandbox 块整块忽略');
+  });
+
+  it('`sandbox` 不再被当成不认识的顶层键', async () => {
+    const { warnings } = await load({ [USER]: block({ enabled: true }) });
+    expect(warnings.join('\n')).not.toContain('不认识的顶层键');
+  });
+
+  it('规则用 `~` 与反斜杠写，归一后与权限链同形', async () => {
+    const { policy } = await load({
+      [USER]: block({ enabled: true, paths: { deny: ['~\\SSH\\**'] } }),
+    });
+    expect(policy.sandbox.deny[0]?.content).toBe(`${HOME}/SSH/**`.replace(/\\/g, '/'));
+  });
+});
+
+describe('压缩块', () => {
+  const block = (json: unknown): string => JSON.stringify({ compact: json });
+
+  it('默认：自动关、阈值 100_000、保留 6 轮', async () => {
+    const { policy } = await load({});
+    expect(policy.compact).toEqual({ auto: false, atTokens: 100_000, keepTurns: 6 });
+  });
+
+  it('后读到的覆盖先读到的（user → project → local → flag → policy）', async () => {
+    const { policy } = await load({
+      [USER]: block({ auto: false, keepTurns: 10 }),
+      [PROJECT]: block({ keepTurns: 4, atTokens: 5_000 }),
+    });
+    expect(policy.compact).toEqual({ auto: false, atTokens: 5_000, keepTurns: 4 });
+  });
+
+  it('字段级降级：类型不对只用默认值 + 出声，不整块丢', async () => {
+    const { policy, warnings } = await load({
+      [USER]: block({ auto: 'true', atTokens: 0, keepTurns: 1.5 }),
+    });
+    expect(policy.compact).toEqual({ auto: false, atTokens: 100_000, keepTurns: 6 });
+    expect(warnings.join('\n')).toContain('compact.auto 不是布尔值');
+    expect(warnings.join('\n')).toContain('compact.atTokens 不是正整数');
+    expect(warnings.join('\n')).toContain('compact.keepTurns 不是正整数');
+  });
+
+  it('`compact` 不再被当成不认识的顶层键', async () => {
+    const { warnings } = await load({ [USER]: block({ auto: true }) });
+    expect(warnings.join('\n')).not.toContain('不认识的顶层键');
+  });
+});

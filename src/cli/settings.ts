@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isSupported, parseRule, type Behavior, type Rule } from '../contract/policy';
+import { sandboxRule, type SandboxConfig } from '../contract/sandbox';
 import { isPluginName } from '../contract/plugin-manifest';
 
 /**
@@ -36,6 +37,40 @@ const EMPTY_PLUGINS: PluginsLayer = { enable: [], deny: [] };
  */
 export const PLUGIN_ENABLE_SOURCES = ['project', 'local', 'flag'] as const;
 
+/**
+ * 压缩偏好。
+ *
+ * 它**不是权限**，挤进这份快照只是因为 `resolvePolicy` 是唯一走完五层的地方 ——
+ * 为它再写一遍五层遍历，就多一处会漂的顺序。
+ */
+export type CompactConfig = {
+  /** 自动压缩。**默认关** —— 阈值是猜的，静默丢细节不能是默认行为。 */
+  readonly auto: boolean;
+  /** 跨过这个数就出声（`auto: true` 时顺手压）。**这个默认值是猜的**，见 README 的限制。 */
+  readonly atTokens: number;
+  /** 压缩时保留最近几轮的原文。一轮 = 一条 `role === 'user'` 消息及其之后的一切。 */
+  readonly keepTurns: number;
+};
+
+export const DEFAULT_COMPACT: CompactConfig = { auto: false, atTokens: 100_000, keepTurns: 6 };
+
+/** 沙箱没开、也没有任何规则。 */
+export const EMPTY_SANDBOX: SandboxConfig = { enabled: false, deny: [], allow: [] };
+
+/** 一层的 `sandbox` 段解析结果。`enabled` 是各层的**或**，所以逐层分开存。 */
+type SandboxLayer = {
+  readonly enabled: boolean;
+  readonly deny: readonly Rule[];
+  readonly allow: readonly Rule[];
+};
+const EMPTY_SANDBOX_LAYER: SandboxLayer = { enabled: false, deny: [], allow: [] };
+
+/** 一层的 `compact` 段：只存这一层**写了**的字段。 */
+type CompactLayer = Partial<CompactConfig>;
+
+/** 认得出来的顶层键。**加一个顶层块就得加一项** —— 漏了就是给用户发一条假警告。 */
+const KNOWN_TOP_LEVEL = new Set(['permissions', 'plugins', 'sandbox', 'compact']);
+
 export type SourceInfo = {
   readonly source: SettingsSource;
   /** 这一层实际读的路径。`flag` 没给 `--settings=` 时是 undefined。 */
@@ -65,6 +100,14 @@ export type ResolvedPolicy = {
    * 它只能关掉东西，永远不可能放宽，于是"谁写的"对结果毫无影响。
    */
   readonly plugins: { readonly enable: readonly PluginRule[]; readonly deny: readonly PluginRule[] };
+  /**
+   * 沙箱。规则与权限规则**同一套**（`contract/policy.ts`），只是判定落在 `process` 名词里。
+   */
+  readonly sandbox: SandboxConfig;
+  /**
+   * 压缩偏好。它不是权限 —— 挤在这份"权限快照"里只因为 `resolvePolicy` 是唯一走完五层的地方。
+   */
+  readonly compact: CompactConfig;
 };
 
 /**
@@ -138,16 +181,46 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   const sources: SourceInfo[] = [];
   const bySource = new Map<SettingsSource, readonly Rule[]>();
   const pluginsBySource = new Map<SettingsSource, PluginsLayer>();
+  const sandboxLayers = new Map<SettingsSource, SandboxLayer>();
+  const compactLayers = new Map<SettingsSource, CompactLayer>();
 
   for (const layer of layers) {
     const read = await readLayer(layer, deps.home, warn, readText);
     sources.push(read.info);
     bySource.set(layer.source, read.rules);
     pluginsBySource.set(layer.source, read.plugins);
+    sandboxLayers.set(layer.source, read.sandbox);
+    compactLayers.set(layer.source, read.compact);
   }
 
   const withSource = (source: SettingsSource, names: readonly string[]): readonly PluginRule[] =>
     names.map((name) => ({ name, source }));
+
+  // ── 沙箱 ──
+  // `deny` 各层**取并集**：任何来源都能往这儿加，它只会让闸更严。
+  // `allow` **只有托管层能设** —— 与 `plugins.enable` 同一条道理：让个人配置能写白名单，
+  // 等于让它一句话掀掉托管策略设的圈。
+  // `enabled` 是各层的**或**：开闸只能靠有人明确要开，没有默认值能把它悄悄打开；
+  // 而"个人想关掉托管打开的闸"正是"个人掀翻托管"，方向不对。
+  const sandbox: SandboxConfig = {
+    enabled: SETTINGS_SOURCES.some((source) => sandboxLayers.get(source)?.enabled === true),
+    deny: SETTINGS_SOURCES.flatMap((source) => sandboxLayers.get(source)?.deny ?? []),
+    allow: sandboxLayers.get('policy')?.allow ?? [],
+  };
+  for (const source of SETTINGS_SOURCES) {
+    if (source === 'policy') continue;
+    if ((sandboxLayers.get(source)?.allow.length ?? 0) > 0) {
+      warn(`${label(source)} 里写了 sandbox.paths.allow —— 白名单只有托管层能设，这一份已丢弃。`);
+    }
+  }
+
+  // ── 压缩偏好 ──
+  // 后读到的覆盖先读到的（数组顺序就是低 → 高）。它没有"更严/更松"的方向，
+  // 硬套权限那一套只会造出一条解释不通的规则。
+  const compact: CompactConfig = { ...DEFAULT_COMPACT };
+  for (const source of SETTINGS_SOURCES) {
+    Object.assign(compact, compactLayers.get(source) ?? {});
+  }
 
   return {
     sources,
@@ -166,6 +239,8 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
         ),
       ),
     },
+    sandbox,
+    compact,
   };
 }
 
@@ -185,6 +260,8 @@ type LayerRead = {
   readonly info: SourceInfo;
   readonly rules: readonly Rule[];
   readonly plugins: PluginsLayer;
+  readonly sandbox: SandboxLayer;
+  readonly compact: CompactLayer;
 };
 
 async function readLayer(
@@ -196,12 +273,24 @@ async function readLayer(
   const where = layer.path;
 
   if (where === undefined) {
-    return { info: base(layer, 'missing', undefined, [], []), rules: [], plugins: EMPTY_PLUGINS };
+    return {
+      info: base(layer, 'missing', undefined, [], []),
+      rules: [],
+      plugins: EMPTY_PLUGINS,
+      sandbox: EMPTY_SANDBOX_LAYER,
+      compact: {},
+    };
   }
 
   const broken = (error: string): LayerRead => {
     warn(`${label(layer.source)} ${where} ${error} —— 这一层按空处理。`);
-    return { info: base(layer, 'broken', error, [], []), rules: [], plugins: EMPTY_PLUGINS };
+    return {
+      info: base(layer, 'broken', error, [], []),
+      rules: [],
+      plugins: EMPTY_PLUGINS,
+      sandbox: EMPTY_SANDBOX_LAYER,
+      compact: {},
+    };
   };
 
   let text: string | undefined;
@@ -212,7 +301,13 @@ async function readLayer(
   }
   // 不存在 = 静默为空。绝大多数机器没有托管文件，为此吼一声只会训练人无视警告。
   if (text === undefined) {
-    return { info: base(layer, 'missing', undefined, [], []), rules: [], plugins: EMPTY_PLUGINS };
+    return {
+      info: base(layer, 'missing', undefined, [], []),
+      rules: [],
+      plugins: EMPTY_PLUGINS,
+      sandbox: EMPTY_SANDBOX_LAYER,
+      compact: {},
+    };
   }
 
   let data: unknown;
@@ -227,7 +322,7 @@ async function readLayer(
 
   const record = data as Record<string, unknown>;
 
-  const unknown = Object.keys(record).filter((key) => key !== 'permissions' && key !== 'plugins');
+  const unknown = Object.keys(record).filter((key) => !KNOWN_TOP_LEVEL.has(key));
   if (unknown.length > 0) {
     // 未知键只警告、不致命：将来加顶层键（hooks、env）时，旧版本读新文件不该整份失效。
     warn(`${label(layer.source)} ${where} 里有不认识的顶层键：${unknown.join('、')}（已忽略）。`);
@@ -241,11 +336,18 @@ async function readLayer(
   const plugins = readPlugins(record.plugins, layer, where, warn);
   if ('broken' in plugins) return broken(plugins.broken);
 
+  // ⚠️ 与 plugins 同一个道理：这两块必须在 permissions 的早期 return **之前**解析，
+  // 否则一份只有 sandbox 段、没有 permissions 段的设置会把闸丢掉。
+  const sandbox = readSandbox(record.sandbox, layer, where, home, warn);
+  const compact = readCompact(record.compact, layer, where, warn);
+
   if (raw === undefined) {
     return {
       info: base(layer, 'ok', undefined, [], [], plugins.value),
       rules: [],
       plugins: plugins.value,
+      sandbox,
+      compact,
     };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -294,6 +396,8 @@ async function readLayer(
     info: base(layer, 'ok', undefined, problems, rules, plugins.value),
     rules,
     plugins: plugins.value,
+    sandbox,
+    compact,
   };
 }
 
@@ -351,6 +455,150 @@ function readPlugins(
   }
 
   return { value: out };
+}
+
+/**
+ * 解析一层的 `sandbox` 段。
+ *
+ * 形状错的处置**与 `permissions` 不同**：这里只丢掉这一层这一块，不废掉整份文件。
+ * 理由：沙箱是"多一道闸"，不是"判定权限"。猜一个更严的会把用户的正常命令全拒掉
+ * （比不沙箱更糟），猜松则等于没配 —— **读不懂就不动**，与 `parseRule`
+ * 对不认识的规则的处理一致。
+ */
+function readSandbox(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  home: string,
+  warn: (line: string) => void,
+): SandboxLayer {
+  const ignore = (why: string): SandboxLayer => {
+    warn(`${label(layer.source)} ${where} 的 sandbox 块整块忽略 —— ${why}`);
+    return EMPTY_SANDBOX_LAYER;
+  };
+
+  if (value === undefined) return EMPTY_SANDBOX_LAYER;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return ignore('不是一个对象');
+
+  const record = value as Record<string, unknown>;
+
+  let enabled = false;
+  if (record.enabled !== undefined) {
+    if (typeof record.enabled !== 'boolean') return ignore('enabled 不是布尔值');
+    enabled = record.enabled;
+  }
+
+  let deny: readonly Rule[] = [];
+  let allow: readonly Rule[] = [];
+
+  const paths = record.paths;
+  if (paths !== undefined) {
+    if (typeof paths !== 'object' || paths === null || Array.isArray(paths)) {
+      return ignore('paths 不是一个对象');
+    }
+    const list = paths as Record<string, unknown>;
+
+    const denyRules = readSandboxList(list.deny, layer, where, home, 'deny', warn);
+    if (denyRules === undefined) return ignore('paths.deny 不是字符串数组');
+    const allowRules = readSandboxList(list.allow, layer, where, home, 'allow', warn);
+    if (allowRules === undefined) return ignore('paths.allow 不是字符串数组');
+    deny = denyRules;
+    allow = allowRules;
+
+    const unknown = Object.keys(list).filter((key) => key !== 'deny' && key !== 'allow');
+    if (unknown.length > 0) {
+      warn(`${label(layer.source)} ${where} 的 sandbox.paths 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+    }
+  }
+
+  const unknownTop = Object.keys(record).filter((key) => key !== 'enabled' && key !== 'paths');
+  if (unknownTop.length > 0) {
+    warn(`${label(layer.source)} ${where} 的 sandbox 里有不认识的子键：${unknownTop.join('、')}（已忽略）。`);
+  }
+
+  return { enabled, deny, allow };
+}
+
+/**
+ * 一条沙箱路径列表。形状不对返回 `undefined`（调用方**整块忽略**）；
+ * 单条规则坏了只丢那一条（方向是**不收紧**，所以必须出声 —— 与 permissions 同一条）。
+ */
+function readSandboxList(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  home: string,
+  key: 'deny' | 'allow',
+  warn: (line: string) => void,
+): Rule[] | undefined {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return undefined;
+  if (value.some((item) => typeof item !== 'string')) return undefined;
+
+  const out: Rule[] = [];
+  for (const text of value as string[]) {
+    const trimmed = text.trim();
+    if (trimmed === '') {
+      warn(`${label(layer.source)} ${where} 这条不生效 —— sandbox.paths.${key} 里有一条是空的。`);
+      continue;
+    }
+    // 判定的候选**一律**被解析成绝对路径，所以相对路径的规则永远不命中。
+    // 静默失效比拒收更坏：写的人会以为自己在防一件其实没防的事。
+    if (!isAbsoluteLike(trimmed)) {
+      warn(
+        `${label(layer.source)} ${where} 这条不生效 —— sandbox.paths.${key} 里的 ${JSON.stringify(text)} 不是绝对路径（\`~\` 可以），相对路径在判定时无从解析。`,
+      );
+      continue;
+    }
+    out.push(sandboxRule(text, key, home));
+  }
+  return out;
+}
+
+/** 绝对路径式：`/…`、`~/…`、`C:/…`（反斜杠也认，`sandboxRule` 里会统一）。 */
+function isAbsoluteLike(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('~') || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/**
+ * 解析一层的 `compact` 段。**字段级降级**：只有那一个字段类型不对时用默认值 + 出声，
+ * 不整块忽略 —— 它不是权限，没有"猜严/猜松"的方向问题。
+ */
+function readCompact(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  warn: (line: string) => void,
+): CompactLayer {
+  if (value === undefined) return {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    warn(`${label(layer.source)} ${where} 的 compact 块整块忽略 —— 不是一个对象。`);
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  const out: { auto?: boolean; atTokens?: number; keepTurns?: number } = {};
+
+  if (record.auto !== undefined) {
+    if (typeof record.auto === 'boolean') out.auto = record.auto;
+    else warn(`${label(layer.source)} ${where} compact.auto 不是布尔值，按默认值处理。`);
+  }
+
+  for (const key of ['atTokens', 'keepTurns'] as const) {
+    const raw = record[key];
+    if (raw === undefined) continue;
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) out[key] = raw;
+    else warn(`${label(layer.source)} ${where} compact.${key} 不是正整数，按默认值处理。`);
+  }
+
+  const unknown = Object.keys(record).filter(
+    (key) => key !== 'auto' && key !== 'atTokens' && key !== 'keepTurns',
+  );
+  if (unknown.length > 0) {
+    warn(`${label(layer.source)} ${where} 的 compact 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+  }
+
+  return out;
 }
 
 function base(
