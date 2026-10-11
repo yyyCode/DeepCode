@@ -16,6 +16,8 @@ export type StartupAction =
   | { kind: 'plugin'; sub: 'help' }
   | { kind: 'plugin'; sub: 'list' }
   | { kind: 'plugin'; sub: 'validate'; dir: string }
+  | { kind: 'plugin'; sub: 'add'; name: string; from: string }
+  | { kind: 'plugin'; sub: 'remove'; name: string }
   | { kind: 'prompt'; text: string; resume: ResumeTarget; settings: string | undefined };
 
 /** `-V` 而不是 `-v`：后者在太多工具里是 verbose，别去抢那个字母。 */
@@ -27,6 +29,9 @@ const RESUME = '--resume';
 
 /** 同样只认等号形态：它指向一个文件路径，裸写没法跟提示词区分开。 */
 const SETTINGS = '--settings';
+
+/** 与 `--settings=` 同一条理由：它指向一个目录，裸写没法跟位置参数区分开。 */
+const FROM = '--from';
 
 export function parseArgs(argv: readonly string[]): StartupAction {
   // help 优先于 version，两者都优先于 resume 与提示词。
@@ -94,6 +99,25 @@ function parsePluginCommand(argv: readonly string[]): StartupAction | undefined 
   if (sub === 'validate') {
     const dir = argv[first + 2];
     return dir === undefined ? { kind: 'plugin', sub: 'help' } : { kind: 'plugin', sub: 'validate', dir };
+  }
+  if (sub === 'add') {
+    // `--from` 只认等号形态（`--from=<目录>`），先例是 `--resume=` 与 `--settings=`。
+    // 它**可以出现在任意位置**：`from` 整条 argv 里找，名字则取子命令之后**第一个非开关 token**
+    // —— 这一步不能写成 `argv[first + 2]`：`--from=…` 以 `-` 开头，它排在名字前面时
+    // 会把那个位置占了，于是名字被读成 `--from=…` 而被判非法。
+    const name = argv.slice(first + 2).find((arg) => !arg.startsWith('-'));
+    const from = argv.find((arg) => arg.startsWith(`${FROM}=`))?.slice(FROM.length + 1).trim();
+    if (name === undefined || from === undefined || from === '') {
+      // 少了名字或 `--from` 就打说明 —— 与 `validate` 少了目录同一种处置。
+      // 说明里写着这两个参数怎么写，所以这不是一条死胡同。
+      return { kind: 'plugin', sub: 'help' };
+    }
+    return { kind: 'plugin', sub: 'add', name, from };
+  }
+  if (sub === 'remove') {
+    const name = argv[first + 2];
+    if (name === undefined || name.startsWith('-')) return { kind: 'plugin', sub: 'help' };
+    return { kind: 'plugin', sub: 'remove', name };
   }
   return undefined;
 }

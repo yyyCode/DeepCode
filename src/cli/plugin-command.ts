@@ -1,9 +1,12 @@
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 
+import { validateMarketplace, type MarketplaceEntry } from '../contract/marketplace';
 import type { PluginManifest, Problem } from '../contract/plugin-manifest';
 import { validatePlugin } from '../contract/plugin-manifest';
 import type { StartupAction } from './args';
 import { dirReader, discoverPlugins, type Discovery } from './plugin-dir';
+import { landPlugin, removePlugin } from './plugin-install';
 
 /**
  * `deepcode plugin list` 与 `deepcode plugin validate <目录>`。
@@ -25,6 +28,8 @@ export type PluginCommandDeps = {
   readonly root: string;
   /** 五层合并后的 `plugins.enable`（只有项目级的发现需要它）。 */
   readonly enabled: readonly string[];
+  /** 只有**用户层**的名单 —— 落点只认这一层（设计 §0 决策 3）。 */
+  readonly enabledByUser: readonly string[];
   readonly out: (line: string) => void;
   readonly err: (line: string) => void;
 };
@@ -40,9 +45,26 @@ export async function runPluginCommand(deps: PluginCommandDeps): Promise<number>
       home: deps.home,
       root: deps.root,
       enabled: deps.enabled,
+      enabledInstalled: deps.enabledByUser,
       warn: deps.err,
     });
     deps.out(renderList(found, deps.home, deps.root));
+    return 0;
+  }
+  if (deps.action.sub === 'add') {
+    return await runAdd(deps, deps.action.name, deps.action.from);
+  }
+  if (deps.action.sub === 'remove') {
+    const result = await removePlugin(deps.home, deps.action.name);
+    if (!result.ok) {
+      deps.err(result.error);
+      return 1;
+    }
+    deps.out(`已删掉 ${result.dir}。`);
+    // 把话说全：名字可能还挂在设置里，而那一行现在指向一个不存在的东西。
+    deps.out(
+      `若这个名字还在用户级设置的 plugins.enable 里，那一行现在指向一个不存在的东西 —— 顺手删掉它。`,
+    );
     return 0;
   }
 
@@ -50,6 +72,77 @@ export async function runPluginCommand(deps: PluginCommandDeps): Promise<number>
   const validated = await validatePlugin(dir, dirReader(dir));
   deps.out(renderValidate(dir, validated));
   return validated.ok ? 0 : 1;
+}
+
+/**
+ * `plugin add` 的六步（设计 §4.2）。**顺序是要紧的**：任何 E 级问题都在写盘之前中止，
+ * 而且一个字节都不写。
+ */
+async function runAdd(deps: PluginCommandDeps, name: string, from: string): Promise<number> {
+  const marketDir = resolve(from);
+  const indexLabel = `${marketDir} 下的 .deepcode-plugin/marketplace.json`;
+
+  const index = await validateMarketplace(marketDir, {
+    async readIndex() {
+      // 与 settings.ts 的默认 reader 同一条区分：不存在返回 undefined 是常态，
+      // 存在但读不了要抛 —— 后者可能是有人故意藏了个读不了的东西。
+      try {
+        return await readFile(join(marketDir, '.deepcode-plugin', 'marketplace.json'), 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined;
+        throw error;
+      }
+    },
+    openPlugin: (source) => dirReader(join(marketDir, source)),
+  });
+
+  if (!index.ok || index.entries === undefined) {
+    deps.err(`这份索引用不了：${indexLabel}`);
+    for (const line of renderProblems(index.problems)) deps.err(line);
+    return 1;
+  }
+
+  const entry = index.entries.find((item) => item.name === name);
+  if (entry === undefined) {
+    // 一次 typo 教会你有哪些可选 —— 于是不需要单独的 `plugin search`（YAGNI）。
+    deps.err(`这份索引里没有 ${JSON.stringify(name)}。有的名字：`);
+    for (const item of index.entries) deps.err(`  ${item.name.padEnd(24)} ${item.source}`);
+    return 1;
+  }
+
+  return await installEntry(deps, marketDir, entry);
+}
+
+async function installEntry(
+  deps: PluginCommandDeps,
+  marketDir: string,
+  entry: MarketplaceEntry,
+): Promise<number> {
+  const sourceDir = join(marketDir, entry.source);
+  // 再校验一次 source 指向的那个目录，**为的是拿到 entry / hooks** ——
+  // `MarketplaceEntry` 只带归一后的 manifest，而下面那一屏要打的是钩子命令的**原文**。
+  const validated = await validatePlugin(sourceDir, dirReader(sourceDir));
+  deps.out(renderValidate(sourceDir, validated));
+  if (!validated.ok) {
+    deps.err(`这份插件有问题，没有装 —— 落点里一个字节都没写。`);
+    return 1;
+  }
+
+  const landed = await landPlugin(deps.home, entry.name, sourceDir);
+  if (!landed.ok) {
+    deps.err(landed.error);
+    return 1;
+  }
+
+  deps.out(`装到了 ${landed.dir}。`);
+  // **不替用户改设置**（设计 §0 决策 9）：一条命令替你把代码放行，
+  // 与项目禁掉 `--yes` 是同一条理由 —— 谁加自动放行开关谁就是在开倒车。
+  deps.out(
+    `它现在**不会跑**。要它跑，在用户级 ~/.deepcode/settings.json 里写：` +
+      `{"plugins": {"enable": ["${entry.name}"]}}`,
+  );
+  deps.out(`（项目级设置里写同一个名字不算数 —— 否则一个克隆下来的仓库就能点亮你全局装着的插件。）`);
+  return 0;
 }
 
 export const PLUGIN_HELP = `deepcode plugin —— 插件

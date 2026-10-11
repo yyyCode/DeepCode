@@ -101,6 +101,9 @@ async function main(): Promise<void> {
       home,
       root,
       enabled: pluginPolicy.plugins.enable.map((rule) => rule.name),
+      // 落点只认**用户层**的设置（设计 §0 决策 3）—— 与下面 discoverPlugins 的
+      // `enabledInstalled` 是同一份名单，两个入口必须一致。
+      enabledByUser: pluginPolicy.plugins.enableByUser,
       out: (line) => process.stdout.write(`${line}\n`),
       err: (line) => process.stderr.write(`${line}\n`),
     });
