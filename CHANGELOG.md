@@ -307,7 +307,8 @@ readline 的历史里同时也记下确认时的 `y`（与 shell 一致，不另
 
 **范围**：`cli/input.ts`（行队列补上启动空窗、30ms 去抖、`/`-命令就地切开、`\` 续行、
 `/` 与 `@` 补全）、`cli/history.ts`（`~/.deepcode/history`，与 transcript 同一套安全规矩：
-用户级 home、0600）、`repl.ts` 重写。
+用户级 home、0600）、`repl.ts` 重写；收口后又补了 `cli/banner.ts`（开场那一屏：版本 /
+模型与端点 / 工作区 / 会话 id，**只在真终端里画**，管道下一个字节都不产出）。
 
 **顺带修掉的既有欠账**：README「已知限制」里那条**「非 TTY 下 REPL 收不到输入」**
 （`echo '/diff' | deepcode` 无效）—— 修了，所以从三份文档里删掉，不是改成"解释了"。

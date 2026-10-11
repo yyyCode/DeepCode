@@ -13,6 +13,7 @@ import { formatPane } from './diff-render';
 import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
+import { banner } from './banner';
 import { createSessionChanges } from './changes';
 import { exitLines } from './tally';
 import { createCompleter, createLineQueue } from './input';
@@ -404,6 +405,33 @@ async function main(): Promise<void> {
 
   const oneShot = action.text;
 
+  /**
+   * 是不是真的有人在敲。REPL 与开场那一屏共用这一个判断（只算一次，
+   * 两处各算一遍迟早会不一致）。管道、CI、`deepcode "…"` 都不是交互 ——
+   * 那时**不画开场白**：管道那头没有人在等，多几行就是把脚本的输出弄脏。
+   */
+  const interactive = Boolean(process.stdin.isTTY);
+
+  // 开场那一屏（P6d 的收尾）。放在这儿：会话与 mods 的降级提醒都已经出完，
+  // 它是最后一条"开始之前"的信息，紧跟着就是提示符。
+  if (oneShot === undefined && interactive) {
+    for (const line of banner(
+      {
+        version: readVersion(),
+        model,
+        provider,
+        ...(baseUrl === undefined ? {} : { baseUrl }),
+        root,
+        ...(transcript === undefined ? {} : { sessionId: transcript.id }),
+      },
+      palette,
+    )) {
+      // 走渲染器而不是直接写 stdout：活动区是一块随时会被重画的区域，
+      // 绕过它的每一个字节都可能糊在那半行小圆圈后面（`warnLine` 踩过这个坑）。
+      render.print(line);
+    }
+  }
+
   if (oneShot) {
     // 一次性模式：`deepcode "改一下 X"`
     // 只采纳 `context`，**忽略 `handled`**：那个字段的语义是"这一行输入被吃掉了，
@@ -438,6 +466,7 @@ async function main(): Promise<void> {
       rl,
       lines,
       palette,
+      interactive,
       systemPrompt,
       turns,
       messages,
