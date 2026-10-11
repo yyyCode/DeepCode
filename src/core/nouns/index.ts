@@ -1,9 +1,12 @@
-import type { CoreEngineInterface, ModelProvider } from '../../contract/engine';
+import type { CoreEngineInterface, EngineInterface, ModelProvider } from '../../contract/engine';
 import type { Registry } from '../registry';
+import type { DispatchFn } from '../dispatch';
+import { createAgentNoun } from './agent';
 import { createClockNoun } from './clock';
 import { createFsNoun } from './fs';
 import { createLoggerNoun } from './logger';
 import { createProcessNoun } from './process';
+import { createSkillNoun } from './skill';
 import { createStoreNoun } from './store';
 import { createUiNoun, type UiSink } from './ui';
 
@@ -23,11 +26,29 @@ export type CoreNounsDeps = {
   signal: () => AbortSignal;
 };
 
+export type CoreNounsRefs = {
+  /**
+   * 延迟取 `$`。
+   *
+   * 它要到 `createEngine` 的折叠完成之后才存在 —— 而 `agent` 名词要在内层跑一轮，
+   * 那一轮必须拿**折叠后**的 `$`（引擎自己的 hook 那时才都挂上去了），
+   * 不是 `createCoreNouns` 手里这份还只有内核名词的半成品。
+   * 与 `DispatcherDeps.engine`（core/dispatch.ts:19）同一个形状、同一条理由。
+   */
+  readonly engine: () => EngineInterface;
+  /** 同理：dispatch 也是 createEngine 建完才有的。 */
+  readonly dispatch: () => DispatchFn;
+};
+
 /**
- * registry 是第二个参数而不是 deps 的字段：它由 createEngine 自建，
- * 调用方（cli/main.ts）不该也不可能有它。
+ * `registry` 与 `refs` 是第二、第三个参数而不是 deps 的字段：两者都由 createEngine 自建，
+ * 调用方（cli/main.ts）不该也不可能有它们。
  */
-export function createCoreNouns(deps: CoreNounsDeps, registry: Registry): CoreEngineInterface {
+export function createCoreNouns(
+  deps: CoreNounsDeps,
+  registry: Registry,
+  refs: CoreNounsRefs,
+): CoreEngineInterface {
   return {
     session: {
       id: () => deps.sessionInfo.id,
@@ -39,14 +60,18 @@ export function createCoreNouns(deps: CoreNounsDeps, registry: Registry): CoreEn
     tool: { list: () => registry.matcherValues('tool.call', 'tool') },
     command: { list: () => registry.matcherValues('command.run', 'name') },
     model: { stream: (req) => deps.provider.stream(req) },
+    agent: createAgentNoun({
+      engine: refs.engine,
+      provider: deps.provider,
+      signal: deps.signal,
+      dispatch: refs.dispatch,
+    }),
+    skill: createSkillNoun({ dispatch: refs.dispatch }),
     fs: createFsNoun(),
     process: createProcessNoun(),
     store: createStoreNoun(),
     clock: createClockNoun(),
     ui: createUiNoun(deps.ui),
-    // ⚠️ 临时桩：Task 5 会用真正的实现替换掉这两行。
-    agent: { spawn: async () => ({ text: '', stopReason: 'error' }) },
-    skill: { load: async (req) => ({ text: req.text }) },
     logger: createLoggerNoun(deps.env),
   };
 }
