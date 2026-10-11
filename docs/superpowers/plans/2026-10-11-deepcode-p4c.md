@@ -2214,9 +2214,22 @@ Expected: **红** —— 「落点里的一律不装载，除非给了 enabledIn
 `const enabledInstalled = deps.enabledInstalled ?? [];` 改成
 `const enabledInstalled = deps.enabledInstalled ?? deps.enabled;`。
 
-Run: `pnpm exec vitest run test/cli.test.ts -t "项目级写同一个名字不算数"`
-Expected: **红** —— 项目级设置里写了名字之后它就被装载了，`expect(...).not.toContain('已启用')`
-那一行炸。这条红的正是「别人仓库里的 settings.json 不能点亮你全局装的东西」。
+Run: `pnpm exec vitest run test/plugin-dir.test.ts -t "项目级名单管不着落点"`
+Expected: **红** —— 落点那份名单回落到项目级那份之后，`enabled: ['todo']` 就把落点里的
+`todo` 装载了，`expect(found.loaded).toEqual([])` 炸。这条红的正是
+「别人仓库里的 settings.json 不能点亮你全局装的东西」。
+
+> ⚠️ **计划初稿把这条挂在了 `test/cli.test.ts -t "项目级写同一个名字不算数"` 上，那是错的** ——
+> 拿那条命令跑这条变异**不会红**，而原因不是断言摆设，是**变异对那条命令无效**：
+> `?? deps.enabled` 只在 `enabledInstalled === undefined` 时才走到，而 CLI 那条路径上
+> 它**永远不是 undefined**（`plugin-command.ts:55` 总是传 `enabledInstalled: deps.enabledByUser`，
+> 而 `enabledByUser` 恒为数组，见 `settings.ts:253`）。所以那段是 CLI 路径上的死代码，
+> 变异根本没碰到被测的代码。
+> 默认值这一半**是被钉住的**，钉它的是上面那条单元用例（它*不*传 `enabledInstalled`，
+> 于是 `??` 的右支被行使）—— 这就是上一轮那个教训的同一个形状：
+> **红不出来时先确认变异有没有效**。
+> （那条 CLI 用例守的是另一件事：CLI 把**用户层**那份名单接进 `enabledInstalled`，
+> 而不是接了合并后的名单 —— 它没接错。）
 
 - [ ] **变异 3：`M8`**
 
@@ -2275,7 +2288,10 @@ Expected: 全绿。记下文件数与用例数。
       （这是本轮唯一一个「用例存在但永远不跑」的漏洞口：Task 4 埋过两条 skip。）
 - [ ] 逐条核 spec §8 的 C2：
   - 端到端 describe 在 `test/cli.test.ts` 里，**全程零密钥**（环境里四个 API 变量都删掉了）
-  - 两条反向验证**真红过**：变异 2（项目级不算数）与变异 4（`source ../x`）
+  - 反向验证**真红过**：变异 1、3、4、5、6 各自红在点名的用例上；变异 2 红在
+    **`test/plugin-dir.test.ts` 的单元用例**上（挂在 CLI 那条命令上不会红 —— 那份变异
+    对那条路径无效，理由见 Task 6 的注）。**六条里五条按原计划红，一条换了用例**，
+    没有一条是「断言摆设」
   - 手工过一遍：`plugin add` 的报告里**钩子命令原文真的在** ——
     Task 4 Step 6 手跑那一次的输出里能看到它
 - [ ] 推分支、开 PR：`git push -u origin p4c-marketplace`
@@ -2400,7 +2416,8 @@ git commit -m "docs(p4c): 落点与「装 ≠ 启用」写进 README / 项目简
 | `readPlugins` 让 user 层的 enable 落进 `SourceInfo.plugins.enable` —— 预期**零可见变化**，因为 `SourceInfo.plugins` 没有消费者（`permissions-command.ts:78-79` 读的是 policy 级那个合并结果） | |
 | ~~`fs.cp` 在 Node 20 / 22 上不打 `ExperimentalWarning`~~ —— **写计划时查证了，不成立**：`fs.cp` 直到 **22.3.0** 才转正，20.x 上会打。原计划那条断言会在本地绿、只在 CI 的 20.x job 上红。已改成「滤掉已知噪音后再要求 stderr 干净」（本机实测 Node 22.19.0 不打） | **已提前处置**（写计划阶段就改了，没等到 Task 5 执行） |
 | `installPlugins` → `loadPlugins` 只动约 10 处、**零行为变化**（`grep -rn installPlugins src/ test/` 无输出，且那三个测试文件与改名前一样绿） | |
-| **原子 `rename` 没有可观测的反例** —— 变异 7（把 `rename` 换成直接 `cp`）不会有测试红。这是本轮唯一一条断言不了的保证 | |
+| **原子 `rename` 没有可观测的反例** —— 变异 7（把 `rename` 换成直接 `cp`）不会有测试红。这是本轮唯一一条断言不了的保证 | **实测确认**：把 staging + `rename` 换成直接 `cp` 之后，三个与装机相关的文件 **82/82 全绿**，没有一条测试看得出差别。理由：那条保证（"中断时不留半个目录"）只有在真去中断（SIGINT／磁盘满／权限失败）时才可观测，而测试行使的两条失败路径（M5 逃逸、目标已存在）都在**写入任何字节之前**就中止了。所以它是真的，但**没有被钉住** —— 按计划要求**没有编一条假测试**上去 |
+| 六条变异的红/不红（Task 6 实测） | 变异 **1、3、4、5、6 全部按原计划红**在点名的用例上：1 → `落点里的一律不装载`＋`项目级名单管不着落点`；3 → `M8 索引名字与清单名字不一致`；4 → `M5 source 逃出索引根`＋`M5 source 用反斜杠`＋cli 的 `索引里的 source 逃出索引根`；5 → `目标已存在就拒绝`；6 → `remove 一个名字不合法的**不碰任何路径**`。**变异 2 换了一条用例**（见下） |
 | （计划缺陷，执行时才发现）Task 1 那份「干净清单」的 `uses` 只有 `describe` + `call`，经 M6 委托给 `validatePlugin` 后带回一条 **W7**（`plugin-manifest.ts:286`），好用例并不干净。实现是对的，错的**是计划里的固定件**。已把 `tool.check` 补进去，并把这条陷阱写在那段固定件旁边 | **执行时逮出，已修**（只动 `test/marketplace.test.ts`，`src/contract/marketplace.ts` 一个字没改） |
 | （计划缺陷，执行前重核源码时逮出）Task 2 Step 1(f) 只点了 **3** 处 policy 级 `plugins: NO_PLUGINS`，实际有 **4** 处 —— 漏掉 `test/cli.test.ts:268`，它在一条测试体中间、离 `NO_POLICY` 很远，但进的是 `registered(policy: ResolvedPolicy)` | **已补齐四处并做成表**（否则 `tsc` 会在那儿炸，虽然炸得出来，但计划该是准的） |
 | （计划缺陷，执行时逮出）Task 3 说 `installPlugins` 有「恰好 10 处」，但那串枚举本身就有 14 个 | **已改成 14** |
