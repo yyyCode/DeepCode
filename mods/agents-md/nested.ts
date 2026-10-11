@@ -1,6 +1,6 @@
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { EngineInterface } from '../contract/engine';
-import type { Plugin } from '../contract/plugin';
+import type { EngineInterface } from '../../src/contract/engine';
+import type { Plugin } from '../../src/contract/plugin';
 
 /** 认这两个名字，顺序即附加顺序。 */
 const FILES = ['AGENTS.md', 'CLAUDE.md'];

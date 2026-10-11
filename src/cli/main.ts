@@ -8,6 +8,7 @@ import { createEngine } from '../core/create';
 import { runTurn } from '../core/loop';
 import { createProvider } from '../providers';
 import { cliPlugins } from './plugins';
+import { builtinMods, describeMods, loadMods } from './mods';
 import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
@@ -253,6 +254,22 @@ async function main(): Promise<void> {
   // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
   // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
   const engineEnv = debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env;
+
+  // 内建 mod：`loadMods` 自己不认识任何一个 mod（清单是参数），于是"缺依赖会怎样"
+  // 这条路是**被测试覆盖的**而不是靠人记得。降级必须看得见 —— 下面这几行就是那个出口。
+  const { plugins: modPlugins, report } = await loadMods(
+    {
+      root,
+      home,
+      sessionId,
+      warn: warnLine,
+      telemetry: policy.telemetry,
+      policyRules: policy.policyRules,
+    },
+    builtinMods(),
+  );
+  for (const line of describeMods(report)) warnLine(line);
+
   const bundle = cliPlugins({
     render,
     changes,
@@ -269,6 +286,7 @@ async function main(): Promise<void> {
     skills,
     // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。
     baseSystemPrompt: SYSTEM_PROMPT,
+    mods: modPlugins,
     discovered: thirdParty,
     pluginDeny: policy.plugins.deny,
     compact: async () => {

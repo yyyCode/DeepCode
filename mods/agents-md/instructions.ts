@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { Plugin } from '../contract/plugin';
+import type { Plugin } from '../../src/contract/plugin';
 
 /**
  * 项目指令文件的装载：`AGENTS.md` / `CLAUDE.md` / `~/.deepcode/AGENTS.md`。

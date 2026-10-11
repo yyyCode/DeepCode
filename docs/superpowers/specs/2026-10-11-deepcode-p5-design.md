@@ -111,6 +111,8 @@ mods/<name>/**  →  允许：node: 内建 · src/contract/** · 自己这个目
                    禁止：跨到 mods/<别的名字>/
 ```
 
+⚠️ **规则只查 `mods/<name>/` 下的非测试源码**（`test/` 与 `*.test.ts` 除外）。这不是让步，是分寸：一个 mod 的测试**本来就应该**用真的 `createEngine` 与 `vitest` 去测它（`test/telemetry.test.ts` 与 `test/agents-md.test.ts` 今天都 import `src/core/create`），把它们关在契约后面等于逼测试去造假引擎 —— 而"用假引擎测真行为"恰好是这套仓库反复避开的东西。
+
 **这条规则今天几乎零成本就能立起来** —— 四个候选 mod 的现状是干净的：
 
 | 文件 | 今天的 import | 处置 |
@@ -142,7 +144,7 @@ export const spec: ModSpec = {
 };
 ```
 
-装载器落点 `src/core/mod-loader.ts`（**内核侧**，因为它要能在不 import 任何 mod 的情况下被测试）：
+装载器落点 `src/cli/mods.ts`（**CLI 侧**，与 `cli/plugin-dir.ts` 同一条判定：发现是 CLI 的事，内核不认识 mod —— `core/create.ts` 那句"内核不认识任何 agent/skill 文件"是同一条）。装载器本身**不 import 任何 mod**：mod 清单从外面传进来，于是"缺依赖会怎样"能用一个夹具 mod 测：
 
 1. 逐个 mod 跑 `optionalDeps` 的探针（探针是**注入**的，测试里给假的）；
 2. 探针全过的 → 调 `create(deps)` 拿 `Plugin`，进插件清单；

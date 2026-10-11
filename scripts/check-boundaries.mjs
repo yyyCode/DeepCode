@@ -13,6 +13,7 @@ const ROOT_DIR = (process.argv[2] ?? new URL('..', import.meta.url).pathname).re
 );
 const SRC = join(ROOT_DIR, 'src');
 const PLUGINS = join(ROOT_DIR, 'plugins');
+const MODS = join(ROOT_DIR, 'mods');
 
 // 每个目录允许 import 的 src 顶层目录白名单（'*' 表示不限）
 const RULES = {
@@ -77,9 +78,21 @@ if (existsSync(SRC)) {
       if (!spec.startsWith('.')) continue; // 只查相对导入
       const rel = relative(SRC, join(file, '..', spec)).replace(/\\/g, '/');
       if (rel.startsWith('..')) {
-        // 相对导入逃出 src/ 几乎总是相对路径层级写错了 —— 比如
-        // src/builtins/confirm.ts（比 tools/ 高一层）用了 tools/ 才该用的
-        // '../../contract/plugin'，实际解析成 <repo>/contract/plugin。
+        // 相对导入逃出 src/ 有两种情形，一种是错、一种是对的：
+        //   - 落到 mods/<name>/：**放行，但只从 cli/ 出发**。单向依赖 ——
+        //     CLI 负责把内建 mod 装起来；内核（core/）与 builtins/ 不认识 mod
+        //     （`core/create.ts` 那句"内核没有硬编码的工具表"是同一条）。
+        //   - 其它任何地方：几乎总是相对路径层级写错了 —— 比如
+        //     src/builtins/confirm.ts（比 tools/ 高一层）用了 tools/ 才该用的
+        //     '../../contract/plugin'，实际解析成 <repo>/contract/plugin。
+        const repoRel = relative(ROOT_DIR, join(file, '..', spec)).replace(/\\/g, '/');
+        if (repoRel.startsWith('mods/') && area === 'cli') continue;
+        if (repoRel.startsWith('mods/')) {
+          problems.push(
+            `${shown(file)}: 只有 cli/ 可以 import 内建 mod（${repoRel}）—— 内核与 builtins 不认识 mod`,
+          );
+          continue;
+        }
         problems.push(
           `${shown(file)}: import ${spec} 逃出了 src/（多半是相对路径层级写错）`,
         );
@@ -122,6 +135,54 @@ if (existsSync(PLUGINS)) {
       if (targetOwner !== owner) {
         problems.push(`${shown(file)}: import ${spec} 跨到了 plugins/${targetOwner}/`);
       }
+    }
+  }
+}
+
+// ── mods/：内建 mod ──────────────────────────────────────────────────
+// 只许 `node:` 内建、`src/contract/`（契约）、或自己这个 mod 目录里的相对路径。
+//
+// 这条规则是 README 那句"内建与第三方走同一条接口"从口号变成强制的那一步：
+// 一个 mod 拿不到 `src/core` 的实现细节，也拿不到 `src/cli` 的渲染器 ——
+// 它对引擎的认知**与一个第三方插件一样少**。
+//
+// ⚠️ 它有个值钱的副作用：diff mod 因此**只能产出数据模型**，上色必须留在 cli 侧
+// （把 `ansi.ts` 一起搬进 mod 是绕过规则，不是遵守它）。见 P5 设计 §3.2。
+//
+// 豁免：`test/` 与 `*.test.ts`。mod 的测试**本来就应该**用真的 `createEngine`
+// 与 vitest 去测它（`mods/telemetry/test/plugin.test.ts` 就是这么写的）——
+// 把它们关在契约后面只会逼测试去造假引擎，而那正是这仓库反复避开的东西。
+if (existsSync(MODS)) {
+  for (const file of walk(MODS)) {
+    const relMod = relative(MODS, file).replace(/\\/g, '/');
+    const owner = relMod.split('/')[0];
+    if (relMod.split('/').includes('test') || relMod.endsWith('.test.ts')) continue;
+
+    const text = readFileSync(file, 'utf8');
+    for (const spec of importsOf(text)) {
+      if (spec.startsWith('node:')) continue;
+      if (!spec.startsWith('.')) {
+        problems.push(`${shown(file)}: 不允许裸包名 ${spec}（内建 mod 只通过契约与引擎说话）`);
+        continue;
+      }
+      const target = relative(ROOT_DIR, join(file, '..', spec)).replace(/\\/g, '/');
+      if (target.startsWith('..')) {
+        problems.push(`${shown(file)}: import ${spec} 逃出了仓库`);
+        continue;
+      }
+      if (target.startsWith('src/contract/')) continue;
+      if (target.startsWith('src/')) {
+        problems.push(
+          `${shown(file)}: mod 只许 import src/contract/（这条指向 ${target}）`,
+        );
+        continue;
+      }
+      if (target === `mods/${owner}` || target.startsWith(`mods/${owner}/`)) continue;
+      if (target.startsWith('mods/')) {
+        problems.push(`${shown(file)}: import ${spec} 跨到了 mods/${target.split('/')[1]}/`);
+        continue;
+      }
+      problems.push(`${shown(file)}: import ${spec} 不在 mod 允许的范围内`);
     }
   }
 }

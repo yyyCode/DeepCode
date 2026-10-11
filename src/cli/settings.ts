@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { isSupported, parseRule, type Behavior, type Rule } from '../contract/policy';
 import { sandboxRule, type SandboxConfig } from '../contract/sandbox';
 import { isPluginName } from '../contract/plugin-manifest';
+import { DEFAULT_TELEMETRY, type TelemetryPolicy } from '../contract/telemetry';
 
 /**
  * 权限设置的五个来源，低 → 高。数组顺序就是 `/permissions` 的输出顺序。
@@ -75,16 +76,11 @@ export const EMPTY_SANDBOX: SandboxConfig = { enabled: false, deny: [], allow: [
  * 与 `plugins.enable` 同一条道理：让别人仓库里的一份文件替你按下开关，
  * 正是"个人配置掀翻托管策略"的入场券。
  */
-export type TelemetryPolicy = {
-  readonly enabled: boolean;
-  /** 为什么是这个值。给 `/telemetry` 直接打出来 —— 一个不给理由的开关没人敢用。 */
-  readonly why: string;
-};
-
-export const DEFAULT_TELEMETRY: TelemetryPolicy = {
-  enabled: false,
-  why: '默认关（没有哪一层说要开）',
-};
+// 形状搬进了契约（P5a）：`mods/telemetry` 要用它，而 mod 只许 import 契约。
+// 这里原样再导出，是为了**不改任何一处既有 import** —— 从 settings 取这个类型/默认值
+// 仍然是有效的写法，只是它现在不是定义地了。
+export type { TelemetryPolicy } from '../contract/telemetry';
+export { DEFAULT_TELEMETRY } from '../contract/telemetry';
 
 /** 一层的 `telemetry` 段：只存这一层**写了**的字段。 */
 type TelemetryLayer = { readonly enabled?: boolean };

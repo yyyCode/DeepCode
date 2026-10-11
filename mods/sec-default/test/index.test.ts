@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { parseRule, type Behavior, type Rule } from '../src/contract/policy';
-import { createSecDefaultPlugin, UNCHECKED_DENY } from '../src/builtins/sec-default';
-import { createHarness, seat } from './harness';
-import type { EngineInterface } from '../src/contract/engine';
-import type { EventHook } from '../src/contract/plugin';
+import { CORE_ORIGIN } from '../../../src/contract/next';
+import { parseRule, type Behavior, type Rule } from '../../../src/contract/policy';
+import { createSecDefaultPlugin, UNCHECKED_DENY } from '../index';
+import { createHarness, seat } from '../../../test/harness';
+import type { EngineInterface } from '../../../src/contract/engine';
+import type { EventHook } from '../../../src/contract/plugin';
 
 const HOME = '/home/u';
 

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { createHarness, scriptedProvider, seat } from './harness';
+import { createHarness, modPlugins, scriptedProvider, seat } from './harness';
 import { parseArgs, readVersion } from '../src/cli/args';
 import { createPalette } from '../src/cli/ansi';
 import { createSessionChanges } from '../src/cli/changes';
@@ -120,6 +120,7 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
     ]);
 
     const bundle = cliPlugins({
+      mods: await modPlugins(),
       render,
       changes: createSessionChanges(),
       messages: [],
@@ -163,8 +164,9 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
     expect(written()).toBe('你好');
   });
 
-  it('cliPlugins 的座位表：sec-default 在 prepend，permissions 在 user', () => {
+  it('cliPlugins 的座位表：sec-default 在 prepend，permissions 在 user', async () => {
     const bundle = cliPlugins({
+      mods: await modPlugins(),
       render: spyRenderer().render,
       changes: createSessionChanges(),
       messages: [],
@@ -197,13 +199,17 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
    * 早先这里把一切都装在 'builtin' —— P2 之后那不再反映真实座位（sec-default 在
    * prepend、permissions 在 user），而"座位没生效"正是本轮最该被钉住的东西。
    */
-  function registered(
+  async function registered(
     policy: ResolvedPolicy = NO_POLICY,
     engine: Partial<EngineInterface> = NOOP_UI,
     coreImpls: CoreImpls = {},
   ) {
     const { render } = spyRenderer();
     const bundle = cliPlugins({
+      // 内建 mod 的 deps 与 `cliPlugins` 的 policy **同源**：main.ts 就是这么接的。
+      // 分开喂会造出一个假象 —— sec-default 拿不到 policyRules 就什么都不做，
+      // 而"托管 deny 压过个人 allow"那条端到端用例会红（红对了：它抓到过一次真的接错）。
+      mods: await modPlugins({ policyRules: policy.policyRules, telemetry: policy.telemetry }),
       render,
       changes: createSessionChanges(),
       messages: [],
@@ -228,13 +234,13 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     return h;
   }
 
-  it('session-changes 必须排在 tool-write / tool-edit 之前 —— 顺序即契约', () => {
+  it('session-changes 必须排在 tool-write / tool-edit 之前 —— 顺序即契约', async () => {
     // 反向钉住 plugins.ts 里 createChangesPlugin 与 ...coreTools 那两行的**先后**。
     // 同 tier 内先装载者在外层，而 session-changes 要在工具自己的 hook 跑之前抢到文件的
     // "原样"。调个个儿之后它落进 coreTools 之后，next 回来时文件已经写完，before 成了
     // after 的副本，/diff 永远空白 —— 而 typecheck / lint / 全量测试全都照常通过。
     // 这里问注册面拿 hooksFor 的顺序，不碰数组下标：重排清单里任何无关的一项都不会误伤。
-    const h = registered();
+    const h = await registered();
 
     for (const [tool, plugin] of [
       ['Write', 'tool-write'],
@@ -249,11 +255,11 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     }
   });
 
-  it('/diff 与 /clear 都有应答者（漏装的话命令静默失效）', () => {
+  it('/diff 与 /clear 都有应答者（漏装的话命令静默失效）', async () => {
     // 同类"插件漏装"的静默失效：清单里少了 createSessionCommands，/diff、/clear 就没人应答，
     // command.run 走 core 兜底返回 handled:false，人肉点命令才会发现 ——
     // 而 typecheck / lint / 其余测试全绿。这里同样问注册面，把两个名字钉死。
-    const h = registered();
+    const h = await registered();
     const responders = (name: string) =>
       h.registry.hooksFor('command.run', { name }).map((r) => r.plugin);
 
@@ -261,8 +267,8 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     expect(responders('clear')).toContain('session-commands');
   });
 
-  it('真实装配下 tool.check 的应答顺序：prepend → user → builtin', () => {
-    const h = registered();
+  it('真实装配下 tool.check 的应答顺序：prepend → user → builtin', async () => {
+    const h = await registered();
     expect(h.registry.hooksFor('tool.check', {}).map((r) => [r.plugin, r.tier])).toEqual([
       ['sec-default', 'prepend'],
       ['permissions', 'user'],
@@ -279,7 +285,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     // 压根没有"用户一路按 y"这回事，引擎用默认的 NOOP_UI（ask → 'n'）。
     // （原稿那句"引擎换成什么都答 y"是错的：那个 ask 桩一次都不会被走到。）
     // "就算按 y 也压不住"由 C3 的真终端手工验收第 2 步覆盖。
-    const h = registered(
+    const h = await registered(
       {
         sources: [],
         policyRules: [

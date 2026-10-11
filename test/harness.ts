@@ -3,6 +3,9 @@ import { createDispatcher, type CoreImpls, type DispatchFn } from '../src/core/d
 import type { EngineInterface } from '../src/contract/engine';
 import type { EventHook, On, Plugin } from '../src/contract/plugin';
 import type { Tier } from '../src/contract/tier';
+import type { ModDeps } from '../src/contract/mod';
+import { DEFAULT_TELEMETRY } from '../src/contract/telemetry';
+import { builtinMods, loadMods } from '../src/cli/mods';
 import type { StreamEvent, StreamRequest } from '../src/contract/model-provider';
 import type { ModelProvider } from '../src/contract/engine';
 
@@ -110,4 +113,23 @@ export function recordingProvider(): {
       },
     },
   };
+}
+
+/**
+ * 真装上内建 mod —— 测试里要与 `main.ts` 走同一条装配路径时用它。
+ *
+ * P5a 之后 `cliPlugins` 的 `mods` 是必填的，而"用空数组糊过去"会让一条本该钉住
+ * "内建 mod 真的在清单里"的测试变成摆设。所以给它一个真装的入口。
+ */
+export async function modPlugins(over: Partial<ModDeps> = {}): Promise<readonly Plugin[]> {
+  const deps: ModDeps = {
+    root: process.cwd(),
+    home: '/home/u',
+    sessionId: 's1',
+    warn: () => {},
+    telemetry: DEFAULT_TELEMETRY,
+    policyRules: [],
+    ...over,
+  };
+  return (await loadMods(deps, builtinMods())).plugins;
 }

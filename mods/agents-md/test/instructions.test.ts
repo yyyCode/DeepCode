@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { createEngine } from '../src/core/create';
-import { createInstructionsPlugin } from '../src/builtins/instructions';
-import { scriptedProvider } from './harness';
+import { CORE_ORIGIN } from '../../../src/contract/next';
+import { createEngine } from '../../../src/core/create';
+import { createInstructionsPlugin } from '../instructions';
+import { scriptedProvider } from '../../../test/harness';
 
 let root: string;
 let home: string;

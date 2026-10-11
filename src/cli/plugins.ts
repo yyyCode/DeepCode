@@ -7,15 +7,11 @@ import { confirmPlugin } from '../builtins/confirm';
 import { commandsPlugin } from '../builtins/commands';
 import { createPermissionsPlugin } from '../builtins/permissions';
 import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin-guard';
-import { createSecDefaultPlugin } from '../builtins/sec-default';
 import { streamPlugin } from './stream';
 import { createChangesPlugin, type SessionChanges } from './changes';
 import { createSessionCommands, type CommandDescription } from './commands';
-import { createAgentsMdPlugin } from './agents-md';
-import { createInstructionsPlugin } from '../builtins/instructions';
 import { createPermissionsCommand } from './permissions-command';
 import { createConfigCommand } from './config-command';
-import { createTelemetryPlugin } from './telemetry';
 import { createSubagentsPlugin } from './subagents';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
@@ -67,6 +63,18 @@ export type CliPluginDeps = {
    * "谁在外层"上起作用，而插件之间按名字字典序（plugin-dir.ts 排好的）。
    */
   readonly discovered?: readonly Plugin[];
+  /**
+   * 内建 mod 贡献的插件（`loadMods(builtinMods())` 的结果）。
+   *
+   * ⚠️ **必填**，不给默认 `[]`：给默认值的话，"忘了接线"会表现成"内建 mod 全都不见了"
+   * 而三条命令照样全绿 —— 与这个文件顶部记的那次事故（`turn.step` 的应答者没进清单，
+   * 而 typecheck / lint / C1 / C2 全绿）同一种形状。
+   *
+   * 也**必须从这张表进来**，不能在外面拼到 `createEngine` 的 plugins 里：
+   * 它们的名字要进 `names` 那份第一方豁免名单，否则一份个人配置里的
+   * `plugins.deny: ["sec-default"]` 又能把承重墙拆了（P2 的 C3 实测过）。
+   */
+  readonly mods: readonly Plugin[];
   /** 五层合并后的 `plugins.deny`。交给 plugin-guard，CLI 自己不判。 */
   readonly pluginDeny?: readonly PluginDenyRule[];
   /**
@@ -116,13 +124,6 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 个人规则：policy 之外的四个来源。
     createPermissionsPlugin({ rules: deps.policy.personalRules }),
     createChangesPlugin(deps.changes),
-    // 嵌套目录约定。**必须在 coreTools 之前**：同 tier 内先装载者在外层，
-    // 而它要在 `next(e)` 回来之后**拿到 Read 的结果**才能追加。晚一步就是个空动作。
-    // （与上面 session-changes 那条顺序约束同一个道理。）
-    createAgentsMdPlugin({ root: deps.root }),
-    // 指令文件（AGENTS.md / CLAUDE.md）从 `prompt.section` 来 —— 摘掉这一行，
-    // 它们就不再进系统提示。
-    createInstructionsPlugin({ root: deps.root, home: deps.home }),
     ...coreTools,
     // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
     // 名字自动进下面的第一方名单（`names`），于是 deny 名单点它也没用。
@@ -149,32 +150,27 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // /config，连带 config.describe / config.set 两个事件的应答者。
     // 座位不用特殊给（默认 builtin 就够）：它不裁决任何动作，只是读/写配置文件。
     createConfigCommand({ home: deps.home, root: deps.root, env: deps.env }),
-    // 遥测。座位同样不用特殊给：它是个**读者**，六个事件上每条 hook 都 `return next(e)`，
-    // 一个字节的裁决都不改（`cli/telemetry.ts` 里那三条不变量）。关着的时候
-    // 一个系统调用都不发 —— 这条由 sink 保证，`/telemetry` 负责把它说给人听。
-    createTelemetryPlugin({
-      home: deps.home,
-      policy: deps.policy.telemetry,
-      sessionId: deps.sessionId,
-      warn: deps.warn,
-    }),
   ];
 
   // 第一方名字**从这份清单推**，不另抄一份名单：抄一份的话，往上面加一个插件
   // 而忘了加到名单里，它的名字就不再享有第一方豁免 —— 而 deny 名单点到它时
   // 它就真的会被拦下（一份禁用名单从而又能拆承重墙了）。
   //
-  // ⚠️ `sec-default` **必须一起算进来**，它不在上面那张 `firstParty` 数组里（由下面构造）。
-  // 漏掉它的后果是 C3 变异测试第 2 条实测出来的：settings 里写一句
-  // `plugins.deny: ["sec-default"]`，守门器当场不装 —— 一份**个人**配置文件就能把整套
-  // 权限模型的承重墙拆了。设计 §4.1 正是拿这个例子写的，而实现原先与它相反，
-  // 闸门自己的单测还照样绿（那条单测手工喂 `firstParty`，喂的正是真实装配没给的名字）。
+  // ⚠️ 内建 mod 的名字**必须一起算进来**。P5a 之前这里只有 `sec-default` 一个特例
+  // （它当时不在 `firstParty` 数组里），漏掉它的后果是 C3 变异测试第 2 条实测出来的：
+  // settings 里写一句 `plugins.deny: ["sec-default"]`，守门器当场不装 —— 一份**个人**
+  // 配置文件就能把整套权限模型的承重墙拆了。P5a 之后四个 mod 都从外面进来，
+  // 于是这一行从"一个特例"变成了"一件必须做对的事"：mod 的插件不走这份推演，
+  // 就全都暴露在同一个洞上。
   //
   // `plugin-guard` 也列上，但它是**结构上**碰不到的：闸门坐数组第 0 位，内核问
   // "plugin-guard 能不能装"时它自己的 hook 还没注册，于是 deny 名单根本不会被问到。
   // 列上是为了让这条性质不依赖"闸门恰好排第一"这个顺序 —— 一旦它挪位，豁免仍然在。
-  const secDefault = createSecDefaultPlugin({ rules: deps.policy.policyRules });
-  const names = ['plugin-guard', secDefault.name, ...firstParty.map((plugin) => plugin.name)];
+  const names = [
+    'plugin-guard',
+    ...deps.mods.map((plugin) => plugin.name),
+    ...firstParty.map((plugin) => plugin.name),
+  ];
   const guard = createPluginGuardPlugin({ deny: deps.pluginDeny ?? [], firstParty: names });
   // 守门器放最前，但它坐在 `prepend` —— 上面那条"座位比顺序更重要"在这里同样成立。
   const discovered = deps.discovered ?? [];
@@ -182,8 +178,11 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   return {
     plugins: [
       guard,
-      // 守门器：只持有托管策略，读个人规则一个字都不读。
-      secDefault,
+      // 内建 mod。**整片排在 firstParty 之前**：`agents-md` 的嵌套 hook 必须在
+      // `coreTools` 外层（同 tier 内先装载者在外层），而它就在这一片里 ——
+      // 这条约束以前靠数组里那两行挨着保证，现在靠这里的拼接顺序保证。
+      // 座位不在这里给（默认 builtin），只有 `sec-default` 例外，见下面 seating。
+      ...deps.mods,
       ...firstParty,
       ...discovered,
     ],
