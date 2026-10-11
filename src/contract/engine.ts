@@ -39,7 +39,22 @@ export type SessionNoun = {
   signal(): AbortSignal;
 };
 
-export type ToolNoun = { list(): readonly string[] };
+export type ToolNoun = {
+  /**
+   * **注册面**的名字：谁注册了 `tool.call {tool: X}`。
+   * 子代理的白名单（`cli/subagents.ts` 的 `resolveTools`）吃它 —— 那里要的正是这个。
+   * 模型真正能用的是它的子集，那一份在 `core/tool-list.ts`（P9 §3.1）。
+   */
+  list(): readonly string[];
+  /**
+   * 这个工具**是谁注册的**（插件名）。没人注册 → `undefined`。
+   *
+   * 报的是"**谁在应答它**"（链上最外层那个），不是"谁碰过它" —— `tool.call` 是一条链，
+   * 一个名字可以有多个注册者。它在第三方插件被强制 `append` 座位这个结构下
+   * 只可能是内建与第一方，所以**它不是安全边界，只是一条信息**（P9 §2.2）。
+   */
+  origin(name: string): string | undefined;
+};
 
 export type CommandNoun = { list(): readonly string[] };
 

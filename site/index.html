@@ -69,7 +69,7 @@
 
   <ul class="stats">
     <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>1159</b><span>用例全绿 · 67 个文件</span></li>
+    <li><b>1177</b><span>用例全绿 · 70 个文件</span></li>
     <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
     <li><b>3</b><span>条命令管质量（typecheck / lint / test）</span></li>
   </ul>
@@ -102,9 +102,9 @@
   </ul>
 </section>
 
-<!-- ─────────────────────────── 六个设计决定 ─────────────────────────── -->
+<!-- ─────────────────────────── 七个设计决定 ─────────────────────────── -->
 <section class="wrap band" id="highlights">
-  <h2>六个设计决定</h2>
+  <h2>七个设计决定</h2>
   <p class="section__lede">每条后面跟着它换来的代价 —— 没有免费的纪律。</p>
 
   <div class="grid">
@@ -139,9 +139,18 @@
     </article>
 
     <article class="card">
+      <h3>账本不许自己违反自己</h3>
+      <p>每次请求都带着工具清单，而 <code>/context</code> 的合计一度只算了系统提示与消息 ——
+        实测某一轮真切发出去约 <b>448 token</b>，账本报 <b>11</b>，其中 <b>97.5%</b> 是漏掉的工具。</p>
+      <p class="card__cost">补上之后 <code>合计</code> = 系统提示 + 工具 + 消息，<strong>对不上就是账本算错</strong>。
+        代价是更早版本留下的 <code>/context</code> 数字偏小，与今天不可比。</p>
+    </article>
+
+    <article class="card">
       <h3>内建工具不是特例</h3>
-      <p>八个工具走<strong>同一条</strong>接口，清单来自注册面上 <code>tool.call</code> 的 matcher 取值。</p>
-      <p class="card__cost">内核里没有一张硬编码的工具表。</p>
+      <p>八个工具走<strong>同一条</strong>接口：清单来自注册面上 <code>tool.call</code> 的 matcher 取值，
+        再过白名单与 <code>hidden</code> 两道。<code>core/tool-list.ts</code> 是这一份清单的<strong>唯一算法</strong>。</p>
+      <p class="card__cost">内核里没有一张硬编码的工具表；模型请求、<code>/help</code>、<code>/context</code> 三处看到的永远是同一份。</p>
     </article>
   </div>
 </section>
@@ -282,7 +291,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
 <!-- ─────────────────────────── 路线图 ─────────────────────────── -->
 <section class="wrap band" id="roadmap">
   <h2>走到哪一步了</h2>
-  <p class="section__lede">八个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
+  <p class="section__lede">十个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
     <a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a>里。</p>
 
   <table>
@@ -297,6 +306,8 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <tr><td><strong>P5</strong> 内建与分发</td><td>四个内建 mod、指令文件五层、托管三通道</td></tr>
       <tr><td><strong>P6</strong> 界面与交互</td><td>开场屏、活动区、内容面、两份账、历史与补全（全是<strong>行内增强</strong>，不占整屏）</td></tr>
       <tr><td><strong>P7</strong> 记忆与上下文</td><td><code>/context</code> 账本（<strong>明说不报「还剩多少」</strong>）、系统提示每轮重算、<code>/compact</code> 能带一句说明、压缩后重新附上目录约定、两道断电器</td></tr>
+      <tr><td><strong>P8</strong> 执行循环的收场</td><td>停止原因收敛成七个产品字面量、被截断就接着往下写（≤ 3 次，<strong>每次出声</strong>）、空步与炸在中途都不丢内容、两侧统一按白名单判「做完了没有」</td></tr>
+      <tr><td><strong>P9</strong> 工具清单</td><td>一条清单三个消费者（模型请求 / <code>/help</code> / <code>/tools</code>）收敛到一个函数；<code>/context</code> 把工具算进合计；<code>/tools</code> 说清每个工具<strong>来自哪个插件</strong>、以及<strong>哪些没进来、为什么</strong></td></tr>
     </tbody>
   </table>
 </section>
@@ -345,6 +356,13 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <p>回答撞上输出长度上限时会自动接着往下写，最多 3 次 —— <strong>每一次都是一次真的模型请求</strong>。
         这个 3 是我们自己定的数，不是测出来的。</p>
       <p class="card__cost">所以每一次都在终端上说一声：宁可多一行通知，也不让人碰上「怎么又慢又贵」。</p>
+    </article>
+
+    <article class="card card--limit">
+      <h3>账本全是估的</h3>
+      <p><code>/context</code> 按 <strong>4 字符 1 token</strong> 粗估，中英混排会失真；工具那一行算的是
+        名字 + 描述 + schema 的字符数，不等于适配器真正发出的字节数。</p>
+      <p class="card__cost">它够用只是因为要回答「离阈值还有多远」这个量级的问题 —— 别拿它当账单核。</p>
     </article>
 
     <article class="card card--limit">

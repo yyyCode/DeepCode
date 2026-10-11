@@ -15,6 +15,7 @@ import { createSessionCommands, type CommandDescription } from './commands';
 import { createPermissionsCommand } from './permissions-command';
 import { createConfigCommand } from './config-command';
 import { createSubagentsPlugin } from './subagents';
+import type { ToolListing } from '../core/tool-list';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
 import type { Palette } from './ansi';
@@ -104,6 +105,12 @@ export type CliPluginDeps = {
    */
   readonly describeCommand?: (name: string) => Promise<CommandDescription>;
   /**
+   * 模型这一轮能看到哪些工具（P9 §3.3）。**同样是延迟取的回调** —— 它要派发
+   * `tool.describe`，而插件拿不到 dispatch。不给 = 没有 `/tools` 这条命令，
+   * `/help` 那一行退回注册面并当场说明这是没过滤的。
+   */
+  readonly toolListing?: () => Promise<ToolListing>;
+  /**
    * 内建 mod `diff` 装上了没有（P5c）。`/diff` 的应答者由它与 CLI **二选一** ——
    * 两条都在的话命令会打两遍。必填的理由写在 `cli/commands.ts` 那个字段的注释里。
    */
@@ -186,6 +193,7 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       ...(deps.context === undefined ? {} : { context: deps.context }),
       ...(deps.reseed === undefined ? {} : { reseed: deps.reseed }),
       ...(deps.describeCommand === undefined ? {} : { describeCommand: deps.describeCommand }),
+      ...(deps.toolListing === undefined ? {} : { toolListing: deps.toolListing }),
     }),
     // /permissions 同理。
     createPermissionsCommand({ policy: deps.policy, palette: deps.palette }),

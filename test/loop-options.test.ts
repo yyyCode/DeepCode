@@ -265,3 +265,92 @@ describe('用量落到 turn.complete 上', () => {
     expect(got).toEqual([{ inputTokens: 9, outputTokens: 3, estimated: false }]);
   });
 });
+
+describe('onTools：账本吃的那一份，就是请求里真的带出去的那一份', () => {
+  /** 跑一轮，把请求里的工具名与 `onTools` 收到的那一份都收下来。 */
+  async function run() {
+    const requests: string[][] = [];
+    const reported: string[][] = [];
+    const provider: ModelProvider = {
+      name: 'scripted',
+      async *stream(req) {
+        requests.push(req.tools.map((tool) => tool.name));
+        yield { type: 'text', text: '好' };
+        yield { type: 'done', stopReason: 'end_turn' };
+      },
+    };
+    const { $, dispatch } = await createEngine({
+      plugins: toolPlugins([]),
+      provider,
+      ui: { print: () => {}, notice: () => {}, ask: async () => 'y' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+      signal: () => new AbortController().signal,
+    });
+
+    await runTurn(
+      {
+        $,
+        provider,
+        signal: new AbortController().signal,
+        dispatch,
+        systemPrompt: 's',
+        turnIndex: 0,
+        onTools: (specs) => reported.push(specs.map((spec) => spec.name)),
+      },
+      [{ role: 'user', content: '干活' }],
+    );
+    return { requests, reported };
+  }
+
+  it('报出来的与发出去的是同一份（顺序也一样）', async () => {
+    const { requests, reported } = await run();
+    // ⚠️ 这一条钉的是"账本不会又算错了"：`/context` 报的个数必须与真实请求相等，
+    // 否则它跟「上次实测」摆在一起比较时，比的还是两回事（P9 §2.1 探针 1）。
+    expect(reported[0]).toEqual(requests[0]);
+    expect(reported[0]).toEqual(['Read', 'Write', 'Task']);
+  });
+
+  it('一轮只报一次 —— 跳几跳都用同一份（清单是进 turn 时建的）', async () => {
+    const calls: number[] = [];
+    let n = 0;
+    const provider: ModelProvider = {
+      name: 'scripted',
+      async *stream() {
+        n += 1;
+        if (n === 1) {
+          yield { type: 'tool_use', id: 'u1', name: 'Read', input: {} } as const;
+          yield { type: 'done', stopReason: 'tool_use' } as const;
+          return;
+        }
+        yield { type: 'text', text: '收工' } as const;
+        yield { type: 'done', stopReason: 'end_turn' } as const;
+      },
+    };
+    const { $, dispatch } = await createEngine({
+      plugins: toolPlugins([]),
+      provider,
+      ui: { print: () => {}, notice: () => {}, ask: async () => 'y' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+      signal: () => new AbortController().signal,
+    });
+    await runTurn(
+      {
+        $,
+        provider,
+        signal: new AbortController().signal,
+        dispatch,
+        systemPrompt: 's',
+        turnIndex: 0,
+        onTools: (specs) => calls.push(specs.length),
+      },
+      [{ role: 'user', content: '干活' }],
+    );
+    // ⚠️ 这条**不是**"跳了几跳就报几次"：上面那个 provider 第一跳要了个工具、
+    // 第二跳才收工，真发出去两次请求，而 `onTools` 只响了一次 —— 清单在进 turn 时
+    // 建一份，几跳共用（`loop.ts` 里那句话就在 while 外面）。
+    // 账本要的正是"这一轮发出去的是哪一份"，不是"每一跳各是什么"。
+    expect(calls).toEqual([3]);
+  });
+});

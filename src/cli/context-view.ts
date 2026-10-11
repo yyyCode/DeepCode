@@ -1,5 +1,6 @@
-import type { Message } from '../contract/model-provider';
+import type { Message, ToolSpec } from '../contract/model-provider';
 import { estimateTokens, messageChars } from '../core/loop';
+import { toolSpecChars, toolsChars } from '../core/tool-list';
 import type { CompactConfig } from './settings';
 import type { PromptPiece } from './system-prompt';
 
@@ -19,12 +20,23 @@ import type { PromptPiece } from './system-prompt';
  * 2. **估就是估**。系统提示与消息都走 `estimateTokens(chars)`（`core/loop.ts:227`，
  *    按 4 字符 1 token 粗估，中英混排会失真）。只有端点报了 usage 的那一行不标"（估）"，
  *    也**单独列**，不混进构成里。
- * 3. **账要对得上**：逐节之和 = 系统提示那一行，系统提示 + 消息 = 合计。
- *    对不上说明有东西没被算进去 —— 那是账本算错，不是显示问题。
+ * 3. **账要对得上**：逐节之和 = 系统提示那一行，**逐工具之和 = 工具清单那一行**,
+ *    系统提示 + 工具清单 + 消息 = 合计。对不上说明有东西没被算进去 —— 那是账本算错，
+ *    不是显示问题。
+ *
+ * ⚠️ 工具清单是 P9 补进来的（设计 §3.2）。在它之前这条规矩**自己就违反自己**：
+ * 每次请求都带着工具清单，而合计只算了两样 —— 实测那一轮真实发出去约 448 token，
+ * 账本报 11，其中 97.5% 是漏掉的工具。合计算错的方向最坏：`合计` 与 `上次实测`
+ * 摆在一起看，正是用户判断"离阈值还有多远"的唯一依据。
  */
 export type ContextReportInput = {
   /** 最近一次建出来的系统提示的分节明细。还没建过时 `undefined`。 */
   readonly pieces: readonly PromptPiece[] | undefined;
+  /**
+   * 最近一次请求里**真的带出去**的那份工具清单（`runTurn` 的 `onTools` 报出来的）。
+   * 还没发过请求时 `undefined` —— 那时它不进合计，那一行也照实说。
+   */
+  readonly tools: readonly ToolSpec[] | undefined;
   readonly messages: readonly Message[];
   readonly compact: CompactConfig;
   /** 最近一次实测用量（`Compactor.usage()`）。端点没报过就是 `undefined`。 */
@@ -50,6 +62,18 @@ export function contextReport(input: ContextReportInput): readonly string[] {
     lines.push(`  系统提示　${num(systemTokens)} token —— ${each.join(' · ')}`);
   }
 
+  const tools = input.tools;
+  if (tools === undefined) {
+    lines.push('  工具清单　这一轮还没发过请求。');
+  } else {
+    // 形状与系统提示那一行一样：总数 = 逐工具之和（取整余数带来的 1 token 级出入同源）。
+    const each = tools.map((spec) => `${spec.name} ${num(estimateTokens(toolSpecChars(spec)))}`);
+    lines.push(
+      `  工具清单　${tools.length} 个 · ${num(estimateTokens(toolsChars(tools)))} token` +
+        (each.length === 0 ? '' : ` —— ${each.join(' · ')}`),
+    );
+  }
+
   const sessionTokens = estimateTokens(messageChars(input.messages));
   lines.push(`  会话消息　${num(sessionTokens)} token（${input.messages.length} 条）`);
 
@@ -57,7 +81,10 @@ export function contextReport(input: ContextReportInput): readonly string[] {
     input.pieces === undefined
       ? 0
       : input.pieces.reduce((total, piece) => total + piece.text.length, 0);
-  lines.push(`  合计　　　${num(estimateTokens(piecesChars + messageChars(input.messages)))} token`);
+  // 三样都算：请求里就是这三样（系统提示 / 工具 / 消息）。工具那一份是 `runTurn` 报出来的
+  // **真的发出去的那一份**，不是这里现算的 —— 否则这个数又变成一个与真实请求无关的猜测。
+  const totalChars = piecesChars + (tools === undefined ? 0 : toolsChars(tools)) + messageChars(input.messages);
+  lines.push(`  合计　　　${num(estimateTokens(totalChars))} token`);
 
   lines.push(
     `  阈值　　　${num(input.compact.atTokens)} token · 自动压缩 ${input.compact.auto ? '开' : '关'}` +

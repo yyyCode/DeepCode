@@ -36,6 +36,20 @@ export function matchesMatcher(
   return Object.entries(matcher).every(([key, value]) => e[key] === value);
 }
 
+/**
+ * 链上的权威序：tier 由外到内 → 同 tier 内按插件装载顺序 → 同插件内按注册先后。
+ *
+ * `hooksFor`（决定**谁先应答**）与 `matcherOwner`（决定**这个工具是谁的**）
+ * 共用它 —— 两处对"谁是第一个"必须是同一个答案，各写一份迟早会漂。
+ */
+function byChainOrder(a: Registration, b: Registration): number {
+  return (
+    tierIndex(a.tier) - tierIndex(b.tier) ||
+    a.pluginOrder - b.pluginOrder ||
+    a.seq - b.seq
+  );
+}
+
 export class Registry {
   private readonly regs: Registration[] = [];
   private seq = 0;
@@ -81,12 +95,22 @@ export class Registry {
   hooksFor(event: string, e: Record<string, unknown>): readonly Registration[] {
     return this.regs
       .filter((r) => matchesPattern(r.pattern, event) && matchesMatcher(r.matcher, e))
-      .sort(
-        (a, b) =>
-          tierIndex(a.tier) - tierIndex(b.tier) ||
-          a.pluginOrder - b.pluginOrder ||
-          a.seq - b.seq,
-      );
+      .sort(byChainOrder);
+  }
+
+  /**
+   * 某个 matcher 取值**是谁的** —— 插件名。没人注册 → `undefined`。
+   *
+   * 键序与 `hooksFor` 完全一样（`byChainOrder`），因为这里要回答的是
+   * "**谁在应答它**"，不是"谁碰过它"：`tool.call {tool:'Write'}` 是**一条链**，
+   * `session-changes` 与 `tool-write` 都挂在上面 —— 报第一个（最外层、先应答的那个）
+   * 才有意义，报"最后注册的那个"是错的。
+   */
+  matcherOwner(pattern: string, key: string, value: string): string | undefined {
+    const owner = this.regs
+      .filter((r) => r.pattern === pattern && r.matcher?.[key] === value)
+      .sort(byChainOrder)[0];
+    return owner?.plugin;
   }
 
   /**

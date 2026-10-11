@@ -2,6 +2,8 @@ import type { Palette } from './ansi';
 import type { Plugin } from '../contract/plugin';
 import type { Message } from '../contract/model-provider';
 import type { SessionChanges } from './changes';
+import type { EngineInterface } from '../contract/engine';
+import type { ToolListing } from '../core/tool-list';
 import { formatChange } from './diff-render';
 
 /**
@@ -36,6 +38,14 @@ export type SessionCommandsDeps = {
    * —— 四样都在 CLI 手里，插件够不着。
    */
   readonly context?: () => readonly string[];
+  /**
+   * 模型这一轮能用哪些工具（P9 §3.3）。**给它才注册 `/tools`**，与 `/compact`、`/context`
+   * 同一条纪律。`/help` 也吃它 —— 两处必须是同一份（那是本阶段存在的理由）。
+   *
+   * 由 CLI 注入，理由与 `describeCommand` 一模一样：要派发 `tool.describe`，
+   * 而插件拿不到 dispatch。
+   */
+  readonly toolListing?: () => Promise<ToolListing>;
   /**
    * 落盘游标归零。`/clear` 之后**必须**调（P7 §3.6）。
    *
@@ -145,9 +155,23 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
         });
       }
 
+      if (deps.toolListing !== undefined) {
+        const listing = deps.toolListing;
+        on('command.run', { name: 'tools' }, async ($) => {
+          // 一行一条地打（渲染器按行处理，拼成一个大字符串会一团糟 —— 与 /diff 同理）。
+          for (const line of await toolLines(listing, $)) $.ui.log(line);
+          return { handled: true };
+        });
+      }
+
       // ── 各条命令的自我介绍 ──
       // 与各自那条 command.run 挨着写：一条命令加了、忘了写 describe，`/help` 会当场
       // 在屏幕上提醒（见下面 help 的兜底），比放在别处更容易被发现。
+      if (deps.toolListing !== undefined) {
+        on('command.describe', { name: 'tools' }, () => ({
+          description: '模型这一轮能看到哪些工具、每个是谁给的',
+        }));
+      }
       if (!deps.paneLoaded) {
         on('command.describe', { name: 'diff' }, () => ({
           description: '看本会话改动过的文件（unified diff）',
@@ -178,7 +202,23 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
           if (described === undefined) continue; // 主动隐身，不进清单
           lines.push(described === null ? `  /${name}` : `  /${name}　${described}`);
         }
-        lines.push(`可用工具：${$.tool.list().join('  ')}`);
+        // ⚠️ 这一行**曾经**打的是 `$.tool.list()`（注册面）：一个注册了 `tool.call`
+        // 却没注册 `tool.describe` 的插件，它的工具模型永远看不到，而 `/help` 照样
+        // 告诉用户"可用"（P9 §2.1 探针 2 实测出来的）。复刻对象那句"在列表里 ≠ 能跑"
+        // 就是这个形状 —— 它的答案是写进文档，我们的答案是让两处**是同一份**。
+        if (deps.toolListing === undefined) {
+          // 没注入就退回注册面，并**当场说清这是没过滤的**：回退方向是"多列"不是
+          // "少列"，所以不会静默少一块；但两种含义不同，不说就等于骗。
+          lines.push(`可用工具：${$.tool.list().join('  ')}（未过滤：这一份是注册面，不是模型可见面）`);
+        } else {
+          const listing = await deps.toolListing();
+          lines.push(
+            `可用工具：${listing.specs.map((spec) => spec.name).join('  ')}　（/tools 看每个工具是干什么的）`,
+          );
+          if (listing.skipped.length > 0) {
+            lines.push(`另有 ${listing.skipped.length} 个不在模型可见清单里（/tools 有原因）`);
+          }
+        }
         lines.push('直接输入自然语言即可对话。');
         $.ui.log(lines.join('\n'));
         return { handled: true };
@@ -193,7 +233,8 @@ export function createSessionCommands(deps: SessionCommandsDeps): Plugin {
  * - `null`：**没注册 describe** —— 故障，warn 一声，调用方退回裸名字；
  * - 字符串：那句话（带上可选的用法）。
  *
- * 三种结果分开，是因为"隐身"与"忘了写"必须看得出区别：`describeTools` 那条注释说得好，
+ * 三种结果分开，是因为"隐身"与"忘了写"必须看得出区别：`core/tool-list.ts` 那条注释说得好（P9 起
+ * 它同时守着工具那一份：白名单外 / 被规则隐藏 / 没注册 describe 是三句不同的话），
  * 把故障混进正常状态里，会让人以为某个插件坏了却不去修。
  */
 async function describeOne(
@@ -209,4 +250,44 @@ async function describeOne(
     return null;
   }
   return said.usage === undefined ? said.description : `${said.description}　${said.usage}`;
+}
+
+/** 描述在这一屏上的宽度上限。**只是屏幕**：模型拿到的是完整的那句（见 `oneLine`）。 */
+const DESCRIPTION_MAX = 80;
+
+/** 取第一行；超宽就截尾加省略号。第二个返回值是"截没截"，供那一行脚注判断。 */
+function oneLine(text: string): readonly [string, boolean] {
+  const first = text.split('\n')[0] ?? '';
+  if (first.length <= DESCRIPTION_MAX) return [first, false];
+  return [`${first.slice(0, DESCRIPTION_MAX)}…`, true];
+}
+
+/**
+ * `/tools` 那一屏的几行（P9 §3.3）。
+ *
+ * 来源取自 `$.tool.origin` —— 那是**信息**不是闸（第三方插件被强制 `append` 座位，
+ * 内建在它外面先应答，所以插件盖不住内建；见 P9 §2.2）。取不到时照实打"来源不明"，
+ * 不省掉那一格：空格子会被读成"没有来源"，那是另一回事。
+ */
+async function toolLines(
+  listing: () => Promise<ToolListing>,
+  $: Pick<EngineInterface, 'tool'>,
+): Promise<readonly string[]> {
+  const got = await listing();
+  const lines: string[] = [`模型这一轮能用的工具（${got.specs.length} 个）：`];
+  let cut = false;
+  for (const spec of got.specs) {
+    const [said, truncated] = oneLine(spec.description);
+    cut ||= truncated;
+    lines.push(`  ${spec.name}　来自 ${$.tool.origin(spec.name) ?? '来源不明'}　${said}`);
+  }
+  if (got.skipped.length > 0) {
+    lines.push(`不进模型可见清单的（${got.skipped.length} 个）：`);
+    // 原因原样带出来 —— `listTools` 那三句措辞本身就是判据（"隐身"与"故障"必须分得开）。
+    for (const one of got.skipped) lines.push(`  ${one.name}　${one.why}`);
+  }
+  // 截断是这一屏的事。不说的话，读的人会把屏幕上的省略号当成模型也只拿到这么点
+  // —— P6 立过同一条先例（显示截断 ≠ 模型那一份被截断）。
+  if (cut) lines.push('（描述只取第一行、超过 80 字截断；模型拿到的是完整的。）');
+  return lines;
 }
