@@ -765,7 +765,10 @@ describe('LoopContext.tools —— 落点二：够不着', () => {
 describe('maxHops 与 stopReason', () => {
   it('撞上上限时 stopReason 是 max_hops，不是 end_turn', async () => {
     // 每一轮都要工具，永远不自己收手。
-    const { stopReason } = await run({ script: [callTool('Read')], maxHops: 2 });
+    // ⚠️ 脚本必须**每跳都给出工具**：只写一条时，第 2 跳会落到"脚本跑完 →
+    // `done`/`end_turn`"的兜底，loop 于是自己收手，压根撞不到上限（这条注释与脚本
+    // 曾经对不上，执行时实测才露出来 —— 见执行记录 T3）。
+    const { stopReason } = await run({ script: [callTool('Read'), callTool('Read')], maxHops: 2 });
     expect(stopReason).toBe('max_hops');
   });
 
@@ -1517,7 +1520,8 @@ describe('子代理：回传', () => {
   });
 
   it('撞上限时 stopReason 是 max_hops，一路带回来', async () => {
-    const m = await mount([callTool('Read')]);
+    // 同上：脚本每跳都要有工具，否则兜底的 end_turn 会掩盖"撞墙"这条路径。
+    const m = await mount([callTool('Read'), callTool('Read')]);
     const result = await m.spawn({ maxHops: 2 });
     expect(result.stopReason).toBe('max_hops');
   });
@@ -4072,4 +4076,17 @@ git commit --allow-empty -m "checkpoint: P4a C3 通过（技能与收口）" -m 
   它现在是这一族的新成员，这条性质正是本轮新引入的。注释里的 "27 个未实现" 同步改成 24。
 - **影响**：零功能影响，但教训值钱：**`as any` 是"编译期审查失效"的开关**。
   凡是靠 `as any` 才编译得过的地方，都等于把这道闸关掉了 —— 被转正的事件正好会藏在那儿。
+
+**T5 —— 同一个 `maxHops` 脚本陷阱，在另一个文件里又来了一遍（计划错了）。**
+
+- **现象**：Task 5 的 `agent-noun.test.ts` 那条 `撞上限时 stopReason 是 max_hops` 断言
+  `expected 'end_turn' to be 'max_hops'` —— 与 T3 里那条**一字不差地**同一种错。
+- **改成了什么**：只改脚本（`[callTool('Read')]` → `[callTool('Read'), callTool('Read')]`），
+  `maxHops: 2` 与断言都没动。执行时还顺手对齐了 `test/loop-options.test.ts` 里已经改好的那份。
+- **影响**：零。但**这是这份计划最该记住的一条教训**：
+  T3 报出这个错的时候我只改了**被报的那一处**，没有去 grep 计划里还有几处同样的写法 ——
+  于是 T5 又踩了一遍，由实现者自己认出来并引用了 T3 的先例。
+  **一个错在计划里出现的次数，永远大于某一次执行抱怨它的次数。**
+  计划里剩下的两处（Task 3 的 Step 1 测试块、Task 5 的 Step 5 测试块）已一并改正，
+  免得下次再有人照抄。
 
