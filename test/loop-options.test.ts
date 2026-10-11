@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Plugin } from '../src/contract/plugin';
-import type { ModelProvider, StreamEvent, ToolResult } from '../src/contract/model-provider';
+import type {
+  Message,
+  ModelProvider,
+  StreamEvent,
+  ToolResult,
+} from '../src/contract/model-provider';
+import type { EngineInterface } from '../src/contract/engine';
 import type { LoopContext } from '../src/core/loop';
-import { runTurn } from '../src/core/loop';
+import { estimateTokens, runTurn } from '../src/core/loop';
 import { createEngine } from '../src/core/create';
+import { createHarness } from './harness';
 
 /** 三个工具。`called` 记真正被应答的 `tool.call` —— 被拒的那次不该留下痕迹。 */
 function toolPlugins(called: string[]): Plugin[] {
@@ -153,5 +160,99 @@ describe('model 与 onText', () => {
   it('onText 每一轮调一次，给的是那一轮的话；空话不调', async () => {
     const { texts } = await run({ script: [callTool('Read'), say('收工')] });
     expect(texts).toEqual(['收工']);
+  });
+});
+
+describe('用量落到 turn.complete 上', () => {
+  const ENGINE = {
+    tool: { list: () => [] },
+    logger: { debug: () => {}, warn: () => {} },
+    ui: { log: () => {}, notice: () => {}, ask: async () => 'n' },
+  } as unknown as EngineInterface;
+
+  /** 跑一轮，把 `turn.complete` 的参数收下来。 */
+  async function run(events: readonly StreamEvent[], system = '提示', text = '干活') {
+    const h = createHarness({ engine: ENGINE });
+    const seen: {
+      stopReason: string;
+      inputTokens: number;
+      outputTokens: number;
+      usageEstimated?: boolean;
+    }[] = [];
+    // 注意 hook 的签名是 `($, e, next)` —— 第一个参数是引擎，事件在**第二个**。
+    h.on('builtin', 'spy', 'turn.complete', (_$, e) => {
+      seen.push(e as unknown as (typeof seen)[number]);
+      return {};
+    });
+
+    const provider: ModelProvider = {
+      name: 'stub',
+      async *stream() {
+        for (const event of events) yield event;
+      },
+    };
+    const messages: Message[] = [{ role: 'user', content: text }];
+    await runTurn(
+      {
+        $: ENGINE,
+        provider,
+        signal: new AbortController().signal,
+        dispatch: h.dispatch,
+        systemPrompt: system,
+        turnIndex: 0,
+      },
+      messages,
+    );
+    return seen;
+  }
+
+  it('端点报了：原样填进去，且不带 `usageEstimated`', async () => {
+    const seen = await run([
+      { type: 'done', stopReason: 'end_turn', usage: { inputTokens: 123, outputTokens: 45 } },
+    ]);
+    expect(seen).toEqual([{ stopReason: 'end_turn', inputTokens: 123, outputTokens: 45 }]);
+  });
+
+  it('端点没报：回落估计，并**标出来**', async () => {
+    const seen = await run([{ type: 'done', stopReason: 'end_turn' }]);
+    expect(seen).toEqual([
+      {
+        stopReason: 'end_turn',
+        inputTokens: estimateTokens('提示'.length + '干活'.length),
+        outputTokens: 0,
+        usageEstimated: true,
+      },
+    ]);
+  });
+
+  it('`onUsage` 收到同一份数据（自动压缩的触发信号从这儿走）', async () => {
+    const h = createHarness({ engine: ENGINE });
+    h.on('builtin', 'spy', 'turn.complete', () => ({}));
+    const got: unknown[] = [];
+    const provider: ModelProvider = {
+      name: 'stub',
+      async *stream() {
+        yield {
+          type: 'done',
+          stopReason: 'end_turn',
+          usage: { inputTokens: 9, outputTokens: 3 },
+        } as const;
+      },
+    };
+
+    await runTurn(
+      {
+        $: ENGINE,
+        provider,
+        signal: new AbortController().signal,
+        dispatch: h.dispatch,
+        systemPrompt: 's',
+        turnIndex: 0,
+        onUsage: (usage) => got.push(usage),
+      },
+      [{ role: 'user', content: '干活' }],
+    );
+
+    expect(got).toEqual([{ inputTokens: 9, outputTokens: 3, estimated: false }]);
   });
 });

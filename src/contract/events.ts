@@ -22,6 +22,11 @@ export type EventArgs = {
     readonly stopReason: string;
     readonly inputTokens: number;
     readonly outputTokens: number;
+    /**
+     * `true` = 上面两个数是**字符 ÷ 4 估的**，不是端点报的。
+     * 省略 = 端点报的真数。（`outputTokens: 0` 配上这个标记是常态：估得出输入，估不出输出。）
+     */
+    readonly usageEstimated?: boolean;
   };
   'tool.call': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   /**

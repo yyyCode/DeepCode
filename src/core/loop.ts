@@ -4,6 +4,7 @@ import type {
   ModelProvider,
   ToolResult,
   ToolSpec,
+  Usage,
 } from '../contract/model-provider';
 import type { Args, EventName, Result } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
@@ -33,6 +34,17 @@ export type LoopContext = {
   model?: string;
   /** 每一轮模型说的话（只在非空时调）。主循环不传 —— 它直接走 turn.step 就出去了。 */
   onText?: (text: string) => void;
+  /**
+   * 每一轮结束时把用量报出去（与 `turn.complete` 是同一条数据）。
+   *
+   * 自动压缩的触发信号从这儿走，**不是**靠一个监听 `turn.complete` 的插件：插件拿不到
+   * `dispatch`，而压缩前后要派 `session.compact`。
+   */
+  onUsage?: (usage: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly estimated: boolean;
+  }) => void;
 };
 
 /**
@@ -52,6 +64,28 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
   // 子代理那一侧会把两种情况都当正常结束，然后拿一段被截断的话当结论。
   let exhausted = true;
 
+  // 两处收场（失败与正常）共用这一份 —— 原先它们各自写死 `inputTokens: 0`，
+  // 于是 `turn.complete` 长期在报假账，而压缩器唯一的信号就是它。
+  let usage: Usage | undefined;
+  const complete = async (reason: string): Promise<void> => {
+    const tokens = turnUsage(usage, ctx.systemPrompt, messages);
+    ctx.onUsage?.(tokens);
+    await ctx.dispatch(
+      'turn.complete',
+      // 估的时候才带这个字段：带上一个 `false` 会让"端点报了"与"我们猜的"长得一模一样，
+      // 而消费端要把这两件事分开。
+      tokens.estimated
+        ? {
+            stopReason: reason,
+            inputTokens: tokens.inputTokens,
+            outputTokens: tokens.outputTokens,
+            usageEstimated: true,
+          }
+        : { stopReason: reason, inputTokens: tokens.inputTokens, outputTokens: tokens.outputTokens },
+      CORE_ORIGIN,
+    );
+  };
+
   for (let hop = 0; hop < maxHops; hop++) {
     const blocks: ContentBlock[] = [];
     const toolUses: Extract<ContentBlock, { type: 'tool_use' }>[] = [];
@@ -67,6 +101,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
       blocks.length = 0;
       toolUses.length = 0;
       text = '';
+      usage = undefined; // 与 text 同一个道理：重试的那一次不该继承上一次的用量
 
       try {
         for await (const event of ctx.provider.stream({
@@ -93,6 +128,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
             toolUses.push(block);
           } else {
             stopReason = event.stopReason;
+            usage = event.usage;
           }
         }
         failure = undefined;
@@ -119,11 +155,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
           ? '这一回合已被中断（会话保留，可以继续输入）'
           : `本 turn 失败：${failure}（会话保留，可以继续输入）`,
       );
-      await ctx.dispatch(
-        'turn.complete',
-        { stopReason: interrupted ? 'interrupted' : 'error', inputTokens: 0, outputTokens: 0 },
-        CORE_ORIGIN,
-      );
+      await complete(interrupted ? 'interrupted' : 'error');
       return interrupted ? 'interrupted' : 'error';
     }
 
@@ -152,12 +184,53 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<st
   // 走到这儿说明要么跑满、要么模型自己收手（`exhausted = false`）。
   if (exhausted) stopReason = 'max_hops';
 
-  await ctx.dispatch(
-    'turn.complete',
-    { stopReason, inputTokens: 0, outputTokens: 0 },
-    CORE_ORIGIN,
-  );
+  await complete(stopReason);
   return stopReason;
+}
+
+/**
+ * 一段文本的 token 数**粗估**。参数是**字符数**不是文本 —— 两处调用方手里本来就是长度。
+ *
+ * ⚠️ 它是估计，不是测量：中英混排会失真（中文一个字约 1–2 个 token，不是 0.25 个）。
+ * 之所以留着它，是因为"什么都不报"比"报一个标出来的估计"更坏 —— 前者让消费端
+ * 以为上下文是空的。
+ */
+export function estimateTokens(chars: number): number {
+  return Math.ceil(chars / 4);
+}
+
+/** 一个消息数组的**字符数**。工具结果与工具入参都算进去 —— 它们也是要占窗口的东西。 */
+export function messageChars(messages: readonly Message[]): number {
+  let total = 0;
+  for (const message of messages) {
+    if (message.role === 'user') {
+      total += message.content.length;
+    } else if (message.role === 'tool') {
+      for (const result of message.results) total += result.content.length;
+    } else {
+      for (const block of message.content) {
+        total +=
+          block.type === 'text' ? block.text.length : JSON.stringify(block.input ?? {}).length;
+      }
+    }
+  }
+  return total;
+}
+
+/** 这一轮的用量。端点报了就报真的；没报就估算并**标出来**。 */
+function turnUsage(
+  usage: Usage | undefined,
+  systemPrompt: string,
+  messages: readonly Message[],
+): { readonly inputTokens: number; readonly outputTokens: number; readonly estimated: boolean } {
+  if (usage !== undefined) {
+    return { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, estimated: false };
+  }
+  return {
+    inputTokens: estimateTokens(systemPrompt.length + messageChars(messages)),
+    outputTokens: 0,
+    estimated: true,
+  };
 }
 
 /** 抛 tool.check 判定 → 需要就问用户 → 抛 tool.call 执行。 */
