@@ -264,6 +264,9 @@ matcherOwner(pattern: string, key: string, value: string): string | undefined;
 - `$.tool.list()`：**语义不变**，仍是注册面。子代理的白名单（`cli/subagents.ts:134` 的
   `resolveTools`）吃的是它 —— 那里要的正是"注册过哪些名字"。注册面与模型面**两个都有用**，
   所以不是"改掉一个"，是"补上另一个"。
+  ⚠️ **P10 更正（2026-10-12）**：后半句过期了 —— `resolveTools` 已整个删掉，子代理的面不再吃
+  注册面，而是**走上面这一个函数**（按"父级那一轮"算，`core/nouns/agent.ts`）。注册面今天的
+  消费者是 `/help` 的**回退**那一支与诊断。见 `2026-10-12-deepcode-p10-design.md` §3.1。
 - `tool.describe` / `tool.call` / `tool.check` / `tool.result` 四个事件的形状：一个字不改。
   本阶段**不加事件**（与 P8 同一口径）。
 - `confirmPlugin` 的三个名字集：不改（§4 有理由）。

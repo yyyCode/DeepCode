@@ -42,8 +42,12 @@ export type SessionNoun = {
 export type ToolNoun = {
   /**
    * **注册面**的名字：谁注册了 `tool.call {tool: X}`。
-   * 子代理的白名单（`cli/subagents.ts` 的 `resolveTools`）吃它 —— 那里要的正是这个。
    * 模型真正能用的是它的子集，那一份在 `core/tool-list.ts`（P9 §3.1）。
+   *
+   * ⚠️ P10 之前这里写着"子代理的白名单吃它" —— 那句话现在**不成立**了：子代理的面
+   * 按"父级那一轮"算，走的是 `core/tool-list.ts` 那一个函数（`core/nouns/agent.ts`）。
+   * 今天吃它的是 `/help` 的**回退**那一支（没注入清单时，当场标明"未过滤"）与诊断
+   * —— 它仍然是"注册过哪些名字"的唯一来源（P10 §3.1）。
    */
   list(): readonly string[];
   /**

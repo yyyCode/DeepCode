@@ -116,8 +116,10 @@ export function createTelemetryPlugin(deps: TelemetryPluginDeps): Plugin {
         return next(e);
       });
 
+      // `depth` 是 P10 加的：一次递归在遥测里从此看得出层数（在此之前只有名字，
+      // 嵌套的与顶层的一模一样）。见 P10 设计 §3.5。
       on('agent.spawn', (_$, e, next) => {
-        write({ kind: 'agent.spawn', fields: { agent: e.name } });
+        write({ kind: 'agent.spawn', fields: { agent: e.name, depth: e.depth } });
         return next(e);
       });
 

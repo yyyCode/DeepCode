@@ -384,8 +384,9 @@ describe('生命周期事件的内核 no-op', () => {
     const h = createHarness();
     await expect(h.dispatch('turn.start', { index: 0 }, CORE_ORIGIN)).resolves.toEqual({});
     // P4a：`agent.spawn` 是这一族的新成员 —— 派子代理也只通知、不要答复（设计 §8）。
+    // （`depth` 是 P10 加的必填字段：通知事件照样零答复，加字段不是加闸。）
     await expect(
-      h.dispatch('agent.spawn', { name: 'explorer', task: '看一眼' }, CORE_ORIGIN),
+      h.dispatch('agent.spawn', { name: 'explorer', task: '看一眼', depth: 1 }, CORE_ORIGIN),
     ).resolves.toEqual({});
   });
 

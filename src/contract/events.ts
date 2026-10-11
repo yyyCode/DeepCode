@@ -107,8 +107,19 @@ export type EventArgs = {
    * 加东西的地方（见本文件顶部那段）。记为已知偏差。
    */
   'agent.offer': Record<string, never>;
-  /** 即将启动一个子代理。**纯通知**，不带改写能力。 */
-  'agent.spawn': { readonly name: string; readonly task: string; readonly model?: string };
+  /**
+   * 即将启动一个子代理。**纯通知**，不带改写能力。
+   *
+   * `depth` 是 P10 加的（契约变宽）：这是第几层，1 = 会话直接派的。
+   * 它由内核给出 —— 深度上限现在是内核的事，走哪条路径都是同一个数，
+   * 而"所有路径共用同一个数"这句话需要一个可观测的出口，否则只能读代码去验（P10 设计 §3.5）。
+   */
+  'agent.spawn': {
+    readonly name: string;
+    readonly task: string;
+    readonly model?: string;
+    readonly depth: number;
+  };
   /**
    * 技能正文展开成文本的那一刻。
    *

@@ -89,7 +89,7 @@ async function driveAllEvents(dispatch: Awaited<ReturnType<typeof build>>['dispa
     CORE_ORIGIN,
   );
   await dispatch('session.compact', { trigger: 'auto', tokensBefore: 900 }, CORE_ORIGIN);
-  await dispatch('agent.spawn', { name: 'scout', task: '看看仓库' }, CORE_ORIGIN);
+  await dispatch('agent.spawn', { name: 'scout', task: '看看仓库', depth: 2 }, CORE_ORIGIN);
   await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);
 }
 
@@ -125,7 +125,9 @@ describe('六个事件各记一行', () => {
       ],
       ['tool.result', { tool: 'Bash', ok: true }],
       ['session.compact', { trigger: 'auto', tokens_before: 900 }],
-      ['agent.spawn', { agent: 'scout' }],
+      // P10：多一列 `depth` —— 一次递归在遥测里从此看得出层数（在此之前嵌套的与
+      // 顶层的一模一样，只有名字）。
+      ['agent.spawn', { agent: 'scout', depth: 2 }],
       ['session.end', { reason: 'exit' }],
     ]);
   });
