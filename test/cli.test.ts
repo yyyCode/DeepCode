@@ -12,6 +12,7 @@ import { createSessionCommands } from '../src/cli/commands';
 import { createPermissionsCommand } from '../src/cli/permissions-command';
 import { streamPlugin } from '../src/cli/stream';
 import { cliPlugins } from '../src/cli/plugins';
+import type { CliPluginDeps } from '../src/cli/plugins';
 import { createTurnSignals } from '../src/cli/turns';
 import { createEngine } from '../src/core/create';
 import { runTurn } from '../src/core/loop';
@@ -209,6 +210,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     policy: ResolvedPolicy = NO_POLICY,
     engine: Partial<EngineInterface> = NOOP_UI,
     coreImpls: CoreImpls = {},
+    extras: Partial<CliPluginDeps> = {},
   ) {
     const { render } = spyRenderer();
     const bundle = cliPlugins({
@@ -233,6 +235,9 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
       agents: [],
       skills: [],
       baseSystemPrompt: '基础提示',
+      // P7 的三条接线由 main.ts 注入。默认不传 —— 要测那两条命令的用例自己传
+      // （见下面「P7 的两条新命令」）。
+      ...extras,
     });
 
     const h = createHarness({ engine, coreImpls });
@@ -278,6 +283,44 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     expect(responders('diff')).toHaveLength(1);
     expect(responders('diff')).toEqual(['diff-pane']);
     expect(responders('clear')).toContain('session-commands');
+  });
+
+  it('P7 的两条新命令：不注入就不是注册面上的命令（漏接 = 敲了只得到「未知命令」）', async () => {
+    // `compact` / `context` 是**可选** deps（一次性模式、测试里没有会话时的形状），
+    // 于是 main.ts 少传一个，TypeScript 一声不吭、typecheck 照绿 —— 而 `/context`
+    // 会走 core 兜底返回 handled:false，屏幕上只有一句「未知命令」。这与 `/clear`
+    // 那条「漏装插件」是同一类静默失效，所以同样问注册面 + 真的派一次 `command.run`。
+    const bare = await registered();
+    expect(bare.registry.hooksFor('command.run', { name: 'context' })).toHaveLength(0);
+
+    const logs: string[] = [];
+    const engine: Partial<EngineInterface> = {
+      ui: { log: (line: string) => logs.push(line), notice: () => {}, ask: async () => 'n' },
+    };
+    const seen: (string | undefined)[] = [];
+    const h = await registered(NO_POLICY, engine, {}, {
+      compact: async (instructions) => {
+        seen.push(instructions);
+      },
+      context: () => ['上下文账本（除「上次实测」外都是估的）：', '  合计　　　12 token'],
+      reseed: () => {},
+    });
+
+    expect(
+      h.registry.hooksFor('command.run', { name: 'context' }).map((r) => r.plugin),
+    ).toContain('session-commands');
+
+    // 账本**一行一条**地过渲染器（拼成一个大字符串看不清，与 /diff 同理）。
+    await h.dispatch('command.run', { name: 'context', args: [] }, CORE_ORIGIN);
+    expect(logs).toEqual(['上下文账本（除「上次实测」外都是估的）：', '  合计　　　12 token']);
+
+    // `/compact 保住 API 设计决策` → 那几个词按空白切开，拼接回**用户敲的那句话**。
+    await h.dispatch('command.run', { name: 'compact', args: ['保住', 'API', '设计决策'] }, CORE_ORIGIN);
+    expect(seen).toEqual(['保住 API 设计决策']);
+
+    // 光秃秃一个 `/compact` = 没有额外要求（不是"要求为空字符串"）。
+    await h.dispatch('command.run', { name: 'compact', args: [] }, CORE_ORIGIN);
+    expect(seen).toEqual(['保住 API 设计决策', undefined]);
   });
 
   it('mod 没装时 /diff 才轮到 CLI —— 两条应答者不许同时在', async () => {
@@ -563,6 +606,48 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
       expect(stdout).toContain('可用命令：');
       // 非交互下**不画提示符**：管道那头没有人在等，`> ` 只会与输出挤在同一行。
       expect(stdout).not.toContain('\n> ');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('⚠️ 真跑一遍 bin：/context 端到端应答（P7 §3.1 的接线，少一条 deps 就只剩「未知命令」）', () => {
+    // 这一条钉的是 `main.ts` 那三行注入（`compact` / `context` / `reseed`）。它们全是
+    // **可选** deps：少传一个，typecheck 照绿、其余测试照绿，而敲 `/context` 只会得到
+    // 一句「未知命令」—— 与 `/clear` 漏装插件是同一类静默失效。所以这里真的把 bin 跑起来。
+    //
+    // 这一轮**不发请求**（`/context` 不跑 turn），拿假 key 只是为了让它走到建引擎那一步。
+    const home = mkdtempSync(join(tmpdir(), 'deepcode-context-'));
+    try {
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        USERPROFILE: home,
+        HOME: home,
+        ANTHROPIC_API_KEY: 'sk-ant-fake-for-context-test',
+      };
+      for (const name of [
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_MODEL',
+        'ANTHROPIC_BASE_URL',
+        'DEEPCODE_MODEL',
+        'DEEPCODE_DEBUG',
+        'DEEPCODE_PROVIDER',
+      ]) {
+        delete env[name];
+      }
+
+      const stdout = execFileSync(
+        process.execPath,
+        [resolve(process.cwd(), 'bin', 'deepcode.mjs')],
+        { cwd: process.cwd(), env, input: '/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
+      );
+
+      expect(stdout).toContain('上下文账本');
+      expect(stdout).toContain('阈值'); // 三个设置都亮出来了
+      expect(stdout).toContain('还没发过请求'); // 这一轮真的没调模型
+      // 那句"不报还剩多少"是**输出的一部分**，非交互下也必须在 —— 它是这个命令诚实与否的分界。
+      expect(stdout).toContain('不报「还剩多少」');
+      expect(stdout).not.toContain('未知命令');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

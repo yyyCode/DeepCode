@@ -361,7 +361,9 @@ interactive)`，并把"`parseArgs([]).text` 就是空串"也钉一条测试。�
 `deps.reseed?.(0)`，并把"数组被改短就要 reseed"写进 README 的「会话落盘」一节。
 **反向验证做了**：把 `reseed?.(0)` 那一句删掉，`test/cli.test.ts` 里新加的那条立刻红；
 把 `mods/agents-md/nested.ts` 里 `attached.clear()` 删掉，「压缩后重新附上」那条立刻红 ——
-两条都是"不红就是摆设"的对照。
+两条都是"不红就是摆设"的对照。第三条是收口时补的：`main.ts` 注入的三条 deps
+（`compact` / `context` / `reseed`）全是**可选**的，少传一个 typecheck 照绿、而命令会
+静默消失 —— 真跑一遍 bin 的 `/context` 那条端到端用例把 `context:` 那一块删掉就立刻红。
 
 **刻意不做**：`p7-design.md:209` §4 十条，逐条给了"不追"的理由 —— 语义检索 / embedding、
 auto-memory 与 `MEMORY.md`、记忆文件注入面消毒、`/rewind` + 文件版本备份、prompt cache
