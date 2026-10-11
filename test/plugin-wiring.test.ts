@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Plugin } from '../src/contract/plugin';
+import { CORE_ORIGIN } from '../src/contract/next';
 import { cliPlugins } from '../src/cli/plugins';
 import { createPalette } from '../src/cli/ansi';
 import { renderPermissions } from '../src/cli/permissions-command';
 import { createSessionChanges } from '../src/cli/changes';
 import { createRenderer } from '../src/cli/render';
+import { createEngine } from '../src/core/create';
+import { scriptedProvider } from './harness';
 import type { ResolvedPolicy } from '../src/cli/settings';
 
 const POLICY: ResolvedPolicy = {
@@ -51,6 +54,52 @@ describe('转盘：谁在链上、坐在哪', () => {
     // guard 收到了规则：它在注册面上是唯一一个带 plugin.register 的第一方插件。
     const guard = b.plugins[0];
     expect(guard?.uses).toContain('plugin.register');
+  });
+});
+
+describe('第一方名单不会漂', () => {
+  it('托管策略点名**任何一个**第一方插件，guard 都忽略它', async () => {
+    // 计划里这条写的是"只能手工验"。手工验过之后发现它**能**被测 —— 见 C3 执行记录：
+    // 把 `firstParty: names` 改写成硬编码的 `['sec-default']` 之后，`plugin-wiring` 与
+    // `plugin-guard` 两个文件 10 条全绿（名单漂了的时候测试恰好是绿的），但真的拿
+    // `permissions` 去注册就会当场被拒 —— 也就是承重墙被一份写死的名单拆了。
+    // 逐一点名每一个第一方插件就把这个性质钉住了：名单一旦漂，没被写进死名单的那个当场红。
+    const firstParty = bundle().plugins.map((plugin) => plugin.name);
+    for (const name of firstParty) {
+      const b = bundle({ pluginDeny: [{ name, source: 'policy' }] });
+      const { dispatch } = await createEngine({
+        plugins: b.plugins,
+        thirdParty: b.thirdParty,
+        seating: b.seating as never,
+        signal: () => new AbortController().signal,
+        provider: scriptedProvider([]),
+        ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+        sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+        env: {},
+      });
+      const verdict = await dispatch(
+        'plugin.register',
+        { name, tier: 'user', uses: [] },
+        CORE_ORIGIN,
+      );
+      expect(verdict, `${name} 是 CLI 自带的插件，不该被托管策略关掉`).not.toHaveProperty('refuse');
+    }
+  });
+
+  it('反过来：点名一个不在名单里的，照样拒 —— 证明上一条测的是豁免而不是"谁都不拦"', async () => {
+    const b = bundle({ pluginDeny: [{ name: 'evil', source: 'policy' }] });
+    const { dispatch } = await createEngine({
+      plugins: b.plugins,
+      thirdParty: b.thirdParty,
+      seating: b.seating as never,
+      signal: () => new AbortController().signal,
+      provider: scriptedProvider([]),
+      ui: { print: () => {}, notice: () => {}, ask: async () => '' },
+      sessionInfo: { id: 's1', cwd: process.cwd(), root: process.cwd() },
+      env: {},
+    });
+    const verdict = await dispatch('plugin.register', { name: 'evil', tier: 'user', uses: [] }, CORE_ORIGIN);
+    expect(verdict).toHaveProperty('refuse');
   });
 });
 

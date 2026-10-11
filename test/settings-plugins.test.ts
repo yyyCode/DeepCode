@@ -75,6 +75,18 @@ describe('plugins 的五层合并', () => {
     expect(warnings).toContain('plugins.enable 不认 user 层');
   });
 
+  it('policy 层写 enable 也不生效，且出声 —— 托管策略只该能收紧，不该替你打开插件', async () => {
+    // 这条与上一条共用一个 `if`，但**只有上一条被测过**：C3 的变异（把那个分支整个
+    // 抹掉）只让 user 那条变红，policy 这一支原先是零覆盖的 —— 而它守的是设计 §3
+    // 里另一条独立的保证，不是 user 那条的附赠品。
+    const { policy, warnings } = await run(
+      { '/managed.json': JSON.stringify({ plugins: { enable: ['nope'] } }) },
+      '/managed.json',
+    );
+    expect(policy.plugins.enable).toEqual([]);
+    expect(warnings).toContain('plugins.enable 不认托管层');
+  });
+
   it('同名在两层都启用时只留一条（合并语义是并集，留谁都不改行为）', async () => {
     const { policy } = await run({
       [PATHS.project]: JSON.stringify({ plugins: { enable: ['todo'] } }),

@@ -89,7 +89,18 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   // 第一方名字**从这份清单推**，不另抄一份名单：抄一份的话，往上面加一个插件
   // 而忘了加到名单里，它的名字就不再享有第一方豁免 —— 而 deny 名单点到它时
   // 它就真的会被拦下（一份禁用名单从而又能拆承重墙了）。
-  const names = firstParty.map((plugin) => plugin.name);
+  //
+  // ⚠️ `sec-default` **必须一起算进来**，它不在上面那张 `firstParty` 数组里（由下面构造）。
+  // 漏掉它的后果是 C3 变异测试第 2 条实测出来的：settings 里写一句
+  // `plugins.deny: ["sec-default"]`，守门器当场不装 —— 一份**个人**配置文件就能把整套
+  // 权限模型的承重墙拆了。设计 §4.1 正是拿这个例子写的，而实现原先与它相反，
+  // 闸门自己的单测还照样绿（那条单测手工喂 `firstParty`，喂的正是真实装配没给的名字）。
+  //
+  // `plugin-guard` 也列上，但它是**结构上**碰不到的：闸门坐数组第 0 位，内核问
+  // "plugin-guard 能不能装"时它自己的 hook 还没注册，于是 deny 名单根本不会被问到。
+  // 列上是为了让这条性质不依赖"闸门恰好排第一"这个顺序 —— 一旦它挪位，豁免仍然在。
+  const secDefault = createSecDefaultPlugin({ rules: deps.policy.policyRules });
+  const names = ['plugin-guard', secDefault.name, ...firstParty.map((plugin) => plugin.name)];
   const guard = createPluginGuardPlugin({ deny: deps.pluginDeny ?? [], firstParty: names });
   // 守门器放最前，但它坐在 `prepend` —— 上面那条"座位比顺序更重要"在这里同样成立。
   const discovered = deps.discovered ?? [];
@@ -98,7 +109,7 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     plugins: [
       guard,
       // 守门器：只持有托管策略，读个人规则一个字都不读。
-      createSecDefaultPlugin({ rules: deps.policy.policyRules }),
+      secDefault,
       ...firstParty,
       ...discovered,
     ],

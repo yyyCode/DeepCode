@@ -23,7 +23,10 @@ const ask = (name: string) => ({ name, tier: 'append' as const, uses: [] as read
 
 describe('准入闸门', () => {
   it('名单里没有的，放行', async () => {
-    const { h } = mount([], []);
+    // deny 表**非空** —— 这才是"名单里没有的"这句话的字面意思。原先喂的是空数组，
+    // 于是把 `deny.find(名字相等)` 换成 `deny.find(恒真)` 这条也照样绿：空表下两者
+    // 都返回 undefined，判定一模一样。名单里放一个**别**的名字，才钉得住"按名字比"。
+    const { h } = mount([{ name: 'other-plugin', source: 'policy' }], []);
     expect(await h.dispatch('plugin.register', ask('todo'), CORE_ORIGIN)).toEqual({ allow: true });
   });
 

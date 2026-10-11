@@ -326,7 +326,9 @@ deepcode plugin validate <目录>      # 只校验一份清单，不执行任何
 - 注册的事件必须在清单的 `uses` 里，越界则**整个插件不装**（不是丢掉越界那一条）；
 - 它没法扩展 `$`（往 `engine.create` 挂 hook 会被当场拒绝并告知）。
 
-准入闸门认五层 settings 合并出来的 `plugins.deny`。**它管的是链上权威，不是代码执行** ——
+准入闸门认五层 settings 合并出来的 `plugins.deny`。这份名单只能关掉**掉进目录的**插件：
+点到 CLI 自带的任何一个（`sec-default`、`plugin-guard`、`permissions` …）会被忽略并出声 ——
+一份禁用名单不该有拆承重墙的能力。**它管的是链上权威，不是代码执行** ——
 `import` 一个入口模块就是在你的进程里跑它，装一个插件就是信任它。`plugin validate`
 会把钩子要跑的命令原文打出来，那是在装之前你能看见的全部。
 
@@ -384,7 +386,7 @@ MVP 的安全底线是 `tool.check` 事件上的最小确认：
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 依赖边界检查（往 contract/ 里加 import 会红）
-pnpm test        # 测试，26 个文件 436 个用例
+pnpm test        # 测试，26 个文件 439 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
