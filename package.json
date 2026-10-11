@@ -9,7 +9,7 @@
     "dev": "tsx src/cli/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "node scripts/check-boundaries.mjs"
+    "lint": "node scripts/check-boundaries.mjs && node scripts/check-workflow-hardening.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
