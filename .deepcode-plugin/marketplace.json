@@ -11,6 +11,11 @@
       "name": "todo",
       "description": "加一个 TodoWrite 工具 —— 演示一个不改引擎的新能力",
       "source": "./plugins/todo"
+    },
+    {
+      "name": "hookify",
+      "description": "把 .deepcode/hookify.*.local.md 里的声明式规则编译成 PreToolUse 判定 —— 一个不改引擎的插件",
+      "source": "./plugins/hookify"
     }
   ]
 }

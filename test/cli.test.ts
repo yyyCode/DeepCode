@@ -649,9 +649,9 @@ describe('真跑一遍 bin：自带插件的清单都过 validate', () => {
     delete env[name];
   }
 
-  // 这两个目录是**仓库自己发出的插件**，也就是 P3 出口标准里那两条演示用的。
+  // 这三个目录是**仓库自己发出的插件**，也就是 P3 出口标准里那两条演示用的，加上 P4c 的 hookify。
   // 它们此前从没被任何检查跑过 —— 这正是「校验器进 CI」那一格欠着的意思。
-  for (const dir of ['./plugins/todo', './plugins/secret-guard']) {
+  for (const dir of ['./plugins/todo', './plugins/secret-guard', './plugins/hookify']) {
     it(`${dir} 的清单没问题`, async () => {
       const { stdout } = await promisify(execFile)(
         process.execPath,
