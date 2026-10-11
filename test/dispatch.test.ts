@@ -344,7 +344,11 @@ describe('fail-closed', () => {
     // 也是 P2 全部安全性质的种子，必须真的钉在内核实现上。
     const built = await realEngine();
 
-    const result = await built.dispatch('tool.check', { tool: 'Bash', input: {} }, CORE_ORIGIN);
+    const result = await built.dispatch(
+      'tool.check',
+      { tool: 'Bash', input: {}, toolUseId: 'tu_1' },
+      CORE_ORIGIN,
+    );
     expect(result.decision).toBe('deny');
   });
 });

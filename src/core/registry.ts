@@ -90,6 +90,27 @@ export class Registry {
   }
 
   /**
+   * 撤回某个插件的全部注册，返回撤掉的条数。
+   *
+   * 给第三方插件的 `uses` 越界用：越界即**整个插件不装**（设计 §4.3）。
+   * 只丢越界那一条的话，插件里其余部分会半死不活地继续生效 ——
+   * 而人对"我写了五条规则"的心智模型是"要么都生效要么都不生效"。
+   *
+   * `pluginOrders` 里那个槽位**不动**：它只是个排序序号，留着不影响别人；
+   * 而且同一个插件也不会再注册了 —— 它的 `on` 已经被封。
+   */
+  revoke(plugin: string): number {
+    let removed = 0;
+    for (let i = this.regs.length - 1; i >= 0; i--) {
+      if (this.regs[i]?.plugin === plugin) {
+        this.regs.splice(i, 1);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  /**
    * 从注册面反推某类 matcher 的取值集合。
    * `$.tool.list()` 与 `$.command.list()` 靠它实现 —— 工具是自己注册进来的，
    * 不是内核里的一张硬编码表。

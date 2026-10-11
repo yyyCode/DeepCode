@@ -140,7 +140,7 @@ async function runOneTool(
 ): Promise<ToolResult> {
   const check = await ctx.dispatch(
     'tool.check',
-    { tool: use.name, input: use.input },
+    { tool: use.name, input: use.input, toolUseId: use.id },
     CORE_ORIGIN,
   );
 

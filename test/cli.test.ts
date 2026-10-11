@@ -252,7 +252,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     expect(
       await h.dispatch(
         'tool.check',
-        { tool: 'Bash', input: { command: 'git push origin main' } },
+        { tool: 'Bash', input: { command: 'git push origin main' }, toolUseId: 'tu_1' },
         CORE_ORIGIN,
       ),
     ).toEqual({ decision: 'deny', rule: 'Bash(git push:*)' });

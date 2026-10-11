@@ -38,7 +38,7 @@ function downstream(h: H, answer: unknown): H {
 }
 
 function check(h: H, tool: string, input: unknown) {
-  return h.dispatch('tool.check', { tool, input }, CORE_ORIGIN);
+  return h.dispatch('tool.check', { tool, input, toolUseId: 'tu_1' }, CORE_ORIGIN);
 }
 
 describe('sec-default：持有裁决', () => {
