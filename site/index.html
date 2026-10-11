@@ -153,7 +153,7 @@
     一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。</p>
 
   <div class="topo-wrap">
-    <svg class="topo" viewBox="0 0 1024 580" role="img" aria-labelledby="topo-t topo-d">
+    <svg class="topo" viewBox="0 0 1060 580" role="img" aria-labelledby="topo-t topo-d">
       <title id="topo-t">DeepCode 架构拓扑：执行链路、安全闸门、记忆与上下文</title>
       <desc id="topo-d">终端进来的提示词交给 engine.dispatch —— 每个调用点抛出一个事件；插件把自己的
         hook 注册成中间件，按 tier 权威序 prepend → user → append → builtin → core 串成一条链，
@@ -218,7 +218,10 @@
       <!-- ── 带二：安全闸门 ───────────────────────────── -->
       <g class="band--safety">
         <rect class="band__bg" x="16" y="250" width="968" height="140" rx="14"/>
-        <text class="t-lab t-lab--warn" x="34" y="276">安全闸门 · 工具调用必经</text>
+        <!-- 这条带的标题拆成两行：单行「安全闸门 · 工具调用必经」一直伸到 x≈192，
+             正好挡住上面那条从 tier 链下来的连线（x=130）—— 文字给图让路。 -->
+        <text class="t-lab t-lab--warn" x="34" y="266">安全闸门</text>
+        <text class="t-note t-note--warn" x="34" y="282">工具调用必经</text>
         <text class="t-note t-note--warn" x="382" y="270">deny / ask —— 结果回到链上，模型重新决定</text>
 
         <rect class="bx bx--warn" x="40" y="294" width="180" height="72" rx="10"/>
@@ -264,12 +267,14 @@
         <text class="t-sub" x="830" y="498">/compact · 自动压缩默认关</text>
       </g>
 
-      <!-- ── 三条连线：链尾 → 工具 / deny 回到链上 / 记忆绕回 ── -->
-      <path class="ln" d="M596 136 V232 H130 V289" marker-end="url(#arw)"/>
-      <path class="ln ln--warn" d="M368 294 V240 H700 V141" marker-end="url(#arw-w)"/>
-      <path class="ln ln--acc" d="M960 484 H1000 V100 H988" marker-end="url(#arw-a)"/>
-      <text class="t-note t-note--acc" x="1016" y="292" text-anchor="middle"
-            transform="rotate(-90 1016 292)">转录 → --resume 接回会话</text>
+      <!-- ── 三条连线：链尾 → 工具 / deny 回到链上 / 记忆绕回 ──
+           链尾这条从 tier 链正下方下来、再折进工具的正上方。它会不会压到字，是拿浏览器
+           量出来的（getBoundingClientRect + 沿路径取点），不是靠估字宽。 -->
+      <path class="ln" d="M596 136 V228 H130 V289" marker-end="url(#arw)"/>
+      <path class="ln ln--warn" d="M368 294 V244 H700 V141" marker-end="url(#arw-w)"/>
+      <path class="ln ln--acc" d="M960 484 H1002 V100 H988" marker-end="url(#arw-a)"/>
+      <text class="t-note t-note--acc" x="1030" y="292" text-anchor="middle"
+            transform="rotate(-90 1030 292)">转录 → --resume 接回会话</text>
     </svg>
   </div>
   <p class="topo-hint">图比较宽 —— 左右滑动查看</p>
