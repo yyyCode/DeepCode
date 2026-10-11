@@ -72,6 +72,21 @@ export function renderPermissions(policy: ResolvedPolicy, palette: Palette): str
     lines.push(`  ${colored} ${rule.raw.padEnd(34)} ${sourceLabel(from)}`);
   }
 
+  // 插件名单。它与权限规则同源（同一批 settings 文件），所以摊在一起看 ——
+  // 一份"我明明禁用了它"的误判，只有在这里看得见。
+  const plugins = [
+    ...policy.plugins.enable.map((rule) => ({ verb: 'enable', ...rule })),
+    ...policy.plugins.deny.map((rule) => ({ verb: 'deny', ...rule })),
+  ];
+  if (plugins.length > 0) {
+    lines.push('');
+    lines.push('插件（enable 只认 project / local / flag；deny 五层取并集）');
+    for (const plugin of plugins) {
+      const verb = plugin.verb === 'deny' ? palette.red(plugin.verb.padEnd(6)) : plugin.verb.padEnd(6);
+      lines.push(`  ${verb} ${plugin.name.padEnd(24)} ${sourceLabel(plugin.source)}`);
+    }
+  }
+
   const hidden = [
     ...fullyDeniedTools(policy.policyRules),
     ...fullyDeniedTools(policy.personalRules),

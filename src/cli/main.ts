@@ -16,6 +16,8 @@ import { loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { resolvePolicy } from './settings';
+import { discoverPlugins, installPlugins } from './plugin-dir';
+import { runPluginCommand } from './plugin-command';
 import {
   createPersister,
   createTranscript,
@@ -78,6 +80,28 @@ async function main(): Promise<void> {
 
   const root = resolve(process.cwd());
   const home = process.env.USERPROFILE ?? process.env.HOME ?? root;
+
+  // 子命令在**读配置、要 key 之前**处理：`deepcode plugin validate ./x` 在没有 key 的
+  // 机器上也是条正经命令，不该被一句"缺少 API key"挡回去（与 --help 同一条道理）。
+  if (action.kind === 'plugin') {
+    // 这个分支不认 `--settings=`（它只在 prompt 变体上）—— 托管路径照旧生效，
+    // 因为插件名单的 deny 侧必须包括托管层。
+    const pluginPolicy = await resolvePolicy({
+      home,
+      root,
+      managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
+      warn: (line) => process.stderr.write(`${line}\n`),
+    });
+    process.exitCode = await runPluginCommand({
+      action,
+      home,
+      root,
+      enabled: pluginPolicy.plugins.enable.map((rule) => rule.name),
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
+    return;
+  }
 
   // 配置来源优先级：环境变量 > 项目级 > 用户级（见 cli/config.ts 的 resolveSettings）。
   const config = await loadConfig({ home, root });
@@ -166,16 +190,49 @@ async function main(): Promise<void> {
   }
   const persist = createPersister(transcript, alreadySaved, (line) => render.notice(line));
 
+  // 会话 id 在这里先算出来：插件钩子的 stdin 里要有它，而 createEngine 里也要有它 ——
+  // 两处各写一遍 `?? String(Date.now())` 的话，那两次 Date.now() 可以差一毫秒，
+  // 于是一个会话会有两个 id。
+  const sessionId = transcript?.id ?? String(Date.now());
+
+  // ── 插件目录 ──
+  // 发现（只读清单）与装载（import 入口）分两步：`plugin list` / `validate` 只做前者。
+  // 这一条线是"看一眼"与"让它跑"的分界。
+  const found = await discoverPlugins({
+    home,
+    root,
+    enabled: policy.plugins.enable.map((rule) => rule.name),
+    warn: (line) => process.stderr.write(`${line}\n`),
+  });
+  const thirdParty = await installPlugins(found.loaded, {
+    projectDir: root,
+    session: { id: sessionId, transcriptPath: transcript?.path },
+    env: process.env,
+    warn: (line) => process.stderr.write(`${line}\n`),
+  });
+
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
-  const bundle = cliPlugins({ render, changes, messages, root, palette, policy, home });
+  const bundle = cliPlugins({
+    render,
+    changes,
+    messages,
+    root,
+    palette,
+    policy,
+    home,
+    discovered: thirdParty,
+    pluginDeny: policy.plugins.deny,
+  });
   const { $, dispatch } = await createEngine({
     // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
     plugins: bundle.plugins,
     // 座位由 CLI 钉，引擎不认插件自述的权威。
     seating: bundle.seating,
+    // 第三方插件的名字：引擎据此把它们的座位**强制**成 append，并给它们一块包装过的 `on`。
+    thirdParty: bundle.thirdParty,
     provider: providerAdapter,
     ui: { print: render.print, notice: render.notice, ask: prompt.ask },
-    sessionInfo: { id: transcript?.id ?? String(Date.now()), cwd: root, root },
+    sessionInfo: { id: sessionId, cwd: root, root },
     env: debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env,
     signal: () => turns.current(),
   });

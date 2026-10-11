@@ -156,7 +156,11 @@ describe('cli 装配：真实内核 + CLI 插件清单', () => {
       home: process.cwd(),
     });
 
-    expect(bundle.seating).toEqual({ 'sec-default': 'prepend', permissions: 'user' });
+    expect(bundle.seating).toEqual({
+      'plugin-guard': 'prepend',
+      'sec-default': 'prepend',
+      permissions: 'user',
+    });
   });
 });
 
