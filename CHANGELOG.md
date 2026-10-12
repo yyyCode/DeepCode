@@ -52,6 +52,7 @@
 `#34 resume-highlights`（简历亮点与答辩）、`#36 resume-concrete`（它的第二版：写法改具体）、
 `#38 consent-session-grants`（确认提示上的 `a`：可撤回的当场批准，编号在合并前就记进来 ——
 前几次是先合再补一条 `docs(changelog)`，这次不必）。
+`#39 site-logo`（官网字标前加上 logo 标记，favicon 一并换成它）。
 
 ---
 
