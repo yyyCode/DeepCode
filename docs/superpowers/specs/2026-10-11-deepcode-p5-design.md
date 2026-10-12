@@ -49,7 +49,7 @@
 
 仓库里这条漂移已经存在一段时间了，本轮判掉：
 
-- `claude-code-架构分析/00-overview.md:15,183` 写的是 **四个**：`mods/{diff,telemetry,agents-md,sec-default}/`。
+- `docs/claude-code-架构分析/00-overview.md:15,183` 写的是 **四个**：`mods/{diff,telemetry,agents-md,sec-default}/`。
 - `mvp-design.md:451`（P5 出口标准）写的是 **三个内建 mod**。
 - `docs/项目简介.md:85` 与 `site/index.html` 跟着写"三个"。
 

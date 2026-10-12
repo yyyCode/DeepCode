@@ -33,7 +33,7 @@
    塞进去会顺带让**你的**用户设置能点亮**别人仓库里**的插件，那是另一个方向的回归。
 
 5. **索引格式刻意比参考实现小**。参考的条目是 `name/description/source/category` 加可选
-   `version/author`（`claude-code-架构分析/02-plugin-system.md:89-93`）。我们砍到
+   `version/author`（`docs/claude-code-架构分析/02-plugin-system.md:89-93`）。我们砍到
    `name/description/source`：没有浏览 UI，`category` 没有消费者；版本与升级整条线不在本轮。
    砍掉字段是**可在 P5 加回来**的，先加后删不是。
 
@@ -471,4 +471,4 @@ rename ~/.deepcode/.installed-staging/<名> → ~/.deepcode/installed/<名>
 - 目录枚举**没有任何名字过滤**：`src/cli/walkdir.ts:38-49`（§5 那个改动的直接来源）
 - 设置分层的来源标记：`src/cli/settings.ts:17-21`、`:229-238`
 - 只认等号形式的开关：`src/cli/args.ts:25-29`
-- 参考实现的 marketplace schema：`claude-code-架构分析/02-plugin-system.md:89-93`、`:274`
+- 参考实现的 marketplace schema：`docs/claude-code-架构分析/02-plugin-system.md:89-93`、`:274`

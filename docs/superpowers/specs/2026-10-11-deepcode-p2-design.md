@@ -1,7 +1,7 @@
 # DeepCode —— P2 安全内核设计
 
 > 上游：`2026-10-11-deepcode-mvp-design.md`（§9.2 的 P2 列、§9.3 的 P2 出口标准）
-> 依据：`claude-code-架构分析/06-security-permissions.md`
+> 依据：`docs/claude-code-架构分析/06-security-permissions.md`
 > 本文只写 P2 的**决策**与相对前序阶段的**差异**，不重复 P1 已确立的契约。
 
 ---

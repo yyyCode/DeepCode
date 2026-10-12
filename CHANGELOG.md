@@ -53,6 +53,7 @@
 `#38 consent-session-grants`（确认提示上的 `a`：可撤回的当场批准，编号在合并前就记进来 ——
 前几次是先合再补一条 `docs(changelog)`，这次不必）。
 `#39 site-logo`（官网字标前加上 logo 标记，favicon 一并换成它）。
+`#40 docs-arch-move`（`claude-code-架构分析/` 从仓库根挪进 `docs/`，全仓库 21 处引用跟着改）。
 
 ---
 

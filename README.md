@@ -444,7 +444,7 @@ pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 - 变更记录（每个阶段的范围 / 出口标准 / 偏差索引）：[`CHANGELOG.md`](CHANGELOG.md)
 - **设计文档**（一个阶段一份，`mvp` 起、P2–P10 逐份）：[`docs/superpowers/specs/`](docs/superpowers/specs/)
 - **实施计划**（与设计一一对应）：[`docs/superpowers/plans/`](docs/superpowers/plans/)
-- 架构参考（我们对着读了什么）：`claude-code-架构分析/`
+- 架构参考（我们对着读了什么）：`docs/claude-code-架构分析/`
 
 官网产物就是 `site/` 这**一整个目录**，拷到任意静态主机即可（无构建步骤，页面里没有绝对路径）；
 `site/` 不在 `tsconfig.json` 的 `include` 里，也不被脚本扫描，对上面四条命令零影响。
