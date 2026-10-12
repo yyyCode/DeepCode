@@ -5,7 +5,7 @@
 >
 > 上位文档：[`2026-10-11-deepcode-p5-design.md`](../specs/2026-10-11-deepcode-p5-design.md) §5。
 > 同体例先例：[`2026-10-11-deepcode-p5b.md`](2026-10-11-deepcode-p5b.md)。
-> 参考实现：[`claude-code-架构分析/03-mod-diff.md`](../../../claude-code-架构分析/03-mod-diff.md)。
+> 参考实现：[`docs/claude-code-架构分析/03-mod-diff.md`](../../../docs/claude-code-架构分析/03-mod-diff.md)。
 
 **目标**：把 `src/cli/diff.ts` 的纯逻辑搬进 `mods/diff/`，让 `/diff` 从"打印一串行"变成
 "一个有表头的块"，并让 `git` 成为**第一个真可选依赖** —— 拿掉它，`/diff` 降级、其余一切照常。

@@ -20,7 +20,7 @@ hook（hookify），再给事件目录补上三个一直被声明、从来没实
 1. **hookify 是插件，不是内核语法。** 参考实现里 `plugins/hookify/` 是一个普通插件：
    它的 `hooks.json` 挂四个 classic `command` 型钩子，脚本在运行时去读用户写的规则文件。
    参考笔记自己的结论就是这条 ——「协议做小做稳，**DSL 做成插件**」
-   （`claude-code-架构分析/00-overview.md:100`）、「把 DSL 建成插件：hookify 证明…可行」
+   （`docs/claude-code-架构分析/00-overview.md:100`）、「把 DSL 建成插件：hookify 证明…可行」
    （同目录 `07-hooks-system.md:460`）。所以本片**不动 `src/core/`**，也不给
    `hooks.json` 加新 `type`；hookify 是一个 `plugins/hookify/` 目录。
    这恰好是 P3 出口标准（「一个不改引擎的插件能扩展出新能力」）的第二次行使，

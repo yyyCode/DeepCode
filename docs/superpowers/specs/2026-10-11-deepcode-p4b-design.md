@@ -365,7 +365,7 @@ export type Persister = {
 
 **为什么挂 `Read` 而不是启动时全树预读**：全树预读会在大仓库上白烧 token，而 `AGENTS.md` 是
 "读到这一层才需要"的东西 —— 这正是"惰性"二字的意思，也是与参考实现同形的做法
-（`claude-code-架构分析/05-mod-agents-md.md:28,31` 记的就是在读文件那一刻回溯附带）。
+（`docs/claude-code-架构分析/05-mod-agents-md.md:28,31` 记的就是在读文件那一刻回溯附带）。
 
 ### 4.2 双层去重（两层意思都落实）
 
@@ -537,8 +537,8 @@ README / `docs/项目简介.md` / `site/index.html` 三处的 **15/24 要改成 
 | 流事件契约 | `src/contract/model-provider.ts` | `StreamEvent` :35-54 |
 | 指令加载（**要接嵌套**） | `src/cli/main.ts` | `loadInstructions` :34-43、拼装 :264-266 |
 | REPL 的 turn 循环（自动压缩的调用点） | `src/cli/repl.ts` | :86-103 |
-| 参考实现的嵌套做法 | `claude-code-架构分析/05-mod-agents-md.md` | :28、:31、:38、:40 |
-| 参考实现的沙箱键表 | `claude-code-架构分析/06-security-permissions.md` | :139-157、:515-516、:630 |
+| 参考实现的嵌套做法 | `docs/claude-code-架构分析/05-mod-agents-md.md` | :28、:31、:38、:40 |
+| 参考实现的沙箱键表 | `docs/claude-code-架构分析/06-security-permissions.md` | :139-157、:515-516、:630 |
 
 ---
 

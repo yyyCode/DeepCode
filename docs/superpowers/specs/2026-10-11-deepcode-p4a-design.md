@@ -963,7 +963,7 @@ const model = callModel ?? (spec.model === 'inherit' ? undefined : spec.model);
 - 屏幕出口（静音要绕开的那一处）：`src/cli/stream.ts`
 - 目录遍历（要抽出去的）：`src/cli/plugin-dir.ts:185-201`
 - 项目级 vs 用户级的优先级先例：`src/cli/plugin-dir.ts:102-112`
-- 参考实现笔记：`claude-code-架构分析/08-agents-and-skills.md`
+- 参考实现笔记：`docs/claude-code-架构分析/08-agents-and-skills.md`
   （frontmatter schema `:71-146`、路由 `:160-174`、白名单三条 `:176-197`、
   模型解析 `:199-211`、技能 schema `:213-255`、三层披露 `:257-297`、存疑 `:580-601`）
 

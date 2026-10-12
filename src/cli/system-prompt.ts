@@ -13,7 +13,7 @@ import { renderOffer } from './offer';
  *    "压缩后重新装载"就只是"再算一次"，而不是一条特例（`mods/agents-md/nested.ts`
  *    那边清去重表，同一件事的另一半）。
  *
- * 复刻对象（`claude-code-架构分析/11-memory-and-context.md`）把这条叫"重算优于搬运"：
+ * 复刻对象（`docs/claude-code-架构分析/11-memory-and-context.md`）把这条叫"重算优于搬运"：
  * `prompt.context` 属于"答案被会话缓存、配置变更即失效"的那六个事件。
  *
  * ⚠️ **代价如实写在这里**：每轮最多多 3 次文件读；而且系统提示的**字节可能在会话中途

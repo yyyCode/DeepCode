@@ -3668,7 +3668,7 @@ pnpm lint        # 依赖边界检查
 
 - 设计：[`docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md`](docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md)
 - 实施计划：[`docs/superpowers/plans/2026-10-11-deepcode-mvp.md`](docs/superpowers/plans/2026-10-11-deepcode-mvp.md)
-- 架构参考：`claude-code-架构分析/`
+- 架构参考：`docs/claude-code-架构分析/`
 ```
 
 - [ ] **Step 2: 一次跑完所有检查**

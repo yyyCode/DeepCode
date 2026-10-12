@@ -294,7 +294,7 @@ transcript / e2e 用 `mkdtemp` 临时目录，`cli.test.ts:384` 甚至专门把 
 | `validate` 的实现与退出码 | `src/cli/plugin-command.ts` | `runPluginCommand` :50-52（`validated.ok ? 0 : 1`） |
 | 真跑 bin 的测试范式 | `test/cli.test.ts` | :381-411、:412+（`execFile` + 清空 key + 60_000 超时） |
 | 依赖边界规则的来源说明 | `docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md` | §2.1 :58-64 |
-| 参考实现的硬化校验器 | `claude-code-架构分析/09-ci-and-automation.md` | :250-400（三件套与豁免表） |
-| 参考实现的 CI 硬化面 | `claude-code-架构分析/06-security-permissions.md` | :473-500、:602-630 |
+| 参考实现的硬化校验器 | `docs/claude-code-架构分析/09-ci-and-automation.md` | :250-400（三件套与豁免表） |
+| 参考实现的 CI 硬化面 | `docs/claude-code-架构分析/06-security-permissions.md` | :473-500、:602-630 |
 | 「没有 CI」在哪几处 | `README.md`、`docs/项目简介.md:98`、`site/index.html:357` | — |
 | 包脚本 | `package.json` | `scripts.lint` :12 |
