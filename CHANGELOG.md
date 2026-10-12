@@ -49,7 +49,9 @@
 `#23 p7-memory-context`（P7 记忆与上下文）。
 `#26 p8-execution-loop`（P8 执行循环的收场）、`#28 p9-tool-listing`（P9 工具清单）、
 `#30 p10-agent-boundary`（P10 子代理的边界）、`#32 readme-slim`（README 瘦身：已知限制搬去独立文档）、
-`#34 resume-highlights`（简历亮点与答辩）、`#36 resume-concrete`（它的第二版：写法改具体）。
+`#34 resume-highlights`（简历亮点与答辩）、`#36 resume-concrete`（它的第二版：写法改具体）、
+`#38 consent-session-grants`（确认提示上的 `a`：可撤回的当场批准，编号在合并前就记进来 ——
+前几次是先合再补一条 `docs(changelog)`，这次不必）。
 
 ---
 
