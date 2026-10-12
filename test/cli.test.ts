@@ -10,6 +10,7 @@ import { createPalette } from '../src/cli/ansi';
 import { createSessionChanges } from '../src/cli/changes';
 import { createSessionCommands } from '../src/cli/commands';
 import { createPermissionsCommand } from '../src/cli/permissions-command';
+import { createSessionGrants } from '../src/builtins/permissions';
 import { streamPlugin } from '../src/cli/stream';
 import { cliPlugins } from '../src/cli/plugins';
 import type { CliPluginDeps } from '../src/cli/plugins';
@@ -860,7 +861,15 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
     const lines: string[] = [];
     const engine = { ui: { log: (line: string) => lines.push(line) } } as unknown as EngineInterface;
     const h = createHarness({ engine });
-    seat(h, createPermissionsCommand({ policy: fixturePolicy(), palette: createPalette(false) }), 'builtin');
+    seat(
+      h,
+      createPermissionsCommand({
+        policy: fixturePolicy(),
+        palette: createPalette(false),
+        grants: createSessionGrants(),
+      }),
+      'builtin',
+    );
 
     expect(await h.dispatch('command.run', { name: 'permissions', args: [] }, CORE_ORIGIN)).toEqual({ handled: true });
 
@@ -892,7 +901,15 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       instructions: [],
       gateway: {},
     };
-    seat(h, createPermissionsCommand({ policy: empty, palette: createPalette(false) }), 'builtin');
+    seat(
+      h,
+      createPermissionsCommand({
+        policy: empty,
+        palette: createPalette(false),
+        grants: createSessionGrants(),
+      }),
+      'builtin',
+    );
 
     await h.dispatch('command.run', { name: 'permissions', args: [] }, CORE_ORIGIN);
 

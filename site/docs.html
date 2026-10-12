@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>技术文档 —— DeepCode</title>
+<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十阶段路线图、以及九条已知限制。">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e12'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' fill='%23e9ecf0' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar" id="topbar">
+  <div class="wrap topbar__in">
+    <a class="topbar__wm" href="index.html">deepcode</a>
+
+    <button class="navbtn" type="button" aria-expanded="false" aria-controls="nav">
+      <span class="navbtn__bars" aria-hidden="true"></span>
+      目录
+    </button>
+
+    <nav class="nav" id="nav" aria-label="本页目录">
+      <a href="#decisions">设计决定</a>
+      <a href="#architecture">架构</a>
+      <a href="#permissions">权限</a>
+      <a href="#roadmap">路线图</a>
+      <a href="#limits">已知限制</a>
+      <a class="nav__gh" href="https://github.com/yyyCode/DeepCode">GitHub</a>
+    </nav>
+
+    <a class="btn btn--ink btn--sm topbar__cta" href="index.html">首页</a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ───────────────── 页头 ───────────────── -->
+<section class="dochead" id="top">
+  <div class="wrap">
+    <h1>技术文档</h1>
+    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十阶段路线图、九条已知限制。
+      它是什么、怎么装、怎么用，看 <a href="index.html">首页</a>。</p>
+  </div>
+</section>
+
+<!-- ───────────────── 七个设计决定 ───────────────── -->
+<section class="wrap band" id="decisions">
+  <p class="band__mark">7 条</p>
+  <div class="band__body">
+    <h2>七个设计决定</h2>
+
+    <div class="decs">
+      <article class="dec">
+        <h3 class="dec__h">零运行时依赖</h3>
+        <p><code>package.json</code> 里只有 <code>devDependencies</code>，跑起来不下载任何东西。</p>
+      </article>
+
+      <article class="dec">
+        <h3 class="dec__h">更严的永远赢</h3>
+        <p>固定优先级 <code>deny &gt; ask &gt; allow</code>，与写在哪一层、排第几都无关。</p>
+      </article>
+
+      <article class="dec">
+        <h3 class="dec__h">fail-closed 到底</h3>
+        <p>非 TTY 默认拒绝；不认识的工具拒绝；<code>tool.check</code> 走到链尾无人应答也是 <code>deny</code>。</p>
+      </article>
+
+      <article class="dec">
+        <h3 class="dec__h">没有 <code>--yes</code></h3>
+        <p>写盘与执行命令都要有人按一次 <code>y</code>。</p>
+      </article>
+
+      <article class="dec">
+        <h3 class="dec__h">依赖边界由脚本守</h3>
+        <p><code>contract/</code> 不许 import 任何东西，<code>builtins/</code> 只许 import <code>contract/</code>。</p>
+      </article>
+
+      <article class="dec">
+        <h3 class="dec__h">账本不许自己违反自己</h3>
+        <p>每次请求都带着工具清单，<code>/context</code> 的合计一度只算了系统提示与消息 ——
+          实测某一轮真切发出去约 <b>448 token</b>，账本报 <b>11</b>，其中 <b>97.5%</b> 是漏掉的工具。</p>
+      </article>
+
+      <article class="dec">
+        <h3 class="dec__h">内建工具不是特例</h3>
+        <p>八个工具走<strong>同一条</strong>接口：清单来自注册面上 <code>tool.call</code> 的 matcher 取值，
+          再过白名单与 <code>hidden</code> 两道。<code>core/tool-list.ts</code> 是这一份清单的<strong>唯一算法</strong>。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── 架构 ───────────────── -->
+<section class="wrap band" id="architecture">
+  <p class="band__mark">6 个模块 · 1 条链</p>
+  <div class="band__body">
+    <h2>六个模块，共用一条链</h2>
+    <p class="band__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，按 tier 权威序串成一条链。
+      一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。下面是这条链上的六个模块。</p>
+
+    <div class="mods">
+      <article class="mod">
+        <h3 class="mod__h">执行引擎<span>所有调用从这里进</span></h3>
+        <dl>
+          <dt>入口</dt>
+          <dd><code>engine.dispatch</code> —— 每个调用点抛出一个事件</dd>
+          <dt>链</dt>
+          <dd>五个 tier 按权威序串成一条：<code>prepend → user → append → builtin → core</code></dd>
+          <dt>续体</dt>
+          <dd><code>next(e)</code> 是 Koa 式续体，不是事件发射器 —— 链尾只有一处，没有第二个地方可以漏</dd>
+        </dl>
+      </article>
+
+      <article class="mod">
+        <h3 class="mod__h">权限<span>谁说了算，谁不能</span></h3>
+        <dl>
+          <dt>来源</dt>
+          <dd>五层，从低到高：<code>user → project → local → flag → policy</code></dd>
+          <dt>判定</dt>
+          <dd><code>deny &gt; ask &gt; allow</code> —— 与写在哪一层、在同一数组里排第几都无关</dd>
+          <dt>上限</dt>
+          <dd><code>allow</code> 的效力上限是把 <code>ask</code> 变成 <code>allow</code>；托管层能收紧，不能放宽</dd>
+        </dl>
+      </article>
+
+      <article class="mod">
+        <h3 class="mod__h">安全闸门<span>工具调用必经</span></h3>
+        <dl>
+          <dt>三道</dt>
+          <dd><code>tool.check</code>（预览后停下等一个答案：y 这一次 / a 本次会话这一类 / 其余算拒绝）→ <code>sandbox</code>（只有 Bash，路径闸）→ 真进程 / 真文件</dd>
+          <dt>兜底</dt>
+          <dd>fail-closed —— 非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 = <code>deny</code></dd>
+          <dt>位置</dt>
+          <dd>坐在链的<strong>下游</strong> —— 任何 <code>allow</code> 规则都绕不过它</dd>
+        </dl>
+      </article>
+
+      <article class="mod">
+        <h3 class="mod__h">记忆与上下文<span>记在哪、怎么接上</span></h3>
+        <dl>
+          <dt>指令</dt>
+          <dd><code>AGENTS.md</code> × 5 层拼进系统提示（<strong>每轮重算</strong>，改了当场生效）—— 五层里只有托管层能写</dd>
+          <dt>转录</dt>
+          <dd>用户级目录、0600 的 JSONL，<code>--resume</code> 接上一次会话</dd>
+          <dt>历史</dt>
+          <dd><code>~/.deepcode/history</code>；<code>/context</code> 看账本（不报「还剩多少」），<code>/compact</code> 手动压、自动压缩默认关</dd>
+        </dl>
+      </article>
+
+      <article class="mod">
+        <h3 class="mod__h">工具与插件<span>一条接口，没有硬编码表</span></h3>
+        <dl>
+          <dt>工具</dt>
+          <dd>八个走<strong>同一条</strong>接口：六个内建 + <code>Task</code> / <code>Skill</code>（第一方插件给的）</dd>
+          <dt>插件</dt>
+          <dd>不 import 内核，只拿到注册回调；内建 mod 与第三方插件走同一个接口</dd>
+          <dt>边界</dt>
+          <dd>破坏依赖边界，<code>pnpm lint</code> 直接红 —— 不靠自觉</dd>
+        </dl>
+      </article>
+
+      <article class="mod">
+        <h3 class="mod__h">遥测<span>默认关</span></h3>
+        <dl>
+          <dt>开关</dt>
+          <dd>默认关。只有<strong>用户层</strong>能打开（项目级写的会被丢弃并出声），托管层能一句话关掉</dd>
+          <dt>内容</dt>
+          <dd>六个事件各写一行到用户级 <code>telemetry.jsonl</code>，没有网络上报</dd>
+          <dt>隐私</dt>
+          <dd>零自由文本 —— 任何一行不合规就<strong>整条丢掉</strong>，不是截断也不是改写</dd>
+        </dl>
+      </article>
+    </div>
+
+    <figure class="listing">
+      <figcaption>构建时的目录分层：谁许 import 谁</figcaption>
+      <pre>src/
+  contract/    事件目录与契约类型 —— 不 import 任何东西
+  core/        引擎：dispatch、链、tier                 → contract
+  providers/   anthropic / openai 两种协议              → contract
+  builtins/    六个内建工具                             → contract
+  cli/         装配、REPL、渲染、设置、权限解析          → 上面全部
+mods/          四个内建 mod（与第三方插件同一个接口）     → node: 内建 + contract + 自己
+plugins/       第三方插件 —— 不 import 内核，只拿到注册回调</pre>
+    </figure>
+    <p class="muted">这张表就是 <code>scripts/check-boundaries.mjs</code> 里的规则表；破坏边界
+      <code>pnpm lint</code> 直接红。</p>
+
+    <div class="callout">
+      <p><strong>42 个事件已声明，23 个已实现；八个工具里六个内建、两个由第一方插件提供
+        （<code>Task</code> / <code>Skill</code>）。</strong>其余 19 个事件用到时会抛
+        <code>NotImplementedError</code>。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── 权限 ───────────────── -->
+<section class="wrap band" id="permissions">
+  <p class="band__mark">5 层来源 · 3 组数组</p>
+  <div class="band__body">
+    <h2>权限：谁能放宽，谁不能</h2>
+    <p class="band__lede">配置管连接（<code>config.json</code>），权限是另一套（<code>.deepcode/settings.json</code>），
+      三组数组 <code>allow</code> / <code>ask</code> / <code>deny</code> 都可以省略。五个来源从低到高：
+      <code>user</code> → <code>project</code> → <code>local</code> → <code>flag</code>
+      （<code>--settings=</code>）→ <code>policy</code>（托管）。</p>
+
+    <table>
+      <caption class="sr">规则的写法与含义</caption>
+      <thead><tr><th scope="col">写法</th><th scope="col">含义</th></tr></thead>
+      <tbody>
+        <tr><td><code>Bash</code></td><td>该工具的<strong>所有</strong>调用</td></tr>
+        <tr><td><code>Bash(git push:*)</code></td><td>命令行以 <code>git push</code> 开头，按空白 token 边界 ——
+          <code>git pushup</code> ✗</td></tr>
+        <tr><td><code>Read(~/.ssh/**)</code></td><td><code>file_path</code> 按 glob 匹配：<code>*</code> 单段、
+          <code>**</code> 跨段</td></tr>
+        <tr><td>其它工具带括号</td><td><strong>不支持</strong>：不命中，且启动时警告一次</td></tr>
+      </tbody>
+    </table>
+
+    <p class="prose"><code>:</code> 是 token 边界，不是通配符；路径按<strong>绝对路径</strong>匹配（<code>~</code> 会展开），
+      相对路径不会命中。</p>
+
+    <p class="prose">确认提示上除了 <code>y</code>（这一次）还有 <code>a</code>（<strong>本次会话的这一类</strong>）。
+      <code>Bash</code> 按归一后的<strong>那一条命令</strong>记，其余工具按<strong>整个工具</strong>记 ——
+      记住什么，按下的那一刻就打在屏幕上；只活在进程内存里，<code>/permissions forget</code> 一句话忘掉。
+      它与 settings 里的 <code>allow</code> 走同一条判定，所以<strong>一样掀不翻 <code>deny</code></strong>。</p>
+
+    <div class="callout callout--deny">
+      <p><strong>前缀匹配不懂 shell 语法，「藏在后面」的命令它看不见。</strong>
+        <code>Bash(git push:*)</code> 拦得住 <code>git push origin main; rm -rf ~</code>，
+        但拦不住 <code>true &amp;&amp; git push origin main</code>。所以 <code>deny</code> 是给手滑与误操作
+        加的一道闸，<strong>不是反对抗手段</strong>。</p>
+      <p><strong>个人规则掀不翻任何一条 <code>deny</code></strong>（<code>allow</code> 的效力上限是把
+        <code>ask</code> 变成 <code>allow</code>），会话里用 <code>/permissions</code> 看每条规则的来源。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────── 路线图 ───────────────── -->
+<section class="wrap band" id="roadmap">
+  <p class="band__mark">全部完成</p>
+  <div class="band__body">
+    <h2>走到哪一步了</h2>
+    <p class="band__lede">十个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
+      <a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a>里。</p>
+
+    <ol class="stages">
+      <li><span class="stage__k">MVP</span><p>「读 → 改 → 跑测试」的闭环；安全底线是每个会写盘或执行命令的动作按一次 <code>y</code></p></li>
+      <li><span class="stage__k">P1</span><p><b>会话与体验：</b><code>--resume</code> 接上上次会话、<code>/diff</code>、OpenAI 兼容 provider</p></li>
+      <li><span class="stage__k">P2</span><p><b>安全与策略：</b>五层设置来源、规则内核、托管策略掀不翻</p></li>
+      <li><span class="stage__k">P3</span><p><b>扩展面：</b>不改引擎的插件、classic 钩子、<strong>只能拧紧不能拧松</strong></p></li>
+      <li><span class="stage__k">P4</span><p><b>组合面：</b><code>Task</code> / <code>Skill</code>、沙箱、会话压缩、marketplace、遥测</p></li>
+      <li><span class="stage__k">P5</span><p><b>内建与分发：</b>四个内建 mod、指令文件五层、托管三通道</p></li>
+      <li><span class="stage__k">P6</span><p><b>界面与交互：</b>开场屏、活动区、内容面、两份账、历史与补全（全是<strong>行内增强</strong>，不占整屏）</p></li>
+      <li><span class="stage__k">P7</span><p><b>记忆与上下文：</b><code>/context</code> 账本（<strong>明说不报「还剩多少」</strong>）、系统提示每轮重算、<code>/compact</code> 能带一句说明、压缩后重新附上目录约定、两道断电器</p></li>
+      <li><span class="stage__k">P8</span><p><b>执行循环的收场：</b>停止原因收敛成七个产品字面量、被截断就接着往下写（≤ 3 次，<strong>每次出声</strong>）、空步与炸在中途都不丢内容、两侧统一按白名单判「做完了没有」</p></li>
+      <li><span class="stage__k">P9</span><p><b>工具清单：</b>一条清单三个消费者（模型请求 / <code>/help</code> / <code>/tools</code>）收敛到一个函数；<code>/context</code> 把工具算进合计；<code>/tools</code> 说清每个工具<strong>来自哪个插件</strong>、以及<strong>哪些没进来、为什么</strong></p></li>
+      <li><span class="stage__k">P10</span><p><b>子代理的边界：</b>子代理看得见哪些工具、能派多深，从<strong>调用方按「会话的全部」算</strong>挪进内核<strong>按「当前这一轮」算</strong>：嵌套一层拿不回被扣掉的面，深度上限（3 层）对 <code>Task</code> 与插件直派<strong>共用同一个数</strong></p></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ───────────────── 已知限制 ───────────────── -->
+<section class="wrap band" id="limits">
+  <p class="band__mark">9 条</p>
+  <div class="band__body">
+    <h2>已知限制</h2>
+
+    <div class="lims">
+      <article class="lim">
+        <h3>没有路径围栏</h3>
+        <p>六个工具能碰到你进程权限内的任何路径，不限工作目录 —— 确认提示拦的是「要不要动手」，不是「动哪里」。</p>
+      </article>
+
+      <article class="lim">
+        <h3>沙箱不是 OS 隔离</h3>
+        <p><code>Bash</code> 有一道可选的路径闸，但它靠切分 token 判路径，不是解析 shell：
+          <code>rm $(echo /etc/passwd)</code> 绕得过去。</p>
+      </article>
+
+      <article class="lim">
+        <h3>没有整屏 TUI、没有语法高亮</h3>
+        <p>界面是逐行的纯文本流，markdown 只认一个子集，也不走 <code>ui.render</code> 事件。</p>
+      </article>
+
+      <article class="lim">
+        <h3>hookify 的规则写坏了，工具会全停</h3>
+        <p>算术写错、正则编译不过、钩子进程崩了 —— 一律非零退出，而 <code>PreToolUse</code> 上的非零就是
+          <code>deny</code>：<code>Write</code> / <code>Edit</code> / <code>Bash</code> 全部被拒绝，直到修好它。</p>
+      </article>
+
+      <article class="lim">
+        <h3>子代理不知道项目规矩</h3>
+        <p>子代理的系统提示只有 agent 文件里那段正文（为空时回落到会话的基础提示）——
+          <code>AGENTS.md</code> / <code>CLAUDE.md</code> 一个字都不进，工具面也只能是父级那一轮的<strong>子集</strong>。</p>
+      </article>
+
+      <article class="lim">
+        <h3>转录里是代码</h3>
+        <p>会话落成 JSONL，放在<strong>用户级</strong>目录（不进项目目录），权限 <code>0600</code>。
+          删掉那个文件就等于删掉那次会话 —— 没有别的副本。</p>
+      </article>
+
+      <article class="lim">
+        <h3>被截断续写时，钱在悄悄花</h3>
+        <p>回答撞上输出长度上限时会自动接着往下写，最多 3 次 —— <strong>每一次都是一次真的模型请求</strong>。
+          这个 3 是我们自己定的数，不是测出来的。</p>
+      </article>
+
+      <article class="lim">
+        <h3>账本全是估的</h3>
+        <p><code>/context</code> 按 <strong>4 字符 1 token</strong> 粗估，中英混排会失真；工具那一行算的是
+          名字 + 描述 + schema 的字符数，不等于适配器真正发出的字节数。</p>
+      </article>
+
+      <article class="lim">
+        <h3>marketplace 只做本地索引</h3>
+        <p><code>plugin add</code> 从一份本地索引拷插件进落点：不 fetch、不 clone、没有签名与校验和，
+          也没有版本与升级。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div>
+      <p class="foot__wm">deepcode</p>
+      <p>用 TypeScript 从零写的终端 agentic 编码助手。</p>
+      <p class="muted">仓库目前没有 LICENSE 文件（未指定许可证）。</p>
+    </div>
+    <div>
+      <p class="foot__h">文档</p>
+      <ul>
+        <li><a href="index.html">首页（安装与能力）</a></li>
+        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README（安装 / 启动 / 使用）</a></li>
+        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/已知限制.md">已知限制（完整清单）</a></li>
+        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>

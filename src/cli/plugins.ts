@@ -5,7 +5,7 @@ import type { AgentSpec, SkillSpec } from '../contract/agent';
 import { coreTools } from '../builtins/tools';
 import { confirmPlugin } from '../builtins/confirm';
 import { commandsPlugin } from '../builtins/commands';
-import { createPermissionsPlugin } from '../builtins/permissions';
+import { createPermissionsPlugin, createSessionGrants } from '../builtins/permissions';
 import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin-guard';
 import { streamPlugin } from './stream';
 import { createActivityPlugin } from './activity';
@@ -146,6 +146,10 @@ export type CliPluginBundle = {
 export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   // 账本先建出来：活动面往里记，退出摘要从它读（见下面返回的那一份）。
   const tally = createTally();
+  // 本次会话当场批准的规则。`permissions` 往里记、`/permissions` 从它读 ——
+  // 与上面那份账本同一条道理：**必须是同一个对象**，否则按了 `a` 之后
+  // `/permissions` 还是一句"什么都没记住"。
+  const grants = createSessionGrants();
 
   // ⚠️ 顺序是契约，不是随手排的（下面每条都承重）：
   // 1. 座位比顺序更重要：prepend 的 plugin-guard 与 sec-default、user 的 permissions
@@ -166,8 +170,8 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       changes: deps.changes,
       tally,
     }),
-    // 个人规则：policy 之外的四个来源。
-    createPermissionsPlugin({ rules: deps.policy.personalRules }),
+    // 个人规则：policy 之外的四个来源。会话里当场批准的那几条也从这儿进同一条判定。
+    createPermissionsPlugin({ rules: deps.policy.personalRules, grants }),
     createChangesPlugin(deps.changes),
     ...coreTools,
     // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
@@ -195,8 +199,8 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       ...(deps.describeCommand === undefined ? {} : { describeCommand: deps.describeCommand }),
       ...(deps.toolListing === undefined ? {} : { toolListing: deps.toolListing }),
     }),
-    // /permissions 同理。
-    createPermissionsCommand({ policy: deps.policy, palette: deps.palette }),
+    // /permissions 同理。它比 `permissions` 多知道一件事：本次会话记住了什么。
+    createPermissionsCommand({ policy: deps.policy, palette: deps.palette, grants }),
     // /config，连带 config.describe / config.set 两个事件的应答者。
     // 座位不用特殊给（默认 builtin 就够）：它不裁决任何动作，只是读/写配置文件。
     createConfigCommand({ home: deps.home, root: deps.root, env: deps.env }),

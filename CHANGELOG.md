@@ -49,7 +49,9 @@
 `#23 p7-memory-context`（P7 记忆与上下文）。
 `#26 p8-execution-loop`（P8 执行循环的收场）、`#28 p9-tool-listing`（P9 工具清单）、
 `#30 p10-agent-boundary`（P10 子代理的边界）、`#32 readme-slim`（README 瘦身：已知限制搬去独立文档）、
-`#34 resume-highlights`（简历亮点与答辩）、`#36 resume-concrete`（它的第二版：写法改具体）。
+`#34 resume-highlights`（简历亮点与答辩）、`#36 resume-concrete`（它的第二版：写法改具体）、
+`#38 consent-session-grants`（确认提示上的 `a`：可撤回的当场批准，编号在合并前就记进来 ——
+前几次是先合再补一条 `docs(changelog)`，这次不必）。
 
 ---
 
@@ -773,3 +775,57 @@ fail-closed 三条并入「安全闸门 · 兜底」，指令五层只有托管�
 再用 headless Chrome 拍桌面（1240）与真窄屏（390，用 iframe 绕过 Windows 下 headless 最小
 窗口宽 504 的限制 —— 直接 `--window-size=390` 时布局视口仍是 504，截出来的"溢出"是假的）；
 顺便量了 `scrollWidth`，窄屏 489 < 视口，**没有横向溢出**。
+
+---
+
+## 确认提示上的 `a`：可撤回的当场批准
+
+**范围**：`src/contract/events.ts`（新增通知事件 `tool.consent` —— 第 42 个声明、第 23 个实现）、
+`src/builtins/permissions.ts`（`SessionGrants`，会话里批准的那几条与 settings 的规则**走同一条判定**）、
+`src/core/loop.ts`（`ask` 那一支从 `y/N` 变成 `y` / `a` / 其余算拒绝）、
+`src/cli/plugins.ts` 与 `src/cli/permissions-command.ts`（一份 grants 两个消费者，外加 `/permissions forget`）、
+`src/contract/classic.ts`（计数注释跟上）、`test/permissions.test.ts`（+8 用例）与四处调用点的接线、
+README / `docs/已知限制.md` / `docs/项目简介.md` / `docs/简历亮点与答辩.md` 的计数与文案、
+官网对应那几处（产品图的提示行、能力卡、权限一节）。
+
+**为什么**：原话是「每次动手都先问你」这个设计没用 —— 追问下去，是**用起来是负担**。
+负担的成因很具体：规则只能预先写在 settings 里，而 `config set` 明着拒绝 `permissions` 这个前缀，
+于是"这条命令我信得过"这句话当时没有落点，唯一的出路是**退出会话去改文件**。
+另一半是这条线拉得住的地方：`--yes` 确实不该有 —— 它在调用发生**之前**就把权限放宽了，
+而且没人看得见。
+
+**做法**：不给开关，给一个**能撤回、能看见的当场批准**。`a` 与 `y` 并列在同一个提示上，
+但它是**一次具体的批准**而不是一个模式：只能按在一个已经摆出来的预览上，记住什么当场打出来
+（`Bash` 记的是那一条命令、其余工具是整个工具，同一句提示下两者不同），只活在进程内存里，
+`/permissions forget` 一句话忘掉。于是"少按几次键"与"放行了什么随时看得见"不冲突。
+
+**报出来的是内核，翻成规则的是规则层**：内核只把"人说了什么"原样报成 `tool.consent`
+（`'once' | 'always'`），一行安全逻辑都没有；把这句话翻成一条规则、记住、并在下次判定里用上的是
+`builtins/permissions`。拒绝**不走这条事件** —— 那一次调用根本没跑，报它属于 `tool.result` 那种假账。
+
+**为什么是新事件而不是让规则层自己弹提示**：**顺序**。`ask` 必须是整条 `tool.check` 链
+（含 `sec-default` 的托管策略）落定**之后**才问的 —— 让链上某一层自己弹，托管策略判死的调用
+会先问一遍人、再告诉他不算。
+
+**与既有决策的偏离（如实记，两条）**：
+
+- `p9-design.md:44` 与 `:298`–`300` 明写「`updatedInput` / `updatedPermissions` 与四档落点 ——
+  **明确的反向选择**，不追（后者会**放宽权限**，是我们刻意关掉的那条路）」。本片**追了一半**：
+  四档落点只做 `session` 那一档，且是它的**内存版**（进程退出即失，不写任何 settings 文件）。
+  理由：`--yes` 之所以不能有，是因为它在调用之前就放宽、且没人看得见；`a` 两条性质都没有。
+- `p6-design.md:31`「确认框**只强化、不弱化**：……但 `y/N` 与 fail-closed 一个字不改」：
+  `y/N` 确实被改成了 `y/a/N`（那一句的语境是"界面好看了不能成为少问一次的理由"，
+  `a` 不是这个理由 —— 但话是那么说的，照录）。
+
+**刻意不做**：`--yes` 仍然不存在；`acceptEdits` / `bypassPermissions` / `plan` / `dontAsk` / `auto`
+五种权限模式仍然不做（`p2-design.md:16` 那条继续有效）；`a` 不落盘、不改 settings、也没有
+"忘掉其中一条"这种粒度。
+
+**一片没有设计文档的改动**：这一片跳过了写 spec 这一步，于是与其它阶段不同 —— 它没有**预登记**
+偏差，上面两条是事后补记的。事件目录的计数同步从 41 / 22 改成 **42 / 23**（`site/index.html`、
+`site/docs.html`、`docs/已知限制.md:86`、`docs/项目简介.md:98`、`docs/简历亮点与答辩.md:331,345`、
+`src/contract/classic.ts:12` 六处）。
+
+**收尾**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **71 个文件 / 1196 passed / 1 skipped**
+（基线 1187 passed / 1 skipped，增量 = 9 条新用例：`test/permissions.test.ts` 8 条 + `test/e2e.test.ts` 1 条，全在
+「按了 `a` 之后记住了什么」一节）。

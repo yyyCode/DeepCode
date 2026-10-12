@@ -399,10 +399,24 @@ async function runOneTool(
   }
 
   if (check.decision === 'ask') {
-    const answer = await ctx.$.ui.ask(`执行 ${use.name}? (y/N) `);
-    if (!/^y(es)?$/i.test(answer.trim())) {
+    // 三个答案：`y` 放行这一次、`a` 放行**本次会话这一类**、其余一律算拒绝
+    // （沿用 P1 那句"按别的键都算拒绝"，fail-closed 的方向不动）。
+    //
+    // 为什么问人的是**内核**而不是链上某一层：只有整条 `tool.check` 链跑完，
+    // "要不要问"才是确定的 —— 托管策略判死的调用，不该先问一遍人再告诉他不算。
+    const answer = await ctx.$.ui.ask(`执行 ${use.name}? (y=是  a=本次会话总是允许  N=否) `);
+    const said = answer.trim().toLowerCase();
+    const once = said === 'y' || said === 'yes';
+    const always = said === 'a' || said === 'all';
+    if (!once && !always) {
       return { toolUseId: use.id, content: 'ERROR: 用户拒绝了这次操作', isError: true };
     }
+    // 内核只把"人说了什么"报出去 —— 翻成规则、记住、下次据此裁决，是 `permissions` 的事。
+    await ctx.dispatch(
+      'tool.consent',
+      { tool: use.name, input: use.input, toolUseId: use.id, granted: always ? 'always' : 'once' },
+      CORE_ORIGIN,
+    );
   }
 
   const result = await ctx.dispatch(

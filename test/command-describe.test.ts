@@ -6,6 +6,7 @@ import type { Plugin } from '../src/contract/plugin';
 import { createEngine } from '../src/core/create';
 import { commandsPlugin } from '../src/builtins/commands';
 import { createPermissionsCommand } from '../src/cli/permissions-command';
+import { createSessionGrants } from '../src/builtins/permissions';
 import { createSessionChanges } from '../src/cli/changes';
 import { createSessionCommands, type CommandDescription } from '../src/cli/commands';
 import { createPalette } from '../src/cli/ansi';
@@ -87,7 +88,7 @@ function full() {
   for (const plugin of [
     commandsPlugin,
     sessionPlugin,
-    createPermissionsCommand({ policy: POLICY, palette: createPalette(false) }),
+    createPermissionsCommand({ policy: POLICY, palette: createPalette(false), grants: createSessionGrants() }),
   ]) {
     seat(h, plugin, 'builtin');
   }
