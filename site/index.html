@@ -4,22 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DeepCode —— 一个终端里的 agentic 编码助手</title>
-<meta name="description" content="DeepCode 是用 TypeScript 从零写的终端 agentic 编码助手：零运行时依赖、事件目录先行的插件链、fail-closed 的安全底线，以及一层个人规则掀不翻的托管策略。">
+<meta name="description" content="DeepCode 是用 TypeScript 从零写的终端 agentic 编码助手：零运行时依赖，每条写盘与执行命令的动作都先停下来等你按一次 y。">
 <meta name="theme-color" content="#ffffff">
 <meta property="og:type" content="website">
 <meta property="og:title" content="DeepCode —— 一个终端里的 agentic 编码助手">
-<meta property="og:description" content="事件目录先行的插件链、fail-closed 的安全底线、一层掀不翻的托管策略。零运行时依赖。">
+<meta property="og:description" content="零运行时依赖。每条写盘与执行命令的动作都先停下来等你按一次 y。">
 <meta property="og:url" content="https://github.com/yyyCode/DeepCode">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111111'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' fill='%23ffffff' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e12'/%3E%3Ctext x='16' y='22' font-family='monospace' font-size='15' fill='%23e9ecf0' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<!-- 重播是个纯增强：没有脚本时按下去什么也不会发生，那就不该出现在屏幕上。 -->
+<noscript><style>[data-demo-replay]{display:none}</style></noscript>
 </head>
 <body>
 
 <a class="skip" href="#main">跳到正文</a>
 
+<!-- ───────────────── 顶栏 ───────────────── -->
 <header class="topbar" id="topbar">
-  <div class="wrap topbar__inner">
-    <a class="brand" href="#top">DeepCode</a>
+  <div class="wrap topbar__in">
+    <a class="topbar__wm" href="#top">deepcode</a>
 
     <button class="navbtn" type="button" aria-expanded="false" aria-controls="nav">
       <span class="navbtn__bars" aria-hidden="true"></span>
@@ -27,406 +30,199 @@
     </button>
 
     <nav class="nav" id="nav" aria-label="页面目录">
-      <a href="#demo">现场演示</a>
-      <a href="#highlights">亮点</a>
-      <a href="#architecture">架构</a>
-      <a href="#permissions">权限</a>
-      <a href="#roadmap">路线图</a>
-      <a href="#limits">已知限制</a>
+      <a href="#features">能力</a>
+      <a href="#safety">安全</a>
+      <a href="#start">安装</a>
+      <a href="docs.html">技术文档</a>
+      <a class="nav__gh" href="https://github.com/yyyCode/DeepCode">GitHub</a>
     </nav>
 
-    <a class="topbar__gh" href="https://github.com/yyyCode/DeepCode">
-      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-      GitHub
-    </a>
+    <a class="btn btn--ink btn--sm topbar__cta" href="#start">安装</a>
   </div>
 </header>
 
 <main id="main">
 
-<!-- ─────────────────────────── 首屏 ─────────────────────────── -->
-<section class="hero wrap" id="top">
-  <p class="eyebrow">终端 CLI · TypeScript · 零运行时依赖</p>
-  <h1>DeepCode</h1>
-  <p class="lede">一个终端里的 agentic 编码助手。给它一句自然语言，它会读文件、改文件、跑命令。</p>
+<!-- ───────────────── 首屏 ───────────────── -->
+<section class="hero" id="top">
+  <div class="wrap">
 
-  <div class="install">
-    <div class="install__row">
-      <code class="install__cmd">git clone https://github.com/yyyCode/DeepCode &amp;&amp; cd DeepCode &amp;&amp; pnpm install &amp;&amp; npm link</code>
-      <button class="copy" type="button" data-copy="git clone https://github.com/yyyCode/DeepCode &amp;&amp; cd DeepCode &amp;&amp; pnpm install &amp;&amp; npm link">复制</button>
+    <h1 class="hero__h">一个终端里的<br>agentic 编码助手</h1>
+    <p class="hero__sub">给它一句自然语言，它会读文件、改文件、跑命令。<br>
+      每个会写盘或执行命令的动作，都会先停下来，等你按一次 <code>y</code>。</p>
+
+    <p class="hero__cta">
+      <a class="btn btn--ink" href="#start">安装 DeepCode</a>
+      <a class="btn btn--ghost" href="docs.html">技术文档</a>
+    </p>
+
+    <!-- 这块终端就是本页的产品图 —— 它不是截图，是真的会打字的 DOM。 -->
+    <div class="term" data-demo>
+      <div class="term__bar">
+        <span class="term__path">~/myproject</span>
+        <button class="term__replay" type="button" data-demo-replay>重播</button>
+      </div>
+      <div class="term__body" role="group" aria-label="示例会话：一次按 y 放行的删除，一次被托管策略拦下的推送">
+        <p class="l u" data-type><span class="ln">&gt; 把 dist 目录清掉</span></p>
+        <p class="l p"><span class="ln">  Bash  $ rm -rf dist</span></p>
+        <p class="l a"><span class="mark" aria-hidden="true">1</span><span class="ln">执行 Bash? (y=是  a=本次会话总是允许  N=否) <b>y</b></span></p>
+        <p class="l m"><span class="ln">好，dist 清掉了。</span></p>
+        <p class="l u" data-type><span class="ln">&gt; 把这次的改动推到 main</span></p>
+        <p class="l p"><span class="ln">  Bash  $ git push origin main</span></p>
+        <p class="l w"><span class="mark" aria-hidden="true">2</span><span class="ln">[安全] 一条更宽松的判定被拦下：策略里 Bash(git push:*) 要求 deny，实际得到 ask。以托管策略为准。</span></p>
+        <p class="l m"><span class="mark" aria-hidden="true">3</span><span class="ln">推不动 —— 托管策略把 Bash(git push:*) 判成 deny 了。这一条得你自己来。<span class="caret"></span></span></p>
+      </div>
     </div>
-    <div class="install__row">
-      <code class="install__cmd">deepcode "跑一下测试，把失败的那条修掉"</code>
-      <button class="copy" type="button" data-copy='deepcode "跑一下测试，把失败的那条修掉"'>复制</button>
+
+    <p class="hero__note">写盘与执行命令会先打预览再停下来等你（<code>y</code> 这一次 / <code>a</code> 这一类）；<code>[安全]</code> 那行是拦截，不是提示；全程没有 <code>--yes</code>。</p>
+
+    <dl class="facts">
+      <div class="fact"><dt>运行时依赖</dt><dd>0</dd></div>
+      <div class="fact"><dt>用例</dt><dd>1196 全绿 / 71 个文件</dd></div>
+      <div class="fact"><dt>事件</dt><dd>23 / 42 已实现</dd></div>
+      <div class="fact"><dt>质量门</dt><dd>typecheck / lint / test</dd></div>
+    </dl>
+
+  </div>
+</section>
+
+<!-- ───────────────── 六个能力 ───────────────── -->
+<section class="sec" id="features">
+  <div class="wrap">
+    <h2 class="sec__h">说出来就行，剩下的它自己做</h2>
+    <p class="sec__sub">读文件、改文件、跑命令在一个循环里走完，不用切窗口、不用复制粘贴。</p>
+
+    <div class="cards">
+      <article class="card">
+        <p class="card__sig">&gt; 跑一下测试，把失败的那条修掉</p>
+        <h3>一句话，一个闭环</h3>
+        <p>读懂仓库、改完代码、跑起来验证 —— 改错了就再来一轮，直到测试真的过。</p>
+      </article>
+
+      <article class="card">
+        <p class="card__sig">执行 Bash? (y=是  a=本次会话总是允许  N=否)</p>
+        <h3>每次动手都先问你</h3>
+        <p>要写盘、要执行命令的动作，先给你看它准备做什么，再停在那里等你一个答案：<code>y</code> 放行这一次，
+          <code>a</code> 本次会话这一类都放行（<code>Bash</code> 按那一条命令记，其余工具按整个工具记），
+          别的输入都算拒绝。</p>
+      </article>
+
+      <article class="card">
+        <p class="card__sig">Bash(git push:*) → deny</p>
+        <h3>托管策略掀不翻</h3>
+        <p>五层规则来源按 <code>deny &gt; ask &gt; allow</code> 判定：个人设置只能把「问一次」变成「直接做」，收紧不了也放宽不了托管的那一层。</p>
+      </article>
+
+      <article class="card">
+        <p class="card__sig">prepend → user → append → builtin → core</p>
+        <h3>插件与内建同一条接口</h3>
+        <p>内建工具和第三方插件注册在同一条链上，按权威序串起来。加功能不用改内核。</p>
+      </article>
+
+      <article class="card">
+        <p class="card__sig">deepcode --resume</p>
+        <h3>会话接得上</h3>
+        <p>转录落成 <code>0600</code> 的 JSONL，放在用户级目录、不进项目目录；<code>--resume</code> 接上一次，<code>/context</code> 随时看账本。</p>
+      </article>
+
+      <article class="card">
+        <p class="card__sig">apiKey / baseUrl / model</p>
+        <h3>换供应商不用换工具</h3>
+        <p>Anthropic 与 OpenAI 两种协议，换成任何兼容端点只改这三样。</p>
+      </article>
     </div>
-    <p class="install__note">需要 Node ≥ 20 与 pnpm。不带参数就是交互式 REPL，<code>--resume</code> 接上上次的会话。</p>
   </div>
-
-  <p class="hero__cta">
-    <a class="btn btn--primary" href="https://github.com/yyyCode/DeepCode">在 GitHub 上读源码</a>
-    <a class="btn" href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README</a>
-  </p>
-
-  <ul class="stats">
-    <li><b>0</b><span>运行时依赖</span></li>
-    <li><b>1187</b><span>用例全绿 · 71 个文件</span></li>
-    <li><b>22/41</b><span>事件已实现（如实标注）</span></li>
-    <li><b>3</b><span>条命令管质量（typecheck / lint / test）</span></li>
-  </ul>
 </section>
 
-<!-- ─────────────────────────── 现场演示 ─────────────────────────── -->
-<section class="wrap band" id="demo">
-  <h2>现场看一眼</h2>
+<!-- ───────────────── 安全底线 ───────────────── -->
+<section class="sec sec--alt" id="safety">
+  <div class="wrap">
+    <h2 class="sec__h">工具调用必经三道闸</h2>
+    <p class="sec__sub">按顺序过，任何一条 <code>allow</code> 规则都绕不过去。</p>
 
-  <div class="term" data-demo>
-    <div class="term__bar">
-      <span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span>
-      <em>deepcode — ~/myproject</em>
-      <button class="term__replay" type="button" data-demo-replay>重播</button>
+    <ol class="steps">
+      <li class="step">
+        <p class="step__k">tool.check</p>
+        <h3>先预览，再停下</h3>
+        <p>把要跑的命令、要动的文件摆给你看，然后在终端上等你一个答案：<code>y</code> 这一次，
+          <code>a</code> 本次会话这一类（<code>Bash</code> 按那一条命令记，其余工具按整个工具记），别的输入都算拒绝。</p>
+      </li>
+      <li class="step">
+        <p class="step__k">sandbox</p>
+        <h3>路径闸</h3>
+        <p>只对 <code>Bash</code> 生效的一道可选闸，按命令行里的路径判要不要放行。</p>
+      </li>
+      <li class="step">
+        <p class="step__k">真进程 / 真文件</p>
+        <h3>到这一步才动手</h3>
+        <p>前面两道都过了，才真的去改文件、起进程。</p>
+      </li>
+    </ol>
+
+    <div class="chips">
+      <span class="chips__k">三条兜底</span>
+      <span class="chip">非 TTY 默认拒绝</span>
+      <span class="chip">链尾无人应答 = <code>deny</code></span>
+      <span class="chip">不认识的工具 = <code>deny</code></span>
     </div>
-    <pre class="term__body" aria-label="示例会话：一次按 y 放行的删除，一次被托管策略拦下的推送"><span class="l u" data-type>&gt; 把 dist 目录清掉</span>
-<span class="l p">  Bash  $ rm -rf dist</span>
-<span class="l a">执行 Bash? (y/N) <b>y</b></span>
-<span class="l m">好，dist 清掉了。</span>
-<span class="l u" data-type>&gt; 把这次的改动推到 main</span>
-<span class="l p">  Bash  $ git push origin main</span>
-<span class="l w">[安全] 一条更宽松的判定被拦下：策略里 Bash(git push:*) 要求 deny，实际得到 ask。以托管策略为准。</span>
-<span class="l m">推不动 —— 托管策略把 Bash(git push:*) 判成 deny 了。这一条得你自己来。<span class="caret"></span></span></pre>
-  </div>
-
-  <ul class="beats">
-    <li><b>要写盘、要跑命令的动作，先打预览再停下等你。</b>按别的键都算拒绝 —— 只有 <code>y</code> / <code>yes</code> 是同意。</li>
-    <li><b>那行 <code>[安全]</code> 不是提示，是拦截。</b>个人设置里的 <code>allow</code> 最多把「问一次」变成「直接做」。</li>
-    <li><b>全程没有 <code>--yes</code>。</b>谁加自动放行开关谁就是在开倒车。</li>
-  </ul>
-</section>
-
-<!-- ─────────────────────────── 七个设计决定 ─────────────────────────── -->
-<section class="wrap band" id="highlights">
-  <h2>七个设计决定</h2>
-  <p class="section__lede">每条后面跟着它换来的代价 —— 没有免费的纪律。</p>
-
-  <div class="grid">
-    <article class="card">
-      <h3>零运行时依赖</h3>
-      <p><code>package.json</code> 里只有 <code>devDependencies</code>，跑起来不下载任何东西。</p>
-      <p class="card__cost">参数解析、配置校验、unified diff、ANSI 着色，全是自己写的。</p>
-    </article>
-
-    <article class="card">
-      <h3>更严的永远赢</h3>
-      <p>固定优先级 <code>deny &gt; ask &gt; allow</code>，与写在哪一层、排第几都无关。</p>
-      <p class="card__cost">没有「后写的覆盖先写的」；做例外得靠改托管策略。</p>
-    </article>
-
-    <article class="card">
-      <h3>fail-closed 到底</h3>
-      <p>非 TTY 默认拒绝；不认识的工具拒绝；<code>tool.check</code> 走到链尾无人应答也是 <code>deny</code>。</p>
-      <p class="card__cost">方向一旦定成 fail-open，后面补不回来。</p>
-    </article>
-
-    <article class="card">
-      <h3>没有 <code>--yes</code></h3>
-      <p>有意不做自动放行开关：非交互环境里没人能按 <code>y</code>，那就写不了文件、跑不了命令。</p>
-      <p class="card__quote">谁加自动放行开关谁就是在开倒车。</p>
-    </article>
-
-    <article class="card">
-      <h3>依赖边界由脚本守</h3>
-      <p><code>contract/</code> 不许 import 任何东西，<code>builtins/</code> 只许 import <code>contract/</code>。</p>
-      <p class="card__cost">破坏架构不是靠 code review 拦，是 <code>pnpm lint</code> 直接红。</p>
-    </article>
-
-    <article class="card">
-      <h3>账本不许自己违反自己</h3>
-      <p>每次请求都带着工具清单，而 <code>/context</code> 的合计一度只算了系统提示与消息 ——
-        实测某一轮真切发出去约 <b>448 token</b>，账本报 <b>11</b>，其中 <b>97.5%</b> 是漏掉的工具。</p>
-      <p class="card__cost">补上之后 <code>合计</code> = 系统提示 + 工具 + 消息，<strong>对不上就是账本算错</strong>。
-        代价是更早版本留下的 <code>/context</code> 数字偏小，与今天不可比。</p>
-    </article>
-
-    <article class="card">
-      <h3>内建工具不是特例</h3>
-      <p>八个工具走<strong>同一条</strong>接口：清单来自注册面上 <code>tool.call</code> 的 matcher 取值，
-        再过白名单与 <code>hidden</code> 两道。<code>core/tool-list.ts</code> 是这一份清单的<strong>唯一算法</strong>。</p>
-      <p class="card__cost">内核里没有一张硬编码的工具表；模型请求、<code>/help</code>、<code>/context</code> 三处看到的永远是同一份。</p>
-    </article>
   </div>
 </section>
 
-<!-- ─────────────────────────── 架构 ─────────────────────────── -->
-<section class="wrap band" id="architecture">
-  <h2>六个模块，共用一条链</h2>
-  <p class="section__lede">每个调用点抛出一个事件，插件把自己的 hook 注册成中间件，按 tier 权威序串成一条链。
-    一个 hook 可以<strong>应答 / 改写 / 拒绝 / 委托下层</strong>。下面是这条链上的六个模块。</p>
+<!-- ───────────────── 安装 ───────────────── -->
+<section class="sec" id="start">
+  <div class="wrap">
+    <h2 class="sec__h">现在就试</h2>
+    <p class="sec__sub">需要 Node ≥ 20 与 pnpm。不带参数就是交互式 REPL。</p>
 
-  <div class="mods">
-    <article class="mod">
-      <h3 class="mod__h">执行引擎<span>所有调用从这里进</span></h3>
-      <dl>
-        <dt>入口</dt>
-        <dd><code>engine.dispatch</code> —— 每个调用点抛出一个事件</dd>
-        <dt>链</dt>
-        <dd>五个 tier 按权威序串成一条：<code>prepend → user → append → builtin → core</code></dd>
-        <dt>续体</dt>
-        <dd><code>next(e)</code> 是 Koa 式续体，不是事件发射器 —— 链尾只有一处，没有第二个地方可以漏</dd>
-      </dl>
-    </article>
-
-    <article class="mod">
-      <h3 class="mod__h">权限<span>谁说了算，谁不能</span></h3>
-      <dl>
-        <dt>来源</dt>
-        <dd>五层，从低到高：<code>user → project → local → flag → policy</code></dd>
-        <dt>判定</dt>
-        <dd><code>deny &gt; ask &gt; allow</code> —— 与写在哪一层、在同一数组里排第几都无关</dd>
-        <dt>上限</dt>
-        <dd><code>allow</code> 的效力上限是把 <code>ask</code> 变成 <code>allow</code>；托管层能收紧，不能放宽</dd>
-      </dl>
-    </article>
-
-    <article class="mod">
-      <h3 class="mod__h">安全闸门<span>工具调用必经</span></h3>
-      <dl>
-        <dt>三道</dt>
-        <dd><code>tool.check</code>（预览后停下等一行 y/N）→ <code>sandbox</code>（只有 Bash，路径闸）→ 真进程 / 真文件</dd>
-        <dt>兜底</dt>
-        <dd>fail-closed —— 非 TTY 默认拒绝 · 链尾无人应答 = <code>deny</code> · 不认识的工具 = <code>deny</code></dd>
-        <dt>位置</dt>
-        <dd>坐在链的<strong>下游</strong> —— 任何 <code>allow</code> 规则都绕不过它</dd>
-      </dl>
-    </article>
-
-    <article class="mod">
-      <h3 class="mod__h">记忆与上下文<span>记在哪、怎么接上</span></h3>
-      <dl>
-        <dt>指令</dt>
-        <dd><code>AGENTS.md</code> × 5 层拼进系统提示（<strong>每轮重算</strong>，改了当场生效）—— 五层里只有托管层能写</dd>
-        <dt>转录</dt>
-        <dd>用户级目录、0600 的 JSONL，<code>--resume</code> 接上一次会话</dd>
-        <dt>历史</dt>
-        <dd><code>~/.deepcode/history</code>；<code>/context</code> 看账本（不报「还剩多少」），<code>/compact</code> 手动压、自动压缩默认关</dd>
-      </dl>
-    </article>
-
-    <article class="mod">
-      <h3 class="mod__h">工具与插件<span>一条接口，没有硬编码表</span></h3>
-      <dl>
-        <dt>工具</dt>
-        <dd>八个走<strong>同一条</strong>接口：六个内建 + <code>Task</code> / <code>Skill</code>（第一方插件给的）</dd>
-        <dt>插件</dt>
-        <dd>不 import 内核，只拿到注册回调；内建 mod 与第三方插件走同一个接口</dd>
-        <dt>边界</dt>
-        <dd>破坏依赖边界，<code>pnpm lint</code> 直接红 —— 不靠自觉</dd>
-      </dl>
-    </article>
-
-    <article class="mod">
-      <h3 class="mod__h">遥测<span>默认关</span></h3>
-      <dl>
-        <dt>开关</dt>
-        <dd>默认关。只有<strong>用户层</strong>能打开（项目级写的会被丢弃并出声），托管层能一句话关掉</dd>
-        <dt>内容</dt>
-        <dd>六个事件各写一行到用户级 <code>telemetry.jsonl</code>，没有网络上报</dd>
-        <dt>隐私</dt>
-        <dd>零自由文本 —— 任何一行不合规就<strong>整条丢掉</strong>，不是截断也不是改写</dd>
-      </dl>
-    </article>
-  </div>
-
-  <h3 class="h3-sample">目录分层（构建时）</h3>
-<pre class="term__body term__body--sample">src/
-  contract/    事件目录与契约类型 —— 不 import 任何东西
-  core/        引擎：dispatch、链、tier                 → contract
-  providers/   anthropic / openai 两种协议              → contract
-  builtins/    六个内建工具                             → contract
-  cli/         装配、REPL、渲染、设置、权限解析          → 上面全部
-mods/          四个内建 mod（与第三方插件同一个接口）     → node: 内建 + contract + 自己
-plugins/       第三方插件 —— 不 import 内核，只拿到注册回调</pre>
-  <p class="muted">这张表就是 <code>scripts/check-boundaries.mjs</code> 里的规则表；方向对了才放行，破坏边界
-    <code>pnpm lint</code> 直接红。</p>
-
-  <div class="callout">
-    <p><strong>41 个事件已声明，22 个已实现；八个工具里六个内建、两个由第一方插件提供
-      （<code>Task</code> / <code>Skill</code>）。</strong>其余 19 个事件用到时会抛
-      <code>NotImplementedError</code> —— 这是如实标注，不是「即将支持」。</p>
-  </div>
-</section>
-
-<!-- ─────────────────────────── 权限 ─────────────────────────── -->
-<section class="wrap band" id="permissions">
-  <h2>权限：谁能放宽，谁不能</h2>
-  <p class="section__lede">配置管连接（<code>config.json</code>），权限是另一套（<code>.deepcode/settings.json</code>），
-    三组数组 <code>allow</code> / <code>ask</code> / <code>deny</code> 都可以省略。五个来源从低到高：
-    <code>user</code> → <code>project</code> → <code>local</code> → <code>flag</code>
-    （<code>--settings=</code>）→ <code>policy</code>（托管）。</p>
-
-  <table>
-    <caption class="sr">规则的写法与含义</caption>
-    <thead><tr><th scope="col">写法</th><th scope="col">含义</th></tr></thead>
-    <tbody>
-      <tr><td><code>Bash</code></td><td>该工具的<strong>所有</strong>调用</td></tr>
-      <tr><td><code>Bash(git push:*)</code></td><td>命令行以 <code>git push</code> 开头，按空白 token 边界 ——
-        <code>git pushup</code> ✗</td></tr>
-      <tr><td><code>Read(~/.ssh/**)</code></td><td><code>file_path</code> 按 glob 匹配：<code>*</code> 单段、
-        <code>**</code> 跨段</td></tr>
-      <tr><td>其它工具带括号</td><td><strong>不支持</strong>：不命中，且启动时警告一次</td></tr>
-    </tbody>
-  </table>
-  <p><code>:</code> 是 token 边界，不是通配符；路径按<strong>绝对路径</strong>匹配（<code>~</code> 会展开），
-    相对路径不会命中。<code>policy</code> 这一层刻意没有环境变量来源 —— 一个环境变量就能改掉权限，
-    等于在规则引擎上开了个后门，所以托管策略必须来自文件。</p>
-
-  <div class="callout callout--warn">
-    <p><strong>前缀匹配不懂 shell 语法，「藏在后面」的命令它看不见。</strong>
-      <code>Bash(git push:*)</code> 拦得住 <code>git push origin main; rm -rf ~</code>，
-      但拦不住 <code>true &amp;&amp; git push origin main</code>。所以 <code>deny</code> 是给手滑与误操作
-      加的一道闸，<strong>不是反对抗手段</strong>。</p>
-    <p><strong>个人规则掀不翻任何一条 <code>deny</code></strong>（<code>allow</code> 的效力上限是把
-      <code>ask</code> 变成 <code>allow</code>），会话里用 <code>/permissions</code> 看每条规则的来源。</p>
-  </div>
-</section>
-
-<!-- ─────────────────────────── 路线图 ─────────────────────────── -->
-<section class="wrap band" id="roadmap">
-  <h2>走到哪一步了</h2>
-  <p class="section__lede">十个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
-    <a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a>里。</p>
-
-  <table>
-    <caption class="sr">各阶段与交付</caption>
-    <thead><tr><th scope="col">阶段</th><th scope="col">交付</th></tr></thead>
-    <tbody>
-      <tr><td><strong>MVP</strong></td><td>「读 → 改 → 跑测试」的闭环；安全底线是每个会写盘或执行命令的动作按一次 <code>y</code></td></tr>
-      <tr><td><strong>P1</strong> 会话与体验</td><td><code>--resume</code> 接上上次会话、<code>/diff</code>、OpenAI 兼容 provider</td></tr>
-      <tr><td><strong>P2</strong> 安全与策略</td><td>五层设置来源、规则内核、托管策略掀不翻</td></tr>
-      <tr><td><strong>P3</strong> 扩展面</td><td>不改引擎的插件、classic 钩子、<strong>只能拧紧不能拧松</strong></td></tr>
-      <tr><td><strong>P4</strong> 组合面</td><td><code>Task</code> / <code>Skill</code>、沙箱、会话压缩、marketplace、遥测</td></tr>
-      <tr><td><strong>P5</strong> 内建与分发</td><td>四个内建 mod、指令文件五层、托管三通道</td></tr>
-      <tr><td><strong>P6</strong> 界面与交互</td><td>开场屏、活动区、内容面、两份账、历史与补全（全是<strong>行内增强</strong>，不占整屏）</td></tr>
-      <tr><td><strong>P7</strong> 记忆与上下文</td><td><code>/context</code> 账本（<strong>明说不报「还剩多少」</strong>）、系统提示每轮重算、<code>/compact</code> 能带一句说明、压缩后重新附上目录约定、两道断电器</td></tr>
-      <tr><td><strong>P8</strong> 执行循环的收场</td><td>停止原因收敛成七个产品字面量、被截断就接着往下写（≤ 3 次，<strong>每次出声</strong>）、空步与炸在中途都不丢内容、两侧统一按白名单判「做完了没有」</td></tr>
-      <tr><td><strong>P9</strong> 工具清单</td><td>一条清单三个消费者（模型请求 / <code>/help</code> / <code>/tools</code>）收敛到一个函数；<code>/context</code> 把工具算进合计；<code>/tools</code> 说清每个工具<strong>来自哪个插件</strong>、以及<strong>哪些没进来、为什么</strong></td></tr>
-      <tr><td><strong>P10</strong> 子代理的边界</td><td>子代理看得见哪些工具、能派多深，从<strong>调用方按「会话的全部」算</strong>挪进内核<strong>按「当前这一轮」算</strong>：嵌套一层拿不回被扣掉的面，深度上限（3 层）对 <code>Task</code> 与插件直派<strong>共用同一个数</strong></td></tr>
-    </tbody>
-  </table>
-</section>
-
-<!-- ─────────────────────────── 已知限制 ─────────────────────────── -->
-<section class="wrap band" id="limits">
-  <h2>我们没做什么，以及为什么</h2>
-  <p class="section__lede">这一节不是免责声明 —— 前面那些话之所以可信，就是因为这一节不藏着。
-    完整清单在 <a href="https://github.com/yyyCode/DeepCode/blob/main/docs/已知限制.md">已知限制</a>。</p>
-
-  <div class="grid">
-    <article class="card card--limit">
-      <h3>没有路径围栏</h3>
-      <p>六个工具能碰到你进程权限内的任何路径，不限工作目录 —— 确认提示拦的是「要不要动手」，不是「动哪里」。</p>
-      <p class="card__cost">别在装着重要东西的机器上放它乱跑。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>沙箱不是 OS 隔离</h3>
-      <p><code>Bash</code> 有一道可选的路径闸，但它靠切分 token 判路径，不是解析 shell：
-        <code>rm $(echo /etc/passwd)</code> 绕得过去。</p>
-      <p class="card__cost">加的是闸，不是墙 —— 所以它不是「可以放开权限」的理由。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>没有整屏 TUI、没有语法高亮</h3>
-      <p>界面是逐行的纯文本流，markdown 只认一个子集，也不走 <code>ui.render</code> 事件。</p>
-      <p class="card__cost">那棵「界面数据树」今天还没有能把它钉住的消费者。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>hookify 的规则写坏了，工具会全停</h3>
-      <p>算术写错、正则编译不过、钩子进程崩了 —— 一律非零退出，而 <code>PreToolUse</code> 上的非零就是
-        <code>deny</code>：<code>Write</code> / <code>Edit</code> / <code>Bash</code> 全部被拒绝，直到修好它。</p>
-      <p class="card__cost">我们接受这个代价 —— 一个读不懂自己规则的守卫，比一个假装没事的守卫危险。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>子代理不知道项目规矩</h3>
-      <p>子代理的系统提示只有 agent 文件里那段正文（为空时回落到会话的基础提示）——
-        <code>AGENTS.md</code> / <code>CLAUDE.md</code> 一个字都不进，工具面也只能是父级那一轮的<strong>子集</strong>。</p>
-      <p class="card__cost">硬隔离是刻意的（对标的实现有一个「别读指令文件」旋钮，我们连旋钮都没有 ——
-        加上它必然是放宽）：代价是要它守的规矩得写进那个 agent 文件或 <code>prompt</code> 里。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>转录里是代码</h3>
-      <p>会话落成 JSONL，放在<strong>用户级</strong>目录（不进项目目录），权限 <code>0600</code>。
-        删掉那个文件就等于删掉那次会话 —— 没有别的副本。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>被截断续写时，钱在悄悄花</h3>
-      <p>回答撞上输出长度上限时会自动接着往下写，最多 3 次 —— <strong>每一次都是一次真的模型请求</strong>。
-        这个 3 是我们自己定的数，不是测出来的。</p>
-      <p class="card__cost">所以每一次都在终端上说一声：宁可多一行通知，也不让人碰上「怎么又慢又贵」。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>账本全是估的</h3>
-      <p><code>/context</code> 按 <strong>4 字符 1 token</strong> 粗估，中英混排会失真；工具那一行算的是
-        名字 + 描述 + schema 的字符数，不等于适配器真正发出的字节数。</p>
-      <p class="card__cost">它够用只是因为要回答「离阈值还有多远」这个量级的问题 —— 别拿它当账单核。</p>
-    </article>
-
-    <article class="card card--limit">
-      <h3>marketplace 只做本地索引</h3>
-      <p><code>plugin add</code> 从一份本地索引拷插件进落点：不 fetch、不 clone、没有签名与校验和，
-        也没有版本与升级。</p>
-      <p class="card__cost">没有可信密钥体系时，做一个假的签名比不做更糟 —— 它会让人以为校验过。</p>
-    </article>
-  </div>
-</section>
-
-<!-- ─────────────────────────── 现在就试 ─────────────────────────── -->
-<section class="wrap band band--cta" id="start">
-  <h2>现在就试</h2>
-  <div class="install install--wide">
-    <div class="install__row install__row--multi">
-      <code class="install__cmd">mkdir -p ~/.deepcode &amp;&amp; cat &gt; ~/.deepcode/config.json &lt;&lt;'EOF'
+    <div class="install">
+      <div class="cmd">
+        <span class="cmd__k">安装</span>
+        <code class="cmd__v">git clone https://github.com/yyyCode/DeepCode &amp;&amp; cd DeepCode &amp;&amp; pnpm install &amp;&amp; npm link</code>
+        <button class="copy" type="button" data-copy="git clone https://github.com/yyyCode/DeepCode &amp;&amp; cd DeepCode &amp;&amp; pnpm install &amp;&amp; npm link">复制</button>
+      </div>
+      <div class="cmd">
+        <span class="cmd__k">配 key</span>
+        <code class="cmd__v">mkdir -p ~/.deepcode &amp;&amp; cat &gt; ~/.deepcode/config.json &lt;&lt;'EOF'
 { "apiKey": "sk-ant-..." }
 EOF</code>
-      <button class="copy" type="button" data-copy="mkdir -p ~/.deepcode && cat > ~/.deepcode/config.json <<'EOF'
+        <button class="copy" type="button" data-copy="mkdir -p ~/.deepcode && cat > ~/.deepcode/config.json <<'EOF'
 { &quot;apiKey&quot;: &quot;sk-ant-...&quot; }
 EOF">复制</button>
+      </div>
+      <div class="cmd">
+        <span class="cmd__k">开工</span>
+        <code class="cmd__v">cd /你的项目 &amp;&amp; deepcode</code>
+        <button class="copy" type="button" data-copy="cd /你的项目 &amp;&amp; deepcode">复制</button>
+      </div>
     </div>
-    <div class="install__row">
-      <code class="install__cmd">cd /你的项目 &amp;&amp; deepcode</code>
-      <button class="copy" type="button" data-copy="cd /你的项目 &amp;&amp; deepcode">复制</button>
-    </div>
+
+    <p class="sec__foot">key 也可以放环境变量（<code>ANTHROPIC_API_KEY</code>），或者换成任何 Anthropic / OpenAI
+      兼容的端点 —— 细节见 <a href="docs.html">技术文档</a>。</p>
+
+    <p class="hero__cta sec__cta">
+      <a class="btn btn--ink" href="https://github.com/yyyCode/DeepCode">在 GitHub 上读源码</a>
+      <a class="btn btn--ghost" href="docs.html">技术文档</a>
+    </p>
   </div>
-  <p class="muted">key 也可以放环境变量（<code>ANTHROPIC_API_KEY</code>），或者换成任何 Anthropic / OpenAI
-    兼容的端点 —— 改 <code>apiKey</code> / <code>baseUrl</code> / <code>model</code> 三样就行，
-    细节见 <a href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README</a>。</p>
 </section>
 
 </main>
 
 <footer class="foot">
-  <div class="wrap foot__inner">
+  <div class="wrap foot__in">
     <div>
-      <h3>DeepCode</h3>
+      <p class="foot__wm">deepcode</p>
       <p>用 TypeScript 从零写的终端 agentic 编码助手。</p>
       <p class="muted">仓库目前没有 LICENSE 文件（未指定许可证）。</p>
     </div>
     <div>
-      <h3>文档</h3>
+      <p class="foot__h">文档</p>
       <ul>
+        <li><a href="docs.html">技术文档（设计与实现）</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README（安装 / 启动 / 使用）</a></li>
+        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/已知限制.md">已知限制（完整清单）</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a></li>
-        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/superpowers/specs/2026-10-11-deepcode-mvp-design.md">设计文档</a></li>
-        <li><a href="https://github.com/yyyCode/DeepCode/blob/main/docs/%E9%A1%B9%E7%9B%AE%E7%AE%80%E4%BB%8B.md">项目简介（一页纸）</a></li>
       </ul>
-    </div>
-    <div>
-      <h3>这个页面</h3>
-      <p>纯静态：一个 HTML、一个 CSS、一个 JS，没有框架、没有构建、不请求任何外部资源。直接双击就能看，
-        关掉 JavaScript 也是完整的。</p>
     </div>
   </div>
 </footer>

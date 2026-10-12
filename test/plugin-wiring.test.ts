@@ -7,6 +7,7 @@ import { CORE_ORIGIN } from '../src/contract/next';
 import { cliPlugins } from '../src/cli/plugins';
 import { createPalette } from '../src/cli/ansi';
 import { renderPermissions } from '../src/cli/permissions-command';
+import { createSessionGrants } from '../src/builtins/permissions';
 import { createSessionChanges } from '../src/cli/changes';
 import { createRenderer } from '../src/cli/render';
 import { createEngine } from '../src/core/create';
@@ -212,6 +213,7 @@ describe('/permissions 里看得见插件名单', () => {
         },
       },
       createPalette(),
+      createSessionGrants(),
     );
     expect(text).toContain('todo');
     expect(text).toContain('[project]');
@@ -220,7 +222,7 @@ describe('/permissions 里看得见插件名单', () => {
   });
 
   it('一条都没有时不打这一节（别给空白加标题）', () => {
-    expect(renderPermissions(POLICY, createPalette())).not.toContain('插件');
+    expect(renderPermissions(POLICY, createPalette(), createSessionGrants())).not.toContain('插件');
   });
 });
 

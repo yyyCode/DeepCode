@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness, recordingProvider, scriptedProvider, seat } from './harness';
 import { coreTools } from '../src/builtins/tools';
 import { confirmPlugin } from '../src/builtins/confirm';
-import { createPermissionsPlugin } from '../src/builtins/permissions';
+import { createPermissionsPlugin, createSessionGrants } from '../src/builtins/permissions';
 import { runTurn } from '../src/core/loop';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Rule } from '../src/contract/policy';
@@ -203,7 +203,7 @@ describe('E2E：按权限过滤工具可见性', () => {
     ];
 
     const { h, engine } = buildWorld([], [
-      { plugin: createPermissionsPlugin({ rules }), tier: 'user' },
+      { plugin: createPermissionsPlugin({ rules, grants: createSessionGrants() }), tier: 'user' },
     ]);
 
     // 每个工具都真的给出一份描述。桩里 coreImpls['tool.describe'] 是**故意**抛错的
@@ -234,5 +234,66 @@ describe('E2E：按权限过滤工具可见性', () => {
     expect(lastTools()).not.toContain('WebSearch');
     // 为了拦一条命令就把整个 Bash 藏掉是灾难 —— 参数化 deny 绝不隐藏工具。
     expect(lastTools()).toContain('Bash');
+  });
+});
+
+describe('E2E：确认提示上的 a（本次会话总是允许）', () => {
+  it('按一次 a 之后同类不再问，换了工具才再问；文件真的写下去了', async () => {
+    const first = join(root, 'grant-a.txt');
+    const second = join(root, 'grant-b.txt');
+    // 与 permissions 插件**同一个** grants 引用：这一条要验的正是"人在提示上说的话
+    // 怎么一路走到下一次判定"，把它拆成两个对象就什么都没验到。
+    const grants = createSessionGrants();
+    const { h, engine, asked } = buildWorld(['a', 'n'], [
+      { plugin: createPermissionsPlugin({ rules: [], grants }), tier: 'user' },
+    ]);
+
+    const provider = scriptedProvider([
+      [
+        { type: 'tool_use', id: 'u1', name: 'Write', input: { file_path: first, content: 'one' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      // 第二条 Write 是**另一个文件**：`a` 对 Write 是整个工具，所以这一条不该问。
+      [
+        { type: 'tool_use', id: 'u2', name: 'Write', input: { file_path: second, content: 'two' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'tool_use', id: 'u3', name: 'Edit', input: { file_path: first, old_string: 'one', new_string: 'three' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text', text: '好了。' }, { type: 'done', stopReason: 'end_turn' }],
+    ]);
+
+    const messages: Message[] = [{ role: 'user', content: '写两个文件再改一个' }];
+    await runTurn(
+      {
+        $: engine,
+        provider,
+        signal: new AbortController().signal,
+        dispatch: h.dispatch,
+        systemPrompt: 'x',
+        turnIndex: 0,
+      },
+      messages,
+    );
+
+    // 三次动手只问了两次：`a` 那一次把 Write 记下了，第二条 Write 不再问。
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toContain('a=本次会话总是允许');
+    expect(asked[0]).toContain('Write');
+    expect(asked[1]).toContain('Edit');
+    expect(grants.list().map((r) => r.raw)).toEqual(['Write']);
+
+    expect(await readFile(first, 'utf8')).toBe('one');
+    expect(await readFile(second, 'utf8')).toBe('two');
+
+    // 第三次答的是 `n` —— 那一次没跑，结果里是拒绝，不是"跑完了报个错"。
+    const results = messages
+      .filter((m) => m.role === 'tool')
+      .flatMap((m) => (m as Extract<Message, { role: 'tool' }>).results);
+    expect(results.map((r) => r.toolUseId)).toEqual(['u1', 'u2', 'u3']);
+    expect(results[2]!.isError).toBe(true);
+    expect(results[2]!.content).toContain('拒绝');
   });
 });

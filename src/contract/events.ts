@@ -63,6 +63,28 @@ export type EventArgs = {
    */
   'tool.check': { readonly tool: string; readonly input: unknown; readonly toolUseId: string };
   /**
+   * 人在确认提示上答了 `y`（放行这一次）或 `a`（放行**本次会话的这一类**）。
+   *
+   * **纯通知，而且只报"同意"**：内核只是把"人说了什么"原样报出来 —— 它不认识规则，
+   * 也一行安全逻辑都没有（README「安全」一节的「引擎零安全逻辑」）。把这句话翻成一条
+   * 规则、记住、并在下次判定里用上，是规则层（`builtins/permissions`）的事。
+   * 拒绝**不走这条**：那一次调用根本没跑，报告它属于 `tool.result` 那种假账
+   * （见下面 `tool.result` 那句"只在工具真的跑了之后派"）。
+   *
+   * 为什么要有这个事件、而不是让规则层自己去接内核对人的提问：**顺序**。
+   * 只有当整条 `tool.check` 链（含 `sec-default` 的托管策略、classic 钩子）都把判定
+   * 落定之后，"要不要问人"才是确定的 —— 复刻对象把这条写得很清楚：`tool.check`
+   * "fires … **before the mode settles an ask**"。让链上某一层自己弹问题，托管策略
+   * 判死的调用会先问一遍人、再告诉他不算 —— 问了一个不该问的问题。
+   */
+  'tool.consent': {
+    readonly tool: string;
+    readonly input: unknown;
+    readonly toolUseId: string;
+    /** `once` = 只放行这一次；`always` = 本次会话这一类都放行（进程内，不落盘）。 */
+    readonly granted: 'once' | 'always';
+  };
+  /**
    * 一次工具调用**跑完之后**。P4d 新增，是 classic `PostToolUse` 的着陆点。
    *
    * ⚠️ **这是缝，不是闸**：链尾无人应答 = 什么都不加（默认实现在 coreImpls 里）。
@@ -169,6 +191,8 @@ export type EventResult = {
   'turn.complete': Record<string, never>;
   'tool.call': { readonly value: unknown } | { readonly deny: string };
   'tool.check': { readonly decision: 'allow' | 'ask' | 'deny'; readonly rule?: string };
+  /** 纯通知：内核不等人答复（链尾兜底 `{}`，见 `NOTIFICATION_EVENTS`）。 */
+  'tool.consent': Record<string, never>;
   /** 钩子想补进那条工具结果的话。链尾无人应答 = 什么都不加（缝）。 */
   'tool.result': { readonly context?: string };
   'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
@@ -336,6 +360,9 @@ export const NOTIFICATION_EVENTS = [
   // 靠链尾兜底而不是在 createEngine 的 coreImpls 里补一条：见本文件上面那段注释
   // （"放在链尾意味着任何 dispatcher 都天然满足这条不变量，没有第二个地方可以漏"）。
   'session.compact',
+  // 人当场批了一次 `ask`。同一条道理 —— 内核不需要任何人的答复，
+  // 它只是把"人说了什么"报出来；翻成规则并记住的是规则层（`builtins/permissions`）。
+  'tool.consent',
 ] as const;
 
 const NOTIFICATION_SET: ReadonlySet<string> = new Set(NOTIFICATION_EVENTS);

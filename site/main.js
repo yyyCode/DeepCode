@@ -14,11 +14,15 @@
 
   var demo = document.querySelector('[data-demo]');
   var termBody = demo && demo.querySelector('.term__body');
-  var replayBtn = demo && demo.querySelector('[data-demo-replay]');
+  // 按属性找而不是按 class 找：重播按钮坐在终端顶栏里，样式随时会动，钩子不动。
+  var replayBtn = document.querySelector('[data-demo-replay]');
 
   if (demo && termBody && replayBtn && !still) {
+    // 一行 = .l，行里真正装字的是 .ln（左边那一格留给注记圈）。打字只动 .ln，
+    // 否则重设整行会把圈和两格布局一起抹掉。
     var items = [].slice.call(termBody.querySelectorAll('.l')).map(function (el) {
-      return { el: el, text: el.textContent, typed: el.hasAttribute('data-type') };
+      var ln = el.querySelector('.ln') || el;
+      return { el: el, ln: ln, text: ln.textContent, typed: el.hasAttribute('data-type') };
     });
     var caret = termBody.querySelector('.caret');
     var gen = 0;
@@ -51,7 +55,7 @@
       var alive = function () { return mine === gen; };
 
       items.forEach(function (it) {
-        if (it.typed) it.el.textContent = ''; // 打字的那两行清空重打，其余原样
+        if (it.typed) it.ln.textContent = ''; // 打字的那两行清空重打，其余原样
         it.el.classList.add('is-pending');
       });
 
@@ -61,17 +65,17 @@
         it.el.classList.remove('is-pending');
 
         if (!it.typed) {
-          putCaret(it.el);
+          putCaret(it.ln);
           return sleep(settle(it.el)).then(function () { return step(i + 1); });
         }
 
-        // 逐字：整行的 textContent 重设，光标跟着重新贴到行尾。
-        // 打字行里没有子元素（`<b>y</b>` 那种带标记的行不参与打字），所以能这么写。
+        // 逐字：.ln 的 textContent 重设，光标跟着重新贴到行尾。
+        // 打字行里只有 .ln 一个子元素（注记圈在隔壁那一格，`<b>y</b>` 那种行不参与打字）。
         var chars = Array.from(it.text);
         var type = function (n) {
           if (n > chars.length || !alive()) return Promise.resolve();
-          it.el.textContent = chars.slice(0, n).join('');
-          putCaret(it.el);
+          it.ln.textContent = chars.slice(0, n).join('');
+          putCaret(it.ln);
           return sleep(perChar(chars[n - 1])).then(function () { return type(n + 1); });
         };
         return type(1).then(function () { return sleep(settle(it.el)); })
