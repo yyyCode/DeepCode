@@ -1,10 +1,35 @@
 import type { AgentSpawnRequest, AgentSpawnResult } from './agent';
 import type { Message, ModelProvider, StreamEvent, ToolSpec } from './model-provider';
 
+/**
+ * 一道选择题的一个选项。
+ *
+ * `value` 是**语义**，`label` 是**长相** —— 界面只负责把选中那一项的 `value` 原样送回，
+ * "哪个值是放行、哪个是拒绝"由内核说了算。这与"内核说问什么、界面说长什么样"同一条分工
+ * （P6 设计 §3.1），也是这个类型只带 `value` 不带 `granted` 的原因。
+ */
+export type AskChoice = {
+  readonly value: string;
+  readonly label: string;
+};
+
+export type AskOptions = {
+  /** 选项，**第一个是回车直接选中的那一项**（光标一上来就停在它上面）。 */
+  readonly choices: readonly AskChoice[];
+  /**
+   * 没人能回答时（非交互 / 中断 / EOF）回这个值。
+   * ⚠️ 必须是"拒绝"那一项 —— 读不到答案 = 没同意，这条 fail-closed 的底线不动。
+   */
+  readonly fallback: string;
+};
+
 export type UiNoun = {
   log(line: string): void;
   notice(line: string): void;
-  ask(question: string): Promise<string>;
+  /**
+   * 问人。给了 `options` 就是一道菜单（上下键移动、回车选定）；不给就是逐行问的自由文本。
+   */
+  ask(question: string, options?: AskOptions): Promise<string>;
 };
 
 export type FsNoun = {

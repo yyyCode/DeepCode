@@ -402,9 +402,21 @@ async function runOneTool(
     // 三个答案：`y` 放行这一次、`a` 放行**本次会话这一类**、其余一律算拒绝
     // （沿用 P1 那句"按别的键都算拒绝"，fail-closed 的方向不动）。
     //
+    // 内核交出去的是**选项**（值 + 文案），不是一行拼好的提示语：菜单长什么样、
+    // 光标停在哪儿，是界面的事。第一项就是光标默认停的那一项（回车即放行这一次），
+    // `fallback` 单列出来 —— "没人回答"与"人挑了拒绝"是同一件事，但落点必须写死，
+    // 不能靠选项顺序去推。
+    //
     // 为什么问人的是**内核**而不是链上某一层：只有整条 `tool.check` 链跑完，
     // "要不要问"才是确定的 —— 托管策略判死的调用，不该先问一遍人再告诉他不算。
-    const answer = await ctx.$.ui.ask(`执行 ${use.name}? (y=是  a=本次会话总是允许  N=否) `);
+    const answer = await ctx.$.ui.ask(`执行 ${use.name}?`, {
+      choices: [
+        { value: 'y', label: '允许这一次' },
+        { value: 'a', label: '本次会话总是允许' },
+        { value: 'n', label: '拒绝' },
+      ],
+      fallback: 'n',
+    });
     const said = answer.trim().toLowerCase();
     const once = said === 'y' || said === 'yes';
     const always = said === 'a' || said === 'all';

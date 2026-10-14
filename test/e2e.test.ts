@@ -9,7 +9,7 @@ import { createPermissionsPlugin, createSessionGrants } from '../src/builtins/pe
 import { runTurn } from '../src/core/loop';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Rule } from '../src/contract/policy';
-import type { EngineInterface } from '../src/contract/engine';
+import type { AskOptions, EngineInterface } from '../src/contract/engine';
 import type { Message } from '../src/contract/model-provider';
 import type { EventHook } from '../src/contract/plugin';
 import type { Tier } from '../src/contract/tier';
@@ -41,8 +41,11 @@ function buildWorld(
     ui: {
       log: () => {},
       notice: () => {},
-      ask: async (question: string) => {
-        asked.push(question);
+      // 选项跟着 `question` 一起给（值 + 文案），提示语里不再拼 —— 这里把两者并成
+      // 一行记下来，断言的还是"这一屏问了什么、给了哪几个答案"。
+      ask: async (question: string, options?: AskOptions) => {
+        const choices = (options?.choices ?? []).map((one) => `${one.value}=${one.label}`);
+        asked.push([question, ...choices].join(' '));
         return answers.shift() ?? 'n';
       },
     },
