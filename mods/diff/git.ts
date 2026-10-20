@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { ModDeps } from '../../src/contract/mod';
+import type { ModDeps } from '@deepcode/contract/mod';
 import type { Backend, BackendProbe, BackendWords, PaneEntry, PaneFileHunks } from './backend';
 import type { DiffLine } from './lines';
 

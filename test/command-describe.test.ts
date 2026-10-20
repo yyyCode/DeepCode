@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { EngineInterface } from '../src/contract/engine';
-import type { Message } from '../src/contract/model-provider';
-import type { Plugin } from '../src/contract/plugin';
-import { createEngine } from '../src/core/create';
-import { commandsPlugin } from '../src/builtins/commands';
-import { createPermissionsCommand } from '../src/cli/permissions-command';
-import { createSessionGrants } from '../src/builtins/permissions';
-import { createSessionChanges } from '../src/cli/changes';
-import { createSessionCommands, type CommandDescription } from '../src/cli/commands';
-import { createPalette } from '../src/cli/ansi';
-import type { ResolvedPolicy } from '../src/cli/settings';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import type { Message } from '@deepcode/contract/model-provider';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { createEngine } from '@deepcode/core/create';
+import { commandsPlugin } from '@deepcode/builtins/commands';
+import { createPermissionsCommand } from '@deepcode/cli/permissions-command';
+import { createSessionGrants } from '@deepcode/builtins/permissions';
+import { createSessionChanges } from '@deepcode/cli/changes';
+import { createSessionCommands, type CommandDescription } from '@deepcode/cli/commands';
+import { createPalette } from '@deepcode/cli/ansi';
+import type { ResolvedPolicy } from '@deepcode/cli/settings';
 import { createHarness, scriptedProvider, seat } from './harness';
 
 /**
@@ -244,7 +244,7 @@ describe('core 那一条：没注册描述就抛（不是给个空字符串）',
     });
 
   it('真引擎上问一条没注册的命令 → 抛', async () => {
-    // 与 `tool.describe` 同形（`src/core/create.ts:90-92`）。返回 `{description: ''}`
+    // 与 `tool.describe` 同形（`packages/core/src/create.ts:90-92`）。返回 `{description: ''}`
     // 会让"忘了写 describe"这件事彻底静默 —— 消费方就再也没有兜底的由头了。
     const lonely: Plugin = {
       name: 'lonely',

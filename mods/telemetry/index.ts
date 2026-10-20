@@ -1,6 +1,6 @@
-import type { ModSpec } from '../../src/contract/mod';
-import type { Plugin } from '../../src/contract/plugin';
-import type { TelemetryPolicy } from '../../src/contract/telemetry';
+import type { ModSpec } from '@deepcode/contract/mod';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { TelemetryPolicy } from '@deepcode/contract/telemetry';
 import { createTelemetrySink, type TelemetrySink } from './sink';
 import type { TelemetryEntry } from './rows';
 
@@ -14,7 +14,7 @@ import type { TelemetryEntry } from './rows';
  */
 export type TelemetryNoun = { log(entry: TelemetryEntry): void };
 
-declare module '../../src/contract/engine' {
+declare module '@deepcode/contract/engine' {
   interface EngineInterface {
     telemetry: TelemetryNoun;
   }

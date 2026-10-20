@@ -1,4 +1,4 @@
-import type { ModSpec } from '../../src/contract/mod';
+import type { ModSpec } from '@deepcode/contract/mod';
 import { createInstructionsPlugin } from './instructions';
 import { createAgentsMdPlugin } from './nested';
 

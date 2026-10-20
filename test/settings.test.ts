@@ -9,7 +9,7 @@ import {
   type ResolvePolicyDeps,
   type SettingsSource,
   type TextReader,
-} from '../src/cli/settings';
+} from '@deepcode/cli/settings';
 
 const HOME = '/home/u';
 const ROOT = '/proj';

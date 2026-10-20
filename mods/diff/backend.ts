@@ -1,4 +1,4 @@
-import type { ModDeps } from '../../src/contract/mod';
+import type { ModDeps } from '@deepcode/contract/mod';
 
 /**
  * 后端抽象三层（P5 设计 §5.2，抄自 `03-mod-diff.md:384`）。

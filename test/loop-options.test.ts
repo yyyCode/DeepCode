@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Plugin } from '../src/contract/plugin';
+import type { Plugin } from '@deepcode/contract/plugin';
 import type {
   Message,
   ModelProvider,
   StreamEvent,
   ToolResult,
-} from '../src/contract/model-provider';
-import type { EngineInterface } from '../src/contract/engine';
-import type { LoopContext } from '../src/core/loop';
-import { estimateTokens, runTurn } from '../src/core/loop';
-import { createEngine } from '../src/core/create';
+} from '@deepcode/contract/model-provider';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import type { LoopContext } from '@deepcode/core/loop';
+import { estimateTokens, runTurn } from '@deepcode/core/loop';
+import { createEngine } from '@deepcode/core/create';
 import { createHarness } from './harness';
 
 /** 三个工具。`called` 记真正被应答的 `tool.call` —— 被拒的那次不该留下痕迹。 */

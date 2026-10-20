@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DispatchFn } from '../src/core/dispatch';
-import { createPromptBuilder } from '../src/cli/system-prompt';
+import type { DispatchFn } from '@deepcode/core/dispatch';
+import { createPromptBuilder } from '@deepcode/cli/system-prompt';
 
 type Section = { readonly name: string; readonly text: string };
 

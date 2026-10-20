@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * 两个检查器都是 `.mjs`：`tsconfig.json` 的 include 是 ["src","test","scripts"]，
+ * 两个检查器都是 `.mjs`：`tsconfig.json` 的 include 是 ["packages","test","scripts","mods"]，
  * 它们连 tsc 都不经过 —— 所以这个文件是它们唯一的保障。
  *
  * 这里要防的是**假绿**：一个 walk 不到任何文件的检查器会打印「通过」。
@@ -75,7 +75,7 @@ describe('check-boundaries：plugins/', () => {
   it('插件 import 引擎内部 → 红（"逃出了 plugins/"）', async () => {
     const dir = await tree({
       ...CLEAN_PLUGIN,
-      'plugins/p/main.mjs': "import x from '../../src/core/engine';\n",
+      'plugins/p/main.mjs': "import x from '../../packages/core/src/engine';\n",
     });
     const { code, stderr } = await run(BOUNDARIES, dir);
     expect(code).toBe(1);
@@ -91,11 +91,11 @@ describe('check-boundaries：plugins/', () => {
   });
 
   it('副作用式导入（没有 from）也算 —— 这一种是反向验证逼出来的', async () => {
-    // `import '../../src/core/engine';` 没有 `from`，只认 `... from '...'` 的正则会整个放过它，
+    // `import '../../packages/core/src/engine';` 没有 `from`，只认 `... from '...'` 的正则会整个放过它，
     // 而"插件把引擎模块拉进来"最顺手的写法恰好就是这个。
     const dir = await tree({
       ...CLEAN_PLUGIN,
-      'plugins/p/main.mjs': "import '../../src/core/engine';\n",
+      'plugins/p/main.mjs': "import '../../packages/core/src/engine';\n",
     });
     const { code, stderr } = await run(BOUNDARIES, dir);
     expect(code).toBe(1);
@@ -116,25 +116,45 @@ describe('check-boundaries：plugins/', () => {
   it('`export ... from` 也算 import —— 只认 import 的话这一条会溜过去', async () => {
     const dir = await tree({
       ...CLEAN_PLUGIN,
-      'plugins/p/util.mjs': "export * from '../../src/core/x';\n",
+      'plugins/p/util.mjs': "export * from '../../packages/core/src/x';\n",
     });
     const { code, stderr } = await run(BOUNDARIES, dir);
     expect(code).toBe(1);
     expect(stderr).toContain('逃出了 plugins/');
   });
 
-  it('src/ 的既有规则仍然拦得住（改了共享代码，钉一下没捅到别人）', async () => {
+  it('包边界仍然拦得住：contract 不许 import core', async () => {
     const dir = await tree({
-      'src/contract/a.ts': "import { b } from '../core/b';\nexport const a = 1;\n",
-      'src/core/b.ts': 'export const b = 1;\n',
+      'packages/contract/src/a.ts': "import { b } from '@deepcode/core/b';\nexport const a = 1;\n",
+      'packages/core/src/b.ts': 'export const b = 1;\n',
     });
     const { code, stderr } = await run(BOUNDARIES, dir);
     expect(code).toBe(1);
-    expect(stderr).toContain('src/contract/a.ts');
-    expect(stderr).toContain('不允许 import core/');
+    expect(stderr).toContain('packages/contract/src/a.ts');
+    expect(stderr).toContain('不允许 import @deepcode/core');
   });
 
-  it('src/ 与 plugins/ 都不存在 → 说清楚是通过，不是崩掉', async () => {
+  it('跨包相对路径 → 红：必须写包名', async () => {
+    const dir = await tree({
+      'packages/core/src/a.ts': "import { b } from '../../contract/src/b';\nexport const a = b;\n",
+      'packages/contract/src/b.ts': 'export const b = 1;\n',
+    });
+    const { code, stderr } = await run(BOUNDARIES, dir);
+    expect(code).toBe(1);
+    expect(stderr).toContain('相对路径跨到了 @deepcode/contract');
+  });
+
+  it('跨包包名 → 通过', async () => {
+    const dir = await tree({
+      'packages/core/src/a.ts': "import { b } from '@deepcode/contract/b';\nexport const a = b;\n",
+      'packages/contract/src/b.ts': 'export const b = 1;\n',
+    });
+    const { code, stdout } = await run(BOUNDARIES, dir);
+    expect(code).toBe(0);
+    expect(stdout).toContain('依赖边界检查通过');
+  });
+
+  it('packages/ 与 plugins/ 都不存在 → 说清楚是通过，不是崩掉', async () => {
     const dir = await tree({ 'README.md': '# 空壳\n' });
     const { code, stdout } = await run(BOUNDARIES, dir);
     expect(code).toBe(0);
@@ -348,7 +368,7 @@ describe('check-workflow-hardening：H5–H7（agent job）', () => {
       github({
         workflow: cleanWorkflow().replace(
           '      - run: echo hi',
-          "      - run: pnpm exec tsx src/cli/main.ts --permission-mode auto 'x'",
+          "      - run: pnpm exec tsx packages/cli/src/main.ts --permission-mode auto 'x'",
         ),
       }),
     );
@@ -363,7 +383,7 @@ describe('check-workflow-hardening：H5–H7（agent job）', () => {
       github({
         workflow: cleanWorkflow().replace(
           '      - run: echo hi',
-          "      - run: pnpm exec tsx src/cli/main.ts --yes 'x'",
+          "      - run: pnpm exec tsx packages/cli/src/main.ts --yes 'x'",
         ),
       }),
     );
@@ -438,7 +458,7 @@ describe('check-workflow-hardening：H5–H7（agent job）', () => {
 const CLEAN_MOD = {
   'mods/t/index.ts':
     "import { join } from 'node:path';\n" +
-    "import type { Plugin } from '../../src/contract/plugin';\n" +
+    "import type { Plugin } from '@deepcode/contract/plugin';\n" +
     "export const x = join('a', 'b');\n" +
     'export type P = Plugin;\n',
 };
@@ -451,14 +471,14 @@ describe('check-boundaries：mods/', () => {
     expect(stdout).toContain('依赖边界检查通过');
   });
 
-  it('mod import 引擎实现（src/core）→ 红，判词点名"只许 import src/contract"', async () => {
+  it('mod import 引擎实现（@deepcode/core）→ 红，判词点名"只许 import @deepcode/contract"', async () => {
     const dir = await tree({
       ...CLEAN_MOD,
-      'mods/t/index.ts': "import { dispatch } from '../../src/core/dispatch';\n",
+      'mods/t/index.ts': "import { dispatch } from '@deepcode/core/dispatch';\n",
     });
     const { code, stderr } = await run(BOUNDARIES, dir);
     expect(code).toBe(1);
-    expect(stderr).toContain('mod 只许 import src/contract/');
+    expect(stderr).toContain('mod 只许 import @deepcode/contract');
   });
 
   it('mod import 裸包名 → 红', async () => {
@@ -482,12 +502,12 @@ describe('check-boundaries：mods/', () => {
     expect(stderr).toContain('跨到了 mods/u/');
   });
 
-  it('**测试豁免**：mod 的测试 import src/core → 通过（测试本来就要用真引擎）', async () => {
+  it('**测试豁免**：mod 的测试 import @deepcode/core → 通过（测试本来就要用真引擎）', async () => {
     const dir = await tree({
       ...CLEAN_MOD,
       'mods/t/test/x.test.ts':
         "import { describe } from 'vitest';\n" +
-        "import { createEngine } from '../../../src/core/create';\n" +
+        "import { createEngine } from '@deepcode/core/create';\n" +
         'export const y = [describe, createEngine];\n',
     });
     const { code, stdout } = await run(BOUNDARIES, dir);
@@ -496,10 +516,11 @@ describe('check-boundaries：mods/', () => {
   });
 });
 
-describe('check-boundaries：src/cli → mods/ 这条单向依赖', () => {
-  it('cli/ 可以 import 内建 mod → 通过', async () => {
+describe('check-boundaries：@deepcode/cli → mods/ 这条单向依赖', () => {
+  it('cli 包可以 import 内建 mod → 通过', async () => {
     const dir = await tree({
-      'src/cli/mods.ts': "import { spec } from '../../mods/t/index';\nexport const s = spec;\n",
+      'packages/cli/src/mods.ts':
+        "import { spec } from '../../../mods/t/index';\nexport const s = spec;\n",
       'mods/t/index.ts': 'export const spec = 1;\n',
     });
     const { code, stdout } = await run(BOUNDARIES, dir);
@@ -507,13 +528,14 @@ describe('check-boundaries：src/cli → mods/ 这条单向依赖', () => {
     expect(stdout).toContain('依赖边界检查通过');
   });
 
-  it('内核（core/）import 内建 mod → 红：内核不认识 mod', async () => {
+  it('内核（@deepcode/core）import 内建 mod → 红：内核不认识 mod', async () => {
     const dir = await tree({
-      'src/core/x.ts': "import { spec } from '../../mods/t/index';\nexport const s = spec;\n",
+      'packages/core/src/x.ts':
+        "import { spec } from '../../../mods/t/index';\nexport const s = spec;\n",
       'mods/t/index.ts': 'export const spec = 1;\n',
     });
     const { code, stderr } = await run(BOUNDARIES, dir);
     expect(code).toBe(1);
-    expect(stderr).toContain('只有 cli/ 可以 import 内建 mod');
+    expect(stderr).toContain('只有 @deepcode/cli 可以 import 内建 mod');
   });
 });

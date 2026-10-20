@@ -1,16 +1,16 @@
 import { EventEmitter } from 'node:events';
 import type { Interface } from 'node:readline';
-import { Registry } from '../src/core/registry';
-import { createDispatcher, type CoreImpls, type DispatchFn } from '../src/core/dispatch';
-import type { EngineInterface } from '../src/contract/engine';
-import type { EventHook, On, Plugin } from '../src/contract/plugin';
-import type { Tier } from '../src/contract/tier';
-import type { ModDeps } from '../src/contract/mod';
-import { DEFAULT_TELEMETRY } from '../src/contract/telemetry';
-import { builtinMods, loadMods } from '../src/cli/mods';
+import { Registry } from '@deepcode/core/registry';
+import { createDispatcher, type CoreImpls, type DispatchFn } from '@deepcode/core/dispatch';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import type { EventHook, On, Plugin } from '@deepcode/contract/plugin';
+import type { Tier } from '@deepcode/contract/tier';
+import type { ModDeps } from '@deepcode/contract/mod';
+import { DEFAULT_TELEMETRY } from '@deepcode/contract/telemetry';
+import { builtinMods, loadMods } from '@deepcode/cli/mods';
 import type { PaneModel } from '../mods/diff/pane';
-import type { StreamEvent, StreamRequest } from '../src/contract/model-provider';
-import type { ModelProvider } from '../src/contract/engine';
+import type { StreamEvent, StreamRequest } from '@deepcode/contract/model-provider';
+import type { ModelProvider } from '@deepcode/contract/engine';
 
 export type HarnessOptions = {
   coreImpls?: CoreImpls;

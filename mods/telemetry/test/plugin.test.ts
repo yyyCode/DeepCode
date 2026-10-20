@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../../../src/contract/next';
-import type { Plugin } from '../../../src/contract/plugin';
-import { createEngine } from '../../../src/core/create';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { createEngine } from '@deepcode/core/create';
 import { createTelemetryPlugin } from '../index';
 import { createTelemetrySink, type TelemetrySink } from '../sink';
 import { telemetryPath, type TelemetryEntry } from '../rows';
-import { cliPlugins } from '../../../src/cli/plugins';
-import { createPalette } from '../../../src/cli/ansi';
-import { createRenderer } from '../../../src/cli/render';
-import { createSessionChanges } from '../../../src/cli/changes';
+import { cliPlugins } from '@deepcode/cli/plugins';
+import { createPalette } from '@deepcode/cli/ansi';
+import { createRenderer } from '@deepcode/cli/render';
+import { createSessionChanges } from '@deepcode/cli/changes';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
   EMPTY_SANDBOX,
   type ResolvedPolicy,
-} from '../../../src/cli/settings';
+} from '@deepcode/cli/settings';
 import { modPlugins, scriptedProvider } from '../../../test/harness';
 
 /**

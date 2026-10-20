@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Message, ToolSpec } from '../src/contract/model-provider';
-import { contextReport } from '../src/cli/context-view';
-import { messageChars } from '../src/core/loop';
-import { toolSpecChars } from '../src/core/tool-list';
-import type { CompactConfig } from '../src/cli/settings';
+import type { Message, ToolSpec } from '@deepcode/contract/model-provider';
+import { contextReport } from '@deepcode/cli/context-view';
+import { messageChars } from '@deepcode/core/loop';
+import { toolSpecChars } from '@deepcode/core/tool-list';
+import type { CompactConfig } from '@deepcode/cli/settings';
 
 const CONFIG: CompactConfig = { auto: false, atTokens: 100_000, keepTurns: 6 };
 

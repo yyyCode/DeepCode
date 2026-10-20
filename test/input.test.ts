@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createCompleter, createLineQueue, planItems } from '../src/cli/input';
-import { HISTORY_LIMIT, historyPath, loadHistory } from '../src/cli/history';
+import { createCompleter, createLineQueue, planItems } from '@deepcode/cli/input';
+import { HISTORY_LIMIT, historyPath, loadHistory } from '@deepcode/cli/history';
 import { fakeReadline } from './harness';
 
 const collect = async (queue: ReturnType<typeof createLineQueue>): Promise<readonly string[][]> => {

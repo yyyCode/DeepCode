@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../../../src/contract/next';
-import { createEngine } from '../../../src/core/create';
-import { readTool } from '../../../src/builtins/tools/read';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { createEngine } from '@deepcode/core/create';
+import { readTool } from '@deepcode/builtins/tools/read';
 import { createAgentsMdPlugin } from '../nested';
 import { scriptedProvider } from '../../../test/harness';
 

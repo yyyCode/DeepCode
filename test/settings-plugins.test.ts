@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isPluginName } from '../src/contract/plugin-manifest';
-import { resolvePolicy } from '../src/cli/settings';
+import { isPluginName } from '@deepcode/contract/plugin-manifest';
+import { resolvePolicy } from '@deepcode/cli/settings';
 
 const HOME = '/home/u';
 const ROOT = '/w';

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../../../src/contract/next';
-import { parseRule, type Behavior, type Rule } from '../../../src/contract/policy';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { parseRule, type Behavior, type Rule } from '@deepcode/contract/policy';
 import { createSecDefaultPlugin, UNCHECKED_DENY } from '../index';
 import { createHarness, seat } from '../../../test/harness';
-import type { EngineInterface } from '../../../src/contract/engine';
-import type { EventHook } from '../../../src/contract/plugin';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import type { EventHook } from '@deepcode/contract/plugin';
 
 const HOME = '/home/u';
 

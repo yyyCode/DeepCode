@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ModDeps } from '../../../src/contract/mod';
-import { DEFAULT_TELEMETRY } from '../../../src/contract/telemetry';
+import type { ModDeps } from '@deepcode/contract/mod';
+import { DEFAULT_TELEMETRY } from '@deepcode/contract/telemetry';
 import { backendOf, type Backend, type BackendProbe, type BackendWords } from '../backend';
 import { createGitBackend, gitProbe, parsePorcelain, parseUnified, type GitRunner } from '../git';
 

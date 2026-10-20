@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BRIDGED_EVENTS } from '../src/contract/classic';
+import { BRIDGED_EVENTS } from '@deepcode/contract/classic';
 import {
   isSafeRelativePath,
   validatePlugin,
   type PluginReader,
   type Problem,
-} from '../src/contract/plugin-manifest';
+} from '@deepcode/contract/plugin-manifest';
 
 /**
  * 一张 相对路径 → 内容 的表，外加一张"存在的路径"的集合。

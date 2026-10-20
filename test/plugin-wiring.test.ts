@@ -2,22 +2,22 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { Plugin } from '../src/contract/plugin';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { cliPlugins } from '../src/cli/plugins';
-import { createPalette } from '../src/cli/ansi';
-import { renderPermissions } from '../src/cli/permissions-command';
-import { createSessionGrants } from '../src/builtins/permissions';
-import { createSessionChanges } from '../src/cli/changes';
-import { createRenderer } from '../src/cli/render';
-import { createEngine } from '../src/core/create';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { cliPlugins } from '@deepcode/cli/plugins';
+import { createPalette } from '@deepcode/cli/ansi';
+import { renderPermissions } from '@deepcode/cli/permissions-command';
+import { createSessionGrants } from '@deepcode/builtins/permissions';
+import { createSessionChanges } from '@deepcode/cli/changes';
+import { createRenderer } from '@deepcode/cli/render';
+import { createEngine } from '@deepcode/core/create';
 import { modPlugins, scriptedProvider } from './harness';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
   EMPTY_SANDBOX,
   type ResolvedPolicy,
-} from '../src/cli/settings';
+} from '@deepcode/cli/settings';
 
 const POLICY: ResolvedPolicy = {
   sources: [],

@@ -1,14 +1,14 @@
 import type { Interface } from 'node:readline';
 import { describe, expect, it, vi } from 'vitest';
 import { createHarness } from './harness';
-import { createPromptSink } from '../src/cli/prompt';
-import { createProcessNoun } from '../src/core/nouns/process';
-import { createEngine } from '../src/core/create';
-import { runTurn } from '../src/core/loop';
-import { editTool } from '../src/builtins/tools/edit';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { EngineInterface, ModelProvider } from '../src/contract/engine';
-import type { EventHook } from '../src/contract/plugin';
+import { createPromptSink } from '@deepcode/cli/prompt';
+import { createProcessNoun } from '@deepcode/core/nouns/process';
+import { createEngine } from '@deepcode/core/create';
+import { runTurn } from '@deepcode/core/loop';
+import { editTool } from '@deepcode/builtins/tools/edit';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { EngineInterface, ModelProvider } from '@deepcode/contract/engine';
+import type { EventHook } from '@deepcode/contract/plugin';
 
 /**
  * spawn 的替身。断言"没有起进程"必须看这个，而不是看命令有没有留下副作用：

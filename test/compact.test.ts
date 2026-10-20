@@ -2,12 +2,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Message, ModelProvider, StreamRequest } from '../src/contract/model-provider';
-import type { DispatchFn } from '../src/core/dispatch';
-import { createPersister, createTranscript } from '../src/cli/transcript';
-import { SUMMARIZE_PROMPT, createCompactor, splitAt } from '../src/cli/compact';
-import type { CompactConfig } from '../src/cli/settings';
-import type { Persister } from '../src/cli/transcript';
+import type { Message, ModelProvider, StreamRequest } from '@deepcode/contract/model-provider';
+import type { DispatchFn } from '@deepcode/core/dispatch';
+import { createPersister, createTranscript } from '@deepcode/cli/transcript';
+import { SUMMARIZE_PROMPT, createCompactor, splitAt } from '@deepcode/cli/compact';
+import type { CompactConfig } from '@deepcode/cli/settings';
+import type { Persister } from '@deepcode/cli/transcript';
 
 const CONFIG: CompactConfig = { auto: false, atTokens: 100_000, keepTurns: 2 };
 

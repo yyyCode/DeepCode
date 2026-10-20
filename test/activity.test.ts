@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
-import type { Plugin } from '../src/contract/plugin';
-import type { Message, ModelProvider, StreamEvent } from '../src/contract/model-provider';
-import type { LoopContext } from '../src/core/loop';
-import { runTurn } from '../src/core/loop';
-import { createEngine } from '../src/core/create';
-import { createPalette } from '../src/cli/ansi';
-import { createRenderer, type Renderer } from '../src/cli/render';
-import { createActivityPlugin } from '../src/cli/activity';
-import { createSessionChanges, type SessionChanges } from '../src/cli/changes';
-import { createTally, type Tally } from '../src/cli/tally';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { Message, ModelProvider, StreamEvent } from '@deepcode/contract/model-provider';
+import type { LoopContext } from '@deepcode/core/loop';
+import { runTurn } from '@deepcode/core/loop';
+import { createEngine } from '@deepcode/core/create';
+import { createPalette } from '@deepcode/cli/ansi';
+import { createRenderer, type Renderer } from '@deepcode/cli/render';
+import { createActivityPlugin } from '@deepcode/cli/activity';
+import { createSessionChanges, type SessionChanges } from '@deepcode/cli/changes';
+import { createTally, type Tally } from '@deepcode/cli/tally';
 import {
   MAX_LINES,
   actionLine,
@@ -17,7 +17,7 @@ import {
   exitCodeOf,
   formatDuration,
   resultLines,
-} from '../src/cli/result-view';
+} from '@deepcode/cli/result-view';
 
 const plain = createPalette(false);
 

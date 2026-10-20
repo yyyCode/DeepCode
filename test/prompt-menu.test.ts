@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import type { Interface, Key } from 'node:readline';
 import { describe, expect, it } from 'vitest';
-import { createPromptSink } from '../src/cli/prompt';
-import type { AskOptions } from '../src/contract/engine';
+import { createPromptSink } from '@deepcode/cli/prompt';
+import type { AskOptions } from '@deepcode/contract/engine';
 
 /**
  * 确认菜单（上下键 + 回车）这一屏。

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { ModDeps, ModSpec } from '../src/contract/mod';
-import type { Plugin } from '../src/contract/plugin';
-import { DEFAULT_TELEMETRY } from '../src/contract/telemetry';
-import { builtinMods, describeMods, loadMods, paneUnavailable } from '../src/cli/mods';
+import type { ModDeps, ModSpec } from '@deepcode/contract/mod';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { DEFAULT_TELEMETRY } from '@deepcode/contract/telemetry';
+import { builtinMods, describeMods, loadMods, paneUnavailable } from '@deepcode/cli/mods';
 
 /**
  * 装载器自己的测试。

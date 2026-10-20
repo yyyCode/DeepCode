@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { discoverPlugins, loadPlugins } from '../src/cli/plugin-dir';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { discoverPlugins, loadPlugins } from '@deepcode/cli/plugin-dir';
 import { createHarness, seat } from './harness';
 
 /**

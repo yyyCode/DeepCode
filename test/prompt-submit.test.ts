@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Plugin } from '../src/contract/plugin';
-import type { Message, ModelProvider, StreamEvent } from '../src/contract/model-provider';
-import { createEngine } from '../src/core/create';
-import { startRepl } from '../src/cli/repl';
-import { createLineQueue } from '../src/cli/input';
-import { createTurnSignals } from '../src/cli/turns';
-import type { Renderer } from '../src/cli/render';
-import { CONTEXT_MARKER } from '../src/contract/prompt-channel';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { Message, ModelProvider, StreamEvent } from '@deepcode/contract/model-provider';
+import { createEngine } from '@deepcode/core/create';
+import { startRepl } from '@deepcode/cli/repl';
+import { createLineQueue } from '@deepcode/cli/input';
+import { createTurnSignals } from '@deepcode/cli/turns';
+import type { Renderer } from '@deepcode/cli/render';
+import { CONTEXT_MARKER } from '@deepcode/contract/prompt-channel';
 import { fakeReadline } from './harness';
 
 /** 什么都不显示的渲染器。REPL 会调它，但这条测试断言的是消息数组，不是屏幕。 */

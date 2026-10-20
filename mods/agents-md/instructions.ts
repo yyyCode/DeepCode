@@ -3,8 +3,8 @@ import {
   INSTRUCTION_LAYERS,
   type InstructionLayer,
   type ManagedInstruction,
-} from '../../src/contract/instructions';
-import type { Plugin } from '../../src/contract/plugin';
+} from '@deepcode/contract/instructions';
+import type { Plugin } from '@deepcode/contract/plugin';
 
 /**
  * 指令文件的装载：五层（P5b）。

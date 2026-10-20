@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { ModelProvider } from '../src/contract/model-provider';
-import type { Plugin } from '../src/contract/plugin';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { coreTools } from '../src/builtins/tools';
-import { confirmPlugin } from '../src/builtins/confirm';
-import { createEngine } from '../src/core/create';
-import { listTools, type ToolListing } from '../src/core/tool-list';
-import { createSessionChanges } from '../src/cli/changes';
-import { createSessionCommands } from '../src/cli/commands';
-import { createPalette } from '../src/cli/ansi';
+import type { ModelProvider } from '@deepcode/contract/model-provider';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { coreTools } from '@deepcode/builtins/tools';
+import { confirmPlugin } from '@deepcode/builtins/confirm';
+import { createEngine } from '@deepcode/core/create';
+import { listTools, type ToolListing } from '@deepcode/core/tool-list';
+import { createSessionChanges } from '@deepcode/cli/changes';
+import { createSessionCommands } from '@deepcode/cli/commands';
+import { createPalette } from '@deepcode/cli/ansi';
 
 /**
  * `/tools` 与 `/help` 的工具那一行（P9 §3.3）。

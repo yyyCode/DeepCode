@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseFrontmatter, readList, readScalar } from '../src/contract/frontmatter';
+import { parseFrontmatter, readList, readScalar } from '@deepcode/contract/frontmatter';
 
 /** 拼一份带 frontmatter 的文档。`head` 里可以用 \n 写多行。 */
 const doc = (head: string, body = '正文'): string => `---\n${head}\n---\n${body}`;

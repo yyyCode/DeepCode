@@ -1,6 +1,6 @@
 // test/hook-budget.test.ts
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
 import { createHarness } from './harness';
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

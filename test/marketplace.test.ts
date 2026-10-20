@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { validateMarketplace, type MarketplaceDeps } from '../src/contract/marketplace';
-import type { PluginReader } from '../src/contract/plugin-manifest';
+import { validateMarketplace, type MarketplaceDeps } from '@deepcode/contract/marketplace';
+import type { PluginReader } from '@deepcode/contract/plugin-manifest';
 
 /**
  * 一份内存里的 marketplace 现场：索引文本 + 若干「插件目录」。

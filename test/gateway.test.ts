@@ -1,7 +1,7 @@
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyManagedGateway, type ResolvedSettings } from '../src/cli/config';
-import { resolvePolicy, type ResolvedPolicy, type SettingsSource, type TextReader } from '../src/cli/settings';
+import { applyManagedGateway, type ResolvedSettings } from '@deepcode/cli/config';
+import { resolvePolicy, type ResolvedPolicy, type SettingsSource, type TextReader } from '@deepcode/cli/settings';
 
 /**
  * 出网位置只有托管层能钉（P5d，计划 Task 6）。

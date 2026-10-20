@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createPalette } from '../src/cli/ansi';
-import { createMarkdownStream, inline, wrap } from '../src/cli/markdown';
-import { createRenderer } from '../src/cli/render';
-import { displayWidth } from '../src/cli/width';
+import { createPalette } from '@deepcode/cli/ansi';
+import { createMarkdownStream, inline, wrap } from '@deepcode/cli/markdown';
+import { createRenderer } from '@deepcode/cli/render';
+import { displayWidth } from '@deepcode/cli/width';
 
 const plain = createPalette(false);
 const stream = (width = 80) => createMarkdownStream({ palette: plain, width });

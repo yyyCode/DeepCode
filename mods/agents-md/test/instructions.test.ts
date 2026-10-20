@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { CORE_ORIGIN } from '../../../src/contract/next';
-import type { ManagedInstruction } from '../../../src/contract/instructions';
-import { createEngine } from '../../../src/core/create';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { ManagedInstruction } from '@deepcode/contract/instructions';
+import { createEngine } from '@deepcode/core/create';
 import { createInstructionsPlugin } from '../instructions';
 import { scriptedProvider } from '../../../test/harness';
 

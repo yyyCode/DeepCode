@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { discoverSkills } from '../src/cli/skills';
+import { discoverSkills } from '@deepcode/cli/skills';
 
 let root = '';
 let home = '';

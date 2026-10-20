@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ModDeps } from '../../../src/contract/mod';
-import { DEFAULT_TELEMETRY } from '../../../src/contract/telemetry';
-import { CORE_ORIGIN } from '../../../src/contract/next';
+import type { ModDeps } from '@deepcode/contract/mod';
+import { DEFAULT_TELEMETRY } from '@deepcode/contract/telemetry';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
 import { createHarness, seat } from '../../../test/harness';
 import type { PaneModel } from '../pane';
 import { createDiffPanePlugin, diffSpec, plainRenderer, type PaneRenderer } from '../index';
@@ -10,7 +10,7 @@ import { createDiffPanePlugin, diffSpec, plainRenderer, type PaneRenderer } from
  * `/diff` 插件：它说什么、怎么说。
  *
  * 这个 mod **只**贡献一条命令的应答者（工作区那一块），本会话改动那一段是 CLI 补的
- * （见 `src/cli/diff-render.ts` 的 `formatPane`）—— 所以这里断言的是模型与渲染器
+ * （见 `packages/cli/src/diff-render.ts` 的 `formatPane`）—— 所以这里断言的是模型与渲染器
  * 之间的那一截，不是整屏输出。
  */
 

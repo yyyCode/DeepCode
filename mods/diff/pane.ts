@@ -8,7 +8,7 @@ import type { DiffLine } from './lines';
  *
  * 1. **不可变**：所有字段 `readonly`，派生只走纯函数，没有一处就地改。
  *    于是"同一份改动算两次，模型逐字节相同"是可以断言的（§5.3 判据三）。
- * 2. **颜色不在里面**：哪一行是 add / del 是**数据**，怎么上色是 `src/cli/diff-render.ts`
+ * 2. **颜色不在里面**：哪一行是 add / del 是**数据**，怎么上色是 `packages/cli/src/diff-render.ts`
  *    的事。这个 mod 连 `Palette` 这三个字都不许出现（边界规则）。
  * 3. **退化是模型的一个**字段**，不是一次异常**：`detailed` + `why` 让"我只看了一眼摘要"
  *    与"我看清了每一行"在下游分得开 —— 而 `lines: null` 说的是**没算过**，

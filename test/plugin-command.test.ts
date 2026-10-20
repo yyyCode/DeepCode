@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseArgs } from '../src/cli/args';
-import { runPluginCommand } from '../src/cli/plugin-command';
+import { parseArgs } from '@deepcode/cli/args';
+import { runPluginCommand } from '@deepcode/cli/plugin-command';
 
 describe('parseArgs 的 plugin 子命令', () => {
   it('plugin list', () => {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Message, ModelProvider, StreamEvent } from '../src/contract/model-provider';
-import type { Plugin } from '../src/contract/plugin';
-import type { LoopContext } from '../src/core/loop';
-import { MAX_STOP_BLOCKS, runTurn } from '../src/core/loop';
-import { createEngine } from '../src/core/create';
+import type { Message, ModelProvider, StreamEvent } from '@deepcode/contract/model-provider';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { LoopContext } from '@deepcode/core/loop';
+import { MAX_STOP_BLOCKS, runTurn } from '@deepcode/core/loop';
+import { createEngine } from '@deepcode/core/create';
 
 /**
  * 一轮**怎么收场**（P8）。

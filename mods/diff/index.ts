@@ -1,5 +1,5 @@
-import type { ModDeps, ModSpec } from '../../src/contract/mod';
-import type { Plugin } from '../../src/contract/plugin';
+import type { ModDeps, ModSpec } from '@deepcode/contract/mod';
+import type { Plugin } from '@deepcode/contract/plugin';
 import { backendOf, type Backend, type BackendProbe } from './backend';
 import { createGitBackend, gitProbe } from './git';
 import { buildPane, type PaneModel } from './pane';
@@ -11,7 +11,7 @@ import { buildPane, type PaneModel } from './pane';
  * 数据，住在 `cli/changes.ts`，由 CLI 侧的渲染器补上来 —— 所有权判定见 P5c 计划 §1.2。
  * 这么分是因为：**只有这一块会在 git 缺席时消失**，而 §5.3 判据一说的正是它。
  *
- * ⚠️ **它 import 不到 `src/cli/` 下的任何东西**（`scripts/check-boundaries.mjs` 强制）。
+ * ⚠️ **它 import 不到 `packages/cli/src/` 下的任何东西**（`scripts/check-boundaries.mjs` 强制）。
  * 所以上色不在这里 —— 这个 mod 只产出 `PaneModel`（纯数据），
  * 由 CLI 注入的渲染器 `PaneRenderer` 把它变成带颜色的文本。
  * "把 `ansi.ts` 一起搬进 mod"是绕开规则，不是遵守它（P5 设计 §3.2）。

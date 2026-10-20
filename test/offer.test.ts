@@ -1,6 +1,6 @@
 // test/offer.test.ts
 import { describe, expect, it } from 'vitest';
-import { renderOffer } from '../src/cli/offer';
+import { renderOffer } from '@deepcode/cli/offer';
 
 const AGENT = { name: 'explorer', description: '深入探索代码库', tools: ['Read', 'Grep'] as const };
 const SKILL = { name: 'design-notes', description: '本项目的设计口径' };

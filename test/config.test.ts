@@ -8,7 +8,7 @@ import {
   maskSecret,
   resolveSettings,
   setConfigValue,
-} from '../src/cli/config';
+} from '@deepcode/cli/config';
 
 const HOME = '/home/u';
 const ROOT = '/work/p';

@@ -7,14 +7,14 @@
 // 13 次模型请求，而 Task 那条路径的上限是 3"。转正的意思是：**它们现在必须反过来成立** ——
 // 下面每一条断言，都是 P10 之前会红的那一格。
 import { describe, expect, it } from 'vitest';
-import type { AgentSpec, AgentSpawnResult } from '../src/contract/agent';
-import type { Message, ModelProvider, StreamEvent, StreamRequest } from '../src/contract/model-provider';
-import type { Plugin } from '../src/contract/plugin';
-import { confirmPlugin } from '../src/builtins/confirm';
-import { coreTools } from '../src/builtins/tools';
-import { createEngine } from '../src/core/create';
-import { runTurn, type LoopContext } from '../src/core/loop';
-import { createSubagentsPlugin } from '../src/cli/subagents';
+import type { AgentSpec, AgentSpawnResult } from '@deepcode/contract/agent';
+import type { Message, ModelProvider, StreamEvent, StreamRequest } from '@deepcode/contract/model-provider';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { confirmPlugin } from '@deepcode/builtins/confirm';
+import { coreTools } from '@deepcode/builtins/tools';
+import { createEngine } from '@deepcode/core/create';
+import { runTurn, type LoopContext } from '@deepcode/core/loop';
+import { createSubagentsPlugin } from '@deepcode/cli/subagents';
 
 const agentSpec = (spec: Partial<AgentSpec> & { name: string }): AgentSpec => ({
   description: `${spec.name} 的描述`,

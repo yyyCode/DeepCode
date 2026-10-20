@@ -1,6 +1,6 @@
-import { evaluate, fullyDeniedTools, isLooser, type Rule } from '../../src/contract/policy';
-import type { ModSpec } from '../../src/contract/mod';
-import type { Plugin } from '../../src/contract/plugin';
+import { evaluate, fullyDeniedTools, isLooser, type Rule } from '@deepcode/contract/policy';
+import type { ModSpec } from '@deepcode/contract/mod';
+import type { Plugin } from '@deepcode/contract/plugin';
 
 /** 检查没跑完时用的规则名。它会被原样报给用户，所以写成一句话而不是一个代号。 */
 export const UNCHECKED_DENY = 'sec-default: 检查未完成，按拒绝处理';

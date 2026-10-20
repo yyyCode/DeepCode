@@ -1,7 +1,7 @@
 /**
- * 行级 diff 的算法。**纯数据、纯函数、不认识颜色**（P5c 从 `src/cli/diff.ts` 搬来的）。
+ * 行级 diff 的算法。**纯数据、纯函数、不认识颜色**（P5c 从 `packages/cli/src/diff.ts` 搬来的）。
  *
- * 上色（`Palette`）留在了 `src/cli/diff-render.ts` —— 边界规则不许 mod import `cli/ansi`，
+ * 上色（`Palette`）留在了 `packages/cli/src/diff-render.ts` —— 边界规则不许 mod import `cli/ansi`，
  * 而"把 `ansi.ts` 也搬进 mod"是绕开规则，不是遵守它（P5 设计 §3.2）。
  * 于是这个 mod 只能**产出模型**，渲染归引擎：`formatUnified` 拿这些 `DiffLine` 去上色。
  */

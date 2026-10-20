@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONTEXT_MARKER, withContext } from '../src/contract/prompt-channel';
+import { CONTEXT_MARKER, withContext } from '@deepcode/contract/prompt-channel';
 
 describe('withContext', () => {
   it('没有上下文时原样返回，不留标记', () => {

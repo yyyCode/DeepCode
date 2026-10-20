@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { classify, expandHookCommand, runHook, type HookContext, type HookRun } from '../src/cli/hook-run';
+import { classify, expandHookCommand, runHook, type HookContext, type HookRun } from '@deepcode/cli/hook-run';
 
 const HOOKS_DIR = fileURLToPath(new URL('fixtures/hooks/', import.meta.url));
 const NODE = JSON.stringify(process.execPath);

@@ -9,7 +9,7 @@ import {
   parseRule,
   type Behavior,
   type Rule,
-} from '../src/contract/policy';
+} from '@deepcode/contract/policy';
 
 const HOME = 'C:\\Users\\x';
 

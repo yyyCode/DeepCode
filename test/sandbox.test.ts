@@ -3,13 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { candidatePaths, sandboxRule, type SandboxConfig } from '../src/contract/sandbox';
-import { parseRule, type Rule } from '../src/contract/policy';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { Plugin } from '../src/contract/plugin';
-import { checkSandbox } from '../src/core/nouns/sandbox';
-import { createEngine } from '../src/core/create';
-import { bashTool } from '../src/builtins/tools/bash';
+import { candidatePaths, sandboxRule, type SandboxConfig } from '@deepcode/contract/sandbox';
+import { parseRule, type Rule } from '@deepcode/contract/policy';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { checkSandbox } from '@deepcode/core/nouns/sandbox';
+import { createEngine } from '@deepcode/core/create';
+import { bashTool } from '@deepcode/builtins/tools/bash';
 import { scriptedProvider } from './harness';
 
 /**

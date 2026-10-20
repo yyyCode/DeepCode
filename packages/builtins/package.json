@@ -1,0 +1,13 @@
+{
+  "name": "@deepcode/builtins",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tools": "./src/tools/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@deepcode/contract": "workspace:*"
+  }
+}

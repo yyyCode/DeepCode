@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { StreamRequest } from '../src/contract/model-provider';
-import { createAnthropicProvider } from '../src/providers/anthropic';
-import { createOpenAIProvider } from '../src/providers/openai';
+import type { StreamRequest } from '@deepcode/contract/model-provider';
+import { createAnthropicProvider } from '@deepcode/providers/anthropic';
+import { createOpenAIProvider } from '@deepcode/providers/openai';
 
 const REQUEST: StreamRequest = {
   system: 's',

@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MANAGED_ENV, readManagedSettings, type ManagedRun } from '../src/cli/managed';
-import { parsePlist } from '../src/cli/managed-plist';
-import { parseRegistryQuery } from '../src/cli/managed-registry';
-import { resolvePolicy, type ResolvedPolicy, type TextReader } from '../src/cli/settings';
+import { MANAGED_ENV, readManagedSettings, type ManagedRun } from '@deepcode/cli/managed';
+import { parsePlist } from '@deepcode/cli/managed-plist';
+import { parseRegistryQuery } from '@deepcode/cli/managed-registry';
+import { resolvePolicy, type ResolvedPolicy, type TextReader } from '@deepcode/cli/settings';
 
 /**
  * 托管推送的三条通道（P5d）。

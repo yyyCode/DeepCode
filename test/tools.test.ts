@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness } from './harness';
-import { coreTools } from '../src/builtins/tools';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { EngineInterface } from '../src/contract/engine';
-import type { EventHook } from '../src/contract/plugin';
-import { createFsNoun } from '../src/core/nouns/fs';
-import { createProcessNoun } from '../src/core/nouns/process';
-import { createStoreNoun } from '../src/core/nouns/store';
+import { coreTools } from '@deepcode/builtins/tools';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import type { EventHook } from '@deepcode/contract/plugin';
+import { createFsNoun } from '@deepcode/core/nouns/fs';
+import { createProcessNoun } from '@deepcode/core/nouns/process';
+import { createStoreNoun } from '@deepcode/core/nouns/store';
 
 let root: string;
 

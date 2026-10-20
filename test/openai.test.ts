@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createOpenAIProvider } from '../src/providers/openai';
-import type { Message, StreamEvent, ToolSpec } from '../src/contract/model-provider';
+import { createOpenAIProvider } from '@deepcode/providers/openai';
+import type { Message, StreamEvent, ToolSpec } from '@deepcode/contract/model-provider';
 
 /**
  * 盯的是 OpenAI 兼容端的 SSE 解析与消息转换。与 provider.test.ts 同一教训：

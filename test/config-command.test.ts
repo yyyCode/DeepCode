@@ -2,10 +2,10 @@ import { mkdtemp, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { EngineInterface } from '../src/contract/engine';
-import { createConfigCommand, renderEntries } from '../src/cli/config-command';
-import { createEngine } from '../src/core/create';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import { createConfigCommand, renderEntries } from '@deepcode/cli/config-command';
+import { createEngine } from '@deepcode/core/create';
 import { createHarness, scriptedProvider, seat } from './harness';
 
 /**

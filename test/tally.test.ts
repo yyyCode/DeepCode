@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createPalette } from '../src/cli/ansi';
-import type { FileChange } from '../src/cli/changes';
-import { changeStat, formatChange } from '../src/cli/diff-render';
-import { previewLines, stat } from '../src/cli/preview-view';
-import { createTally, exitLines, formatElapsed, formatTokens } from '../src/cli/tally';
+import { createPalette } from '@deepcode/cli/ansi';
+import type { FileChange } from '@deepcode/cli/changes';
+import { changeStat, formatChange } from '@deepcode/cli/diff-render';
+import { previewLines, stat } from '@deepcode/cli/preview-view';
+import { createTally, exitLines, formatElapsed, formatTokens } from '@deepcode/cli/tally';
 
 const plain = createPalette(false);
 const root = '/repo';

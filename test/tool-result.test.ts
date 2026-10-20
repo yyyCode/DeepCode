@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Plugin } from '../src/contract/plugin';
-import type { Message, ModelProvider, StreamEvent, ToolResult } from '../src/contract/model-provider';
-import type { Args } from '../src/contract/events';
-import type { LoopContext } from '../src/core/loop';
-import { runTurn } from '../src/core/loop';
-import { createEngine } from '../src/core/create';
-import { CONTEXT_MARKER } from '../src/contract/prompt-channel';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { Message, ModelProvider, StreamEvent, ToolResult } from '@deepcode/contract/model-provider';
+import type { Args } from '@deepcode/contract/events';
+import type { LoopContext } from '@deepcode/core/loop';
+import { runTurn } from '@deepcode/core/loop';
+import { createEngine } from '@deepcode/core/create';
+import { CONTEXT_MARKER } from '@deepcode/contract/prompt-channel';
 
 type Seen = Args<'tool.result'>;
 

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 /**
  * 真起 `hook.mjs` 这个进程来测 —— 与 `hook-run.test.ts` / `plugin-e2e.test.ts`
  * 同一套做法。不静态 import 那几个 `.mjs`：它们不在 `tsconfig.json` 的 `include`
- * 里（`["src","test","scripts"]`，且没有 `allowJs`），import 过来 tsc 会红。
+ * 里（`["packages","test","scripts","mods"]`，且没有 `allowJs`），import 过来 tsc 会红。
  */
 const HOOK = fileURLToPath(new URL('../plugins/hookify/hooks/hook.mjs', import.meta.url));
 

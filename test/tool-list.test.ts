@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ModelProvider } from '../src/contract/model-provider';
-import type { Plugin } from '../src/contract/plugin';
-import { createEngine } from '../src/core/create';
-import { Registry } from '../src/core/registry';
-import { listTools, toolSpecChars, toolsChars } from '../src/core/tool-list';
-import { coreTools } from '../src/builtins/tools';
+import type { ModelProvider } from '@deepcode/contract/model-provider';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { createEngine } from '@deepcode/core/create';
+import { Registry } from '@deepcode/core/registry';
+import { listTools, toolSpecChars, toolsChars } from '@deepcode/core/tool-list';
+import { coreTools } from '@deepcode/builtins/tools';
 
 const NO_MODEL: ModelProvider = {
   name: 'none',

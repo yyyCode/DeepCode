@@ -1,0 +1,38 @@
+{
+  "name": "@deepcode/companion",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"tsx watch src/local.ts\" \"vite\"",
+    "dev:server": "tsx watch src/local.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "tsx src/local.ts",
+    "start:cloud": "tsx src/cloud.ts",
+    "asr:model": "node scripts/download-asr-model.mjs",
+    "typecheck": "tsc -p web/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@deepcode/contract": "workspace:*",
+    "@deepcode/providers": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

@@ -11,17 +11,27 @@ const ROOT_DIR = (process.argv[2] ?? new URL('..', import.meta.url).pathname).re
   /^\/([A-Za-z]:)/,
   '$1',
 );
-const SRC = join(ROOT_DIR, 'src');
+const PACKAGES = join(ROOT_DIR, 'packages');
 const PLUGINS = join(ROOT_DIR, 'plugins');
 const MODS = join(ROOT_DIR, 'mods');
 
-// 每个目录允许 import 的 src 顶层目录白名单（'*' 表示不限）
-const RULES = {
-  contract: [],
-  core: ['contract'],
-  providers: ['contract'],
-  builtins: ['contract'],
-  cli: ['contract', 'core', 'providers', 'builtins'],
+// 每个包允许 import 的 @deepcode/* 包。相对路径只许留在自己的 src/ 里。
+// 这套规则就是原来"src/ 按顶层目录"那张表的物理版。
+const PACKAGE_RULES = {
+  '@deepcode/contract': [],
+  '@deepcode/core': ['@deepcode/contract'],
+  '@deepcode/providers': ['@deepcode/contract'],
+  '@deepcode/builtins': ['@deepcode/contract'],
+  '@deepcode/mcp': ['@deepcode/contract'],
+  '@deepcode/cli': [
+    '@deepcode/contract',
+    '@deepcode/core',
+    '@deepcode/providers',
+    '@deepcode/builtins',
+    '@deepcode/mcp',
+  ],
+  // 陪伴端只需要「和模型说话」这一层：不碰 core 的循环，也不依赖 CLI 的渲染。
+  '@deepcode/companion': ['@deepcode/contract', '@deepcode/providers'],
 };
 
 // `.mjs` / `.js` 也要看：`plugins/` 下的插件是 `.mjs`，在加上这一条之前，
@@ -33,9 +43,8 @@ const SOURCE_EXT = ['.ts', '.mjs', '.js'];
 // 只认 import 的话，一句 `export * from '../core/x'` 能整个溜过去。
 const IMPORT_FROM_RE = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?[^'"]*from\s+['"]([^'"]+)['"]/g;
 
-// 副作用式导入（`import 'fs-extra'` / `import '../../src/x'`）**没有 `from`**，上面那条认不出来。
+// 副作用式导入（`import 'fs-extra'` / `import '../../packages/core/x'`）**没有 `from`**，上面那条认不出来。
 // 这不是边角情形：一个插件要把引擎模块整个拉进来，最顺手的写法就是这个。
-// （反向验证时先漏了这一条，是"改坏一次看它红不红"把它逼出来的。）
 const SIDE_EFFECT_RE = /(?:^|\n)\s*import\s+['"]([^'"]+)['"]/g;
 
 /** 一份源码里所有的导入说明符，两种写法都收。 */
@@ -62,48 +71,75 @@ function walk(dir) {
   return out;
 }
 
+/** `@deepcode/core/loop` → `@deepcode/core`；不是这个前缀返回 undefined。 */
+function packageOf(spec) {
+  const match = /^(@deepcode\/[^/]+)(?:\/|$)/.exec(spec);
+  return match?.[1];
+}
+
 const problems = [];
 
-// ── src/：按顶层目录定规则 ────────────────────────────────────────────
-// `existsSync` 这一守是必要的：git 不跟踪空目录，新克隆里可能没有 src/，
-// 不守就会以 ENOENT 崩掉，而不是"检查通过"。
-if (existsSync(SRC)) {
-  for (const file of walk(SRC)) {
-    const area = relative(SRC, file).replace(/\\/g, '/').split('/')[0];
-    const allowed = RULES[area];
-    if (!allowed) continue;
+// ── packages/：包边界 ───────────────────────────────────────────────
+// 包内用相对路径；跨包必须写 `@deepcode/<包>`，且目标包在规则里。
+// 相对路径逃出 packages/<自己>/src 是违规 —— 那种写法绕过了包依赖声明。
+if (existsSync(PACKAGES)) {
+  for (const entry of readdirSync(PACKAGES)) {
+    const src = join(PACKAGES, entry, 'src');
+    if (!existsSync(src) || !statSync(src).isDirectory()) continue;
 
-    const text = readFileSync(file, 'utf8');
-    for (const spec of importsOf(text)) {
-      if (!spec.startsWith('.')) continue; // 只查相对导入
-      const rel = relative(SRC, join(file, '..', spec)).replace(/\\/g, '/');
-      if (rel.startsWith('..')) {
-        // 相对导入逃出 src/ 有两种情形，一种是错、一种是对的：
-        //   - 落到 mods/<name>/：**放行，但只从 cli/ 出发**。单向依赖 ——
-        //     CLI 负责把内建 mod 装起来；内核（core/）与 builtins/ 不认识 mod
-        //     （`core/create.ts` 那句"内核没有硬编码的工具表"是同一条）。
-        //   - 其它任何地方：几乎总是相对路径层级写错了 —— 比如
-        //     src/builtins/confirm.ts（比 tools/ 高一层）用了 tools/ 才该用的
-        //     '../../contract/plugin'，实际解析成 <repo>/contract/plugin。
-        const repoRel = relative(ROOT_DIR, join(file, '..', spec)).replace(/\\/g, '/');
-        if (repoRel.startsWith('mods/') && area === 'cli') continue;
-        if (repoRel.startsWith('mods/')) {
-          problems.push(
-            `${shown(file)}: 只有 cli/ 可以 import 内建 mod（${repoRel}）—— 内核与 builtins 不认识 mod`,
-          );
+    const pkg = `@deepcode/${entry}`;
+    const allowed = PACKAGE_RULES[pkg];
+    // 没登记的目录不猜 —— 新包要先在这张表里表态。
+    if (!allowed) {
+      problems.push(`packages/${entry}: 没在 PACKAGE_RULES 里登记依赖规则`);
+      continue;
+    }
+    const ownSrc = `packages/${entry}/src/`;
+
+    for (const file of walk(src)) {
+      const text = readFileSync(file, 'utf8');
+      for (const spec of importsOf(text)) {
+        if (spec.startsWith('.')) {
+          const target = relative(ROOT_DIR, join(file, '..', spec)).replace(/\\/g, '/');
+          if (target === ownSrc.slice(0, -1) || target.startsWith(ownSrc)) continue;
+
+          // 唯一的例外：CLI 负责把内建 mod 装起来。单向依赖 —— 内核与 builtins
+          // 不认识 mod（`core/create.ts` 那句"内核没有硬编码的工具表"是同一条）。
+          if (pkg === '@deepcode/cli' && (target === 'mods' || target.startsWith('mods/'))) continue;
+          if (target === 'mods' || target.startsWith('mods/')) {
+            problems.push(
+              `${shown(file)}: 只有 @deepcode/cli 可以 import 内建 mod（${target}）—— 内核与 builtins 不认识 mod`,
+            );
+            continue;
+          }
+
+          if (target.startsWith('packages/')) {
+            const other = target.split('/')[1];
+            const otherPkg = `@deepcode/${other}`;
+            problems.push(
+              `${shown(file)}: 相对路径跨到了 ${otherPkg}（跨包请用 '${otherPkg}/...'）`,
+            );
+          } else {
+            problems.push(`${shown(file)}: import ${spec} 逃出了 ${ownSrc.slice(0, -1)}`);
+          }
           continue;
         }
-        problems.push(
-          `${shown(file)}: import ${spec} 逃出了 src/（多半是相对路径层级写错）`,
-        );
-        continue;
-      }
-      const targetArea = rel.split('/')[0];
-      if (targetArea === area) continue; // 同目录内部不算越界
-      if (!allowed.includes(targetArea)) {
-        problems.push(
-          `${shown(file)}: 不允许 import ${targetArea}/（只允许 ${allowed.join(', ') || '无'}）`,
-        );
+
+        const targetPkg = packageOf(spec);
+        if (targetPkg === undefined) continue; // node: 与普通依赖不在这张表管
+        if (!(targetPkg in PACKAGE_RULES)) {
+          problems.push(`${shown(file)}: 未知的包 ${targetPkg}`);
+          continue;
+        }
+        if (targetPkg === pkg) {
+          problems.push(`${shown(file)}: 包内请用相对路径，不要写 ${targetPkg}`);
+          continue;
+        }
+        if (!allowed.includes(targetPkg)) {
+          problems.push(
+            `${shown(file)}: 不允许 import ${targetPkg}（只允许 ${allowed.join(', ') || '无'}）`,
+          );
+        }
       }
     }
   }
@@ -113,6 +149,7 @@ if (existsSync(SRC)) {
 // 只许 `node:` 内建，或停在**自己那个插件目录里**的相对路径。
 // 裸包名会解析到**宿主的** node_modules —— 那是隐式耦合：今天能跑，
 // 只是因为宿主恰好装了那个包；插件要独立分发的那天必炸。
+// `@deepcode/*` 同样算裸包名：插件只通过 hook 契约在运行时与引擎说话。
 if (existsSync(PLUGINS)) {
   for (const file of walk(PLUGINS)) {
     const owner = relative(PLUGINS, file).replace(/\\/g, '/').split('/')[0];
@@ -140,10 +177,10 @@ if (existsSync(PLUGINS)) {
 }
 
 // ── mods/：内建 mod ──────────────────────────────────────────────────
-// 只许 `node:` 内建、`src/contract/`（契约）、或自己这个 mod 目录里的相对路径。
+// 只许 `node:` 内建、`@deepcode/contract`（契约）、或自己这个 mod 目录里的相对路径。
 //
 // 这条规则是 README 那句"内建与第三方走同一条接口"从口号变成强制的那一步：
-// 一个 mod 拿不到 `src/core` 的实现细节，也拿不到 `src/cli` 的渲染器 ——
+// 一个 mod 拿不到 `@deepcode/core` 的实现细节，也拿不到 `@deepcode/cli` 的渲染器 ——
 // 它对引擎的认知**与一个第三方插件一样少**。
 //
 // ⚠️ 它有个值钱的副作用：diff mod 因此**只能产出数据模型**，上色必须留在 cli 侧
@@ -161,6 +198,11 @@ if (existsSync(MODS)) {
     const text = readFileSync(file, 'utf8');
     for (const spec of importsOf(text)) {
       if (spec.startsWith('node:')) continue;
+      if (spec === '@deepcode/contract' || spec.startsWith('@deepcode/contract/')) continue;
+      if (spec.startsWith('@deepcode/')) {
+        problems.push(`${shown(file)}: mod 只许 import @deepcode/contract（这条指向 ${spec}）`);
+        continue;
+      }
       if (!spec.startsWith('.')) {
         problems.push(`${shown(file)}: 不允许裸包名 ${spec}（内建 mod 只通过契约与引擎说话）`);
         continue;
@@ -168,13 +210,6 @@ if (existsSync(MODS)) {
       const target = relative(ROOT_DIR, join(file, '..', spec)).replace(/\\/g, '/');
       if (target.startsWith('..')) {
         problems.push(`${shown(file)}: import ${spec} 逃出了仓库`);
-        continue;
-      }
-      if (target.startsWith('src/contract/')) continue;
-      if (target.startsWith('src/')) {
-        problems.push(
-          `${shown(file)}: mod 只许 import src/contract/（这条指向 ${target}）`,
-        );
         continue;
       }
       if (target === `mods/${owner}` || target.startsWith(`mods/${owner}/`)) continue;
@@ -191,8 +226,8 @@ if (problems.length > 0) {
   console.error('依赖边界违规：\n' + problems.map((p) => `  ✗ ${p}`).join('\n'));
   process.exit(1);
 }
-if (!existsSync(SRC) && !existsSync(PLUGINS)) {
-  console.log('依赖边界检查通过（src/ 与 plugins/ 都不存在）');
+if (!existsSync(PACKAGES) && !existsSync(PLUGINS)) {
+  console.log('依赖边界检查通过（packages/ 与 plugins/ 都不存在）');
 } else {
   console.log('依赖边界检查通过');
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { createPluginGuardPlugin } from '../src/builtins/plugin-guard';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { createPluginGuardPlugin } from '@deepcode/builtins/plugin-guard';
 import { createHarness, seat } from './harness';
 
 function mount(deny: readonly { name: string; source: string }[], firstParty: readonly string[]) {

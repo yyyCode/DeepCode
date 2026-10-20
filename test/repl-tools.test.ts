@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Message, ModelProvider, StreamEvent, ToolSpec } from '../src/contract/model-provider';
-import type { Plugin } from '../src/contract/plugin';
-import { createEngine } from '../src/core/create';
-import { startRepl } from '../src/cli/repl';
-import { createLineQueue } from '../src/cli/input';
-import { createTurnSignals } from '../src/cli/turns';
-import { contextReport } from '../src/cli/context-view';
-import type { Renderer } from '../src/cli/render';
+import type { Message, ModelProvider, StreamEvent, ToolSpec } from '@deepcode/contract/model-provider';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { createEngine } from '@deepcode/core/create';
+import { startRepl } from '@deepcode/cli/repl';
+import { createLineQueue } from '@deepcode/cli/input';
+import { createTurnSignals } from '@deepcode/cli/turns';
+import { contextReport } from '@deepcode/cli/context-view';
+import type { Renderer } from '@deepcode/cli/render';
 import { fakeReadline } from './harness';
 
 /**

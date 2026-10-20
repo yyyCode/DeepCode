@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createHarness, scriptedProvider } from './harness';
-import { createEngine } from '../src/core/create';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { Plugin } from '../src/contract/plugin';
-import { NotImplementedError } from '../src/core/errors';
+import { createEngine } from '@deepcode/core/create';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { NotImplementedError } from '@deepcode/core/errors';
 
 const CALL = 'tool.call';
 const args = { tool: 'Read', input: {}, toolUseId: 't1' };
@@ -291,7 +291,7 @@ describe('链语义', () => {
     await expect(
       h.dispatch('ui.render', { tree: { type: 'root' } }, CORE_ORIGIN),
     ).rejects.toBeInstanceOf(NotImplementedError);
-    // 顺带钉住 message 格式（见 src/core/errors.ts 的 constructor）。
+    // 顺带钉住 message 格式（见 packages/core/src/errors.ts 的 constructor）。
     await expect(
       h.dispatch('ui.render', { tree: { type: 'root' } }, CORE_ORIGIN),
     ).rejects.toThrow('event not implemented in MVP: ui.render');
@@ -342,7 +342,7 @@ describe('座位算法：同 tier 内按插件分组', () => {
 describe('fail-closed', () => {
   it('tool.check 无人应答时，链尾返回 deny 而不是 allow', async () => {
     // 故意走真实的 createEngine，不借 harness 塞桩。
-    // fail-closed 是 src/core/create.ts 里那条内核实现的属性，用测试自己提供的桩去测
+    // fail-closed 是 packages/core/src/create.ts 里那条内核实现的属性，用测试自己提供的桩去测
     // 等于自问自答：把内核那条改成 allow，桩版本照样绿。这条是 MVP 唯一一条 fail-closed，
     // 也是 P2 全部安全性质的种子，必须真的钉在内核实现上。
     const built = await realEngine();

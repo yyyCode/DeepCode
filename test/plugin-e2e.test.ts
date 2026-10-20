@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { Plugin } from '../src/contract/plugin';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { confirmPlugin } from '../src/builtins/confirm';
-import { coreTools } from '../src/builtins/tools';
-import { createEngine } from '../src/core/create';
-import { discoverPlugins, loadPlugins } from '../src/cli/plugin-dir';
+import type { Plugin } from '@deepcode/contract/plugin';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { confirmPlugin } from '@deepcode/builtins/confirm';
+import { coreTools } from '@deepcode/builtins/tools';
+import { createEngine } from '@deepcode/core/create';
+import { discoverPlugins, loadPlugins } from '@deepcode/cli/plugin-dir';
 import { scriptedProvider } from './harness';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -167,12 +167,12 @@ describe('出口标准一：不改引擎的插件扩展出新能力', () => {
 });
 
 describe('「不改引擎」的字面证明', () => {
-  it('src/ 里一个字的 secret-guard / TodoWrite 都没有', async () => {
+  it('packages/ 里一个字的 secret-guard / TodoWrite 都没有', async () => {
     // 出口标准一那句话的**字面**证明。设计 §10 要求有这条断言（计划里漏了）：
     // 上面那些用例证明的是"装上去能用"，这一条证明的是"内核压根没为它们改过一行" ——
     // 两句话不是一回事，缺了后一句这个出口标准就只是自证。
     const hits: string[] = [];
-    for (const file of await walking(join(REPO, 'src'))) {
+    for (const file of await walking(join(REPO, 'packages'))) {
       const text = await readFile(file, 'utf8');
       if (/secret-guard|TodoWrite|hookify/.test(text)) hits.push(relative(REPO, file));
     }

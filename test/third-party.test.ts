@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { EventHook, Plugin } from '../src/contract/plugin';
-import type { Tier } from '../src/contract/tier';
-import { createEngine } from '../src/core/create';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { EventHook, Plugin } from '@deepcode/contract/plugin';
+import type { Tier } from '@deepcode/contract/tier';
+import { createEngine } from '@deepcode/core/create';
 import { scriptedProvider } from './harness';
 
 async function build(

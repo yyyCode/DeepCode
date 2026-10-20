@@ -1,0 +1,20 @@
+{
+  "name": "@deepcode/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "deepcode": "./bin/deepcode.mjs"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@deepcode/builtins": "workspace:*",
+    "@deepcode/contract": "workspace:*",
+    "@deepcode/core": "workspace:*",
+    "@deepcode/mcp": "workspace:*",
+    "@deepcode/providers": "workspace:*",
+    "tsx": "^4.19.0"
+  }
+}

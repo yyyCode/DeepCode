@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHarness } from './harness';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { EngineInterface, FsNoun } from '../src/contract/engine';
-import type { EventHook } from '../src/contract/plugin';
-import { createFsNoun } from '../src/core/nouns/fs';
-import { createChangesPlugin, createSessionChanges, MAX_SNAPSHOT_BYTES } from '../src/cli/changes';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { EngineInterface, FsNoun } from '@deepcode/contract/engine';
+import type { EventHook } from '@deepcode/contract/plugin';
+import { createFsNoun } from '@deepcode/core/nouns/fs';
+import { createChangesPlugin, createSessionChanges, MAX_SNAPSHOT_BYTES } from '@deepcode/cli/changes';
 
 let root: string;
 

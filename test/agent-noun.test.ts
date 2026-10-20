@@ -1,10 +1,10 @@
 // test/agent-noun.test.ts
 import { describe, expect, it } from 'vitest';
-import type { AgentSpawnResult } from '../src/contract/agent';
-import type { Plugin } from '../src/contract/plugin';
-import type { ModelProvider, StreamEvent } from '../src/contract/model-provider';
-import { CORE_ORIGIN } from '../src/contract/next';
-import { createEngine } from '../src/core/create';
+import type { AgentSpawnResult } from '@deepcode/contract/agent';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { ModelProvider, StreamEvent } from '@deepcode/contract/model-provider';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import { createEngine } from '@deepcode/core/create';
 
 /**
  * 断言这次派生**真的跑了**，并把它窄化到 `ok: true` 那一支（P10 之后结果是个联合：

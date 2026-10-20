@@ -5,31 +5,32 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createHarness, modPlugins, scriptedProvider, seat } from './harness';
-import { parseArgs, readVersion } from '../src/cli/args';
-import { createPalette } from '../src/cli/ansi';
-import { createSessionChanges } from '../src/cli/changes';
-import { createSessionCommands } from '../src/cli/commands';
-import { createPermissionsCommand } from '../src/cli/permissions-command';
-import { createSessionGrants } from '../src/builtins/permissions';
-import { streamPlugin } from '../src/cli/stream';
-import { cliPlugins } from '../src/cli/plugins';
-import type { CliPluginDeps } from '../src/cli/plugins';
-import { createTurnSignals } from '../src/cli/turns';
-import { createEngine } from '../src/core/create';
-import { runTurn } from '../src/core/loop';
-import type { CoreImpls } from '../src/core/dispatch';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { Renderer } from '../src/cli/render';
+import { parseArgs, readVersion } from '@deepcode/cli/args';
+import { createPalette } from '@deepcode/cli/ansi';
+import { createSessionChanges } from '@deepcode/cli/changes';
+import { createSessionCommands } from '@deepcode/cli/commands';
+import { createPermissionsCommand } from '@deepcode/cli/permissions-command';
+import { createSessionGrants } from '@deepcode/builtins/permissions';
+import { streamPlugin } from '@deepcode/cli/stream';
+import { cliPlugins } from '@deepcode/cli/plugins';
+import type { CliPluginDeps } from '@deepcode/cli/plugins';
+import { createTurnSignals } from '@deepcode/cli/turns';
+import { createEngine } from '@deepcode/core/create';
+import { runTurn } from '@deepcode/core/loop';
+import type { CoreImpls } from '@deepcode/core/dispatch';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { Renderer } from '@deepcode/cli/render';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
   EMPTY_SANDBOX,
   type ResolvedPolicy,
-} from '../src/cli/settings';
-import type { EventHook, Plugin } from '../src/contract/plugin';
-import type { Rule } from '../src/contract/policy';
-import type { EngineInterface } from '../src/contract/engine';
-import type { Message } from '../src/contract/model-provider';
+} from '@deepcode/cli/settings';
+import type { EventHook, Plugin } from '@deepcode/contract/plugin';
+import type { Rule } from '@deepcode/contract/policy';
+import type { EngineInterface } from '@deepcode/contract/engine';
+import type { Message } from '@deepcode/contract/model-provider';
+import type { McpHost } from '@deepcode/mcp';
 
 /** 假 renderer：只把 delta 攒起来，好在断言里看到模型到底说出了什么。 */
 function spyRenderer(): { render: Renderer; written: () => string } {
@@ -365,6 +366,40 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
     ]);
   });
 
+  it('MCP 工具在真实装配里得到 ask —— 它排在 confirm 前面，不被当成未知工具拒掉', async () => {
+    // 反向钉住 plugins.ts 里 createMcpPlugin 与 confirmPlugin 的先后。
+    // 同 tier 内先装载者在外层；调个个儿，confirm 对不认识的工具直接 deny，
+    // MCP 的 hook 连一次都跑不到 —— 工具一出生就是死的，而 typecheck 全绿。
+    const host: McpHost = {
+      tools: [
+        {
+          server: 'fake',
+          name: 'echo',
+          visibleName: 'mcp__fake__echo',
+          description: '回显',
+          inputSchema: { type: 'object' },
+        },
+      ],
+      call: async () => ({ text: 'ok', isError: false }),
+      close: async () => {},
+      killSync: () => {},
+    };
+    const h = await registered(
+      NO_POLICY,
+      NOOP_UI,
+      { 'tool.check': () => ({ decision: 'deny', rule: 'fail-closed' }) as const },
+      { mcp: host },
+    );
+
+    expect(
+      await h.dispatch(
+        'tool.check',
+        { tool: 'mcp__fake__echo', input: { text: 'hi' }, toolUseId: 'tu_1' },
+        CORE_ORIGIN,
+      ),
+    ).toEqual({ decision: 'ask', rule: 'MCP 工具 fake/echo' });
+  });
+
   it('托管 deny 压过个人 allow —— 端到端一遍（出口标准 1）', async () => {
     // 链上走三步：confirm 对 Bash 给 ask → 个人规则 allow: ["Bash"] 把它放宽成 allow
     // → sec-default 拿托管策略的 deny 压回去。个人规则掀不翻托管 deny。
@@ -522,7 +557,7 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
 
     const { stdout } = await promisify(execFile)(
       process.execPath,
-      [resolve(process.cwd(), 'bin', 'deepcode.mjs'), '--help'],
+      [resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs'), '--help'],
       { cwd: process.cwd(), env },
     );
 
@@ -557,7 +592,7 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
       let code = 0;
       const { stderr } = await promisify(execFile)(
         process.execPath,
-        [resolve(process.cwd(), 'bin', 'deepcode.mjs'), '--resume'],
+        [resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs'), '--resume'],
         { cwd: process.cwd(), env },
       ).catch((error: any) => {
         code = error.code ?? 1;
@@ -600,7 +635,7 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
 
       const stdout = execFileSync(
         process.execPath,
-        [resolve(process.cwd(), 'bin', 'deepcode.mjs')],
+        [resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs')],
         { cwd: process.cwd(), env, input: '/help\n/exit\n', encoding: 'utf8', timeout: 60_000 },
       );
 
@@ -639,7 +674,7 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
 
       const stdout = execFileSync(
         process.execPath,
-        [resolve(process.cwd(), 'bin', 'deepcode.mjs')],
+        [resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs')],
         { cwd: process.cwd(), env, input: '/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
       );
 
@@ -679,7 +714,7 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
 
       const stdout = execFileSync(
         process.execPath,
-        [resolve(process.cwd(), 'bin', 'deepcode.mjs')],
+        [resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs')],
         { cwd: process.cwd(), env, input: '/tools\n/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
       );
 
@@ -941,7 +976,7 @@ describe('真跑一遍 bin：自带插件的清单都过 validate', () => {
     it(`${dir} 的清单没问题`, async () => {
       const { stdout } = await promisify(execFile)(
         process.execPath,
-        [resolve(process.cwd(), 'bin', 'deepcode.mjs'), 'plugin', 'validate', dir],
+        [resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs'), 'plugin', 'validate', dir],
         { cwd: process.cwd(), env },
       );
 
@@ -957,7 +992,7 @@ describe('真跑一遍 bin：plugin add / remove 与落点（装 ≠ 启用）',
   // 与上面那几条同一个用意：清掉会改变配置解析的变量，顺便再钉一遍顺序 ——
   // plugin 子命令必须发生在"要 key"之前，否则在干净环境（CI）里会报"缺少 API key"，
   // 而不是装机。**全程零密钥。**
-  const BIN = resolve(process.cwd(), 'bin', 'deepcode.mjs');
+  const BIN = resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs');
 
   function cleanEnv(home: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home, HOME: home };
@@ -1196,7 +1231,7 @@ describe('cli 参数：config 子命令', () => {
 });
 
 describe('真跑一遍 bin：config list / set（派发事件，不直接调函数）', () => {
-  const BIN = resolve(process.cwd(), 'bin', 'deepcode.mjs');
+  const BIN = resolve(process.cwd(), 'packages', 'cli', 'bin', 'deepcode.mjs');
   const KEY = 'sk-ant-api03-abcdefghijklmn';
 
   function cleanEnv(home: string): NodeJS.ProcessEnv {

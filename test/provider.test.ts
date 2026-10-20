@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createAnthropicProvider } from '../src/providers/anthropic';
-import type { Message, StreamEvent } from '../src/contract/model-provider';
+import { createAnthropicProvider } from '@deepcode/providers/anthropic';
+import type { Message, StreamEvent } from '@deepcode/contract/model-provider';
 
 /**
  * 这些测试盯的是 SSE 解析 —— 之前**一个测试都没有**，于是整段代码只有真 API 才会走到。

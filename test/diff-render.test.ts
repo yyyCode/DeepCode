@@ -2,9 +2,9 @@ import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { diffLines, splitLines, toHunks } from '../mods/diff/lines';
 import type { PaneModel } from '../mods/diff/pane';
-import { createPalette } from '../src/cli/ansi';
-import { displayPath, formatChange, formatPane, formatUnified } from '../src/cli/diff-render';
-import type { FileChange } from '../src/cli/changes';
+import { createPalette } from '@deepcode/cli/ansi';
+import { displayPath, formatChange, formatPane, formatUnified } from '@deepcode/cli/diff-render';
+import type { FileChange } from '@deepcode/cli/changes';
 
 /**
  * 渲染那一侧的断言（P5c 从 `test/diff.test.ts` 搬来的三条 + 新增 pane 的几条）。

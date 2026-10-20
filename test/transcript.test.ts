@@ -11,8 +11,8 @@ import {
   projectSlug,
   readTranscript,
   sessionsDir,
-} from '../src/cli/transcript';
-import type { Message } from '../src/contract/model-provider';
+} from '@deepcode/cli/transcript';
+import type { Message } from '@deepcode/contract/model-provider';
 
 let home: string;
 

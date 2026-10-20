@@ -5,7 +5,7 @@ import {
   isBridged,
   isClassicEvent,
   parseMatcher,
-} from '../src/contract/classic';
+} from '@deepcode/contract/classic';
 
 describe('classic 事件目录', () => {
   // 33 这个数在设计文档里出现过（"33 个 classic 事件"）。加一个事件就得改这里，

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { banner, shouldShowBanner } from '../src/cli/banner';
-import { createPalette } from '../src/cli/ansi';
-import { displayWidth } from '../src/cli/width';
-import { parseArgs } from '../src/cli/args';
+import { banner, shouldShowBanner } from '@deepcode/cli/banner';
+import { createPalette } from '@deepcode/cli/ansi';
+import { displayWidth } from '@deepcode/cli/width';
+import { parseArgs } from '@deepcode/cli/args';
 
 const info = {
   version: '1.2.3',

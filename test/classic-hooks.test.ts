@@ -1,9 +1,9 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CORE_ORIGIN } from '../src/contract/next';
-import type { Plugin } from '../src/contract/plugin';
-import type { ResolvedHookGroup } from '../src/contract/classic';
-import { registerHooks, type ClassicHooksDeps } from '../src/cli/classic-hooks';
+import { CORE_ORIGIN } from '@deepcode/contract/next';
+import type { Plugin } from '@deepcode/contract/plugin';
+import type { ResolvedHookGroup } from '@deepcode/contract/classic';
+import { registerHooks, type ClassicHooksDeps } from '@deepcode/cli/classic-hooks';
 import { createHarness, seat } from './harness';
 
 const HOOKS_DIR = fileURLToPath(new URL('fixtures/hooks/', import.meta.url));
