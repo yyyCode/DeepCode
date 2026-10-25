@@ -447,6 +447,14 @@ describe('插件：Memory 工具与 /memory', () => {
 describe('目录位置', () => {
   it('记忆按项目 slug 分桶，与转录落在同一个项目目录下', () => {
     const dir = memoryDir('C:/home', 'F:/work/demo');
-    expect(dir).toBe('C:\\home\\.deepcode\\projects\\F--work-demo\\memory');
+    // 分隔符交给平台：Windows 是 \，POSIX 是 / —— 断言按路径段比，不钉死某一种。
+    expect(dir.split(/[\\/]/)).toEqual([
+      'C:',
+      'home',
+      '.deepcode',
+      'projects',
+      'F--work-demo',
+      'memory',
+    ]);
   });
 });
