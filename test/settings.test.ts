@@ -341,6 +341,57 @@ describe('压缩块', () => {
   });
 });
 
+describe('compact.layers（P11 五层压缩的旋钮）', () => {
+  const block = (layers: unknown): string => JSON.stringify({ compact: { layers } });
+
+  it('没写过就不塞一个空的 layers（与 `layers: {}` 分得开）', async () => {
+    const { policy } = await load({});
+    expect(policy.compact.layers).toBeUndefined();
+  });
+
+  it('逐字段合并：不同层各写一个字段，两个都生效', async () => {
+    const { policy, warnings } = await load({
+      [USER]: block({ snipAtRatio: 0.7, toolResultMaxChars: 40_000 }),
+      [PROJECT]: block({ microKeepRecent: 8 }),
+    });
+    expect(policy.compact.layers).toEqual({
+      snipAtRatio: 0.7,
+      toolResultMaxChars: 40_000,
+      microKeepRecent: 8,
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  it('字段级降级：写错一个不连坐其它字段', async () => {
+    const { policy, warnings } = await load({
+      [USER]: block({ toolResultMaxChars: 0, snipAtRatio: 1.5, microKeepRecent: 8, 未知: 1 }),
+    });
+    expect(policy.compact.layers).toEqual({ microKeepRecent: 8 });
+    expect(warnings.join('\n')).toContain('toolResultMaxChars 不是正整数');
+    expect(warnings.join('\n')).toContain('snipAtRatio 不是 (0, 1] 的比例');
+    expect(warnings.join('\n')).toContain('不认识的子键');
+  });
+
+  it('预览不能 ≥ 外置阈值：两项一起回默认', async () => {
+    const { policy, warnings } = await load({ [USER]: block({ toolResultPreviewChars: 60_000 }) });
+    expect(policy.compact.layers).toBeUndefined();
+    expect(warnings.join('\n')).toContain('必须小于');
+  });
+
+  it('比例阶梯必须单调：违反的下层字段回默认', async () => {
+    const { policy, warnings } = await load({ [USER]: block({ snipAtRatio: 0.95 }) });
+    // 0.95 大于默认的 micro 0.85 → snip 这个字段被删掉，其余照常。
+    expect(policy.compact.layers).toBeUndefined();
+    expect(warnings.join('\n')).toContain('比例阶梯必须单调');
+  });
+
+  it('不是对象 → 整块忽略 + 出声', async () => {
+    const { policy, warnings } = await load({ [USER]: block([0.5]) });
+    expect(policy.compact.layers).toBeUndefined();
+    expect(warnings.join('\n')).toContain('不是一个对象');
+  });
+});
+
 describe('遥测开关', () => {
   const block = (json: unknown): string => JSON.stringify({ telemetry: json });
 

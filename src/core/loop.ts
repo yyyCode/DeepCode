@@ -9,9 +9,11 @@ import type {
 import type { Args, EventName, Result } from '../contract/events';
 import type { EngineInterface } from '../contract/engine';
 import type { TurnReason } from '../contract/turn';
+import type { ContextWindow, LayerStats } from '../contract/context-window';
 import { CORE_ORIGIN, type Origin } from '../contract/next';
 import { withContext } from '../contract/prompt-channel';
-import { listTools } from './tool-list';
+import { listTools, toolsChars } from './tool-list';
+import { estimateTokens, messageChars } from './tokens';
 
 /** 一个 turn 内最多允许的"模型→工具→模型"往返次数，防止模型陷入死循环。 */
 const MAX_HOPS = 25;
@@ -84,6 +86,15 @@ export type LoopContext = {
    * 否则它连自己那条"账要对得上"都做不到。
    */
   onTools?: (specs: readonly ToolSpec[]) => void;
+  /**
+   * 五层压缩的接入点（P11）。省略 = 不整形（旧行为逐字节不变）。
+   *
+   * 第 1 层（工具结果外置）与第 2–4 层（读时投影）都从这儿走。第 5 层不在这里 ——
+   * 它仍然是 `cli/compact.ts`，由 `turn.complete` 的实测用量触发。
+   */
+  contextWindow?: ContextWindow;
+  /** 每次请求前把投影统计报给 CLI（`/context` 的「分层压缩」那一行）。 */
+  onProjection?: (stats: LayerStats) => void;
 };
 
 /**
@@ -144,11 +155,40 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<Tu
     );
   };
 
+  /**
+   * 第 2–4 层：算这一次请求的视图。
+   *
+   * **fail-open**：投影是优化，不是闸。它抛了就用完整历史照常发请求 ——
+   * 上下文管理失败绝不能让一个正在跑的 turn 停在半路。
+   */
+  const projectForRequest = async (): Promise<readonly Message[]> => {
+    const window = ctx.contextWindow;
+    if (window === undefined) return messages;
+    try {
+      const projection = await window.project(messages, {
+        systemChars: ctx.systemPrompt.length,
+        toolChars: toolsChars(tools),
+        signal: ctx.signal,
+        now: Date.now(),
+      });
+      ctx.onProjection?.(projection.stats);
+      return projection.messages;
+    } catch (error) {
+      ctx.$.logger.warn(
+        `上下文投影失败，这一次请求用完整历史：${error instanceof Error ? error.message : String(error)}`,
+      );
+      return messages;
+    }
+  };
+
   for (let hop = 0; hop < maxHops; hop++) {
     const blocks: ContentBlock[] = [];
     const toolUses: Extract<ContentBlock, { type: 'tool_use' }>[] = [];
     let text = '';
     let failure: string | undefined;
+    // 这一次请求真正发出去的消息。**与 `messages` 不是同一个数组**（投影时）——
+    // 工具结果仍然推进完整的 `messages`，历史不因投影而改写。
+    const requestMessages = await projectForRequest();
 
     // provider 网络错 / 限流：退避重试一次。见设计文档 §5.1。
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -164,7 +204,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<Tu
       try {
         for await (const event of ctx.provider.stream({
           system: ctx.systemPrompt,
-          messages,
+          messages: requestMessages,
           tools,
           signal: ctx.signal,
           model: ctx.model,
@@ -301,9 +341,24 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<Tu
     // 工具仍然**串行**执行：并行 Bash 的交错输出对用户没有任何好处，不确定性倒是白送的。
     // 但结果**汇总成一条**消息 —— 一轮里模型要的几个工具是同一件事的几个面，
     // 拆成多条消息会让支持并行工具调用的端点以为这是几轮（设计 §5）。
-    const results: ToolResult[] = [];
+    const collected: ToolResult[] = [];
     for (const use of toolUses) {
-      results.push(await runOneTool(ctx, use));
+      collected.push(await runOneTool(ctx, use));
+    }
+    let results: readonly ToolResult[] = collected;
+    // 第 1 层：超大结果落盘，消息里只留预览。它在**进消息列表之前**做 ——
+    // 之后所有消费者（请求、转录、账本）看到的都是同一份预览，不会出现
+    // "盘中是全文、模型看到预览"的两本账。
+    if (ctx.contextWindow !== undefined) {
+      const names = new Map(toolUses.map((use) => [use.id, use.name]));
+      try {
+        results = await ctx.contextWindow.absorbToolResults(results, names);
+      } catch (error) {
+        // 外置失败 = 保留全文。与投影同一条 fail-open。
+        ctx.$.logger.warn(
+          `工具结果外置失败，保留完整内容：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
     messages.push({ role: 'tool', results });
   }
@@ -328,34 +383,9 @@ function reasonOf(step: string, empty: boolean): TurnReason {
   return empty ? 'empty' : 'answer';
 }
 
-/**
- * 一段文本的 token 数**粗估**。参数是**字符数**不是文本 —— 两处调用方手里本来就是长度。
- *
- * ⚠️ 它是估计，不是测量：中英混排会失真（中文一个字约 1–2 个 token，不是 0.25 个）。
- * 之所以留着它，是因为"什么都不报"比"报一个标出来的估计"更坏 —— 前者让消费端
- * 以为上下文是空的。
- */
-export function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 4);
-}
-
-/** 一个消息数组的**字符数**。工具结果与工具入参都算进去 —— 它们也是要占窗口的东西。 */
-export function messageChars(messages: readonly Message[]): number {
-  let total = 0;
-  for (const message of messages) {
-    if (message.role === 'user') {
-      total += message.content.length;
-    } else if (message.role === 'tool') {
-      for (const result of message.results) total += result.content.length;
-    } else {
-      for (const block of message.content) {
-        total +=
-          block.type === 'text' ? block.text.length : JSON.stringify(block.input ?? {}).length;
-      }
-    }
-  }
-  return total;
-}
+// P11 起这两个函数住在 `core/tokens.ts`（`context-shaping` 也要用，留在 loop 里
+// 会形成循环依赖）。这里原样再导出，既有的 `from '../core/loop'` 一处都不用改。
+export { estimateTokens, messageChars };
 
 /** 这一轮的用量。端点报了就报真的；没报就估算并**标出来**。 */
 function turnUsage(

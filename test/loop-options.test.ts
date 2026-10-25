@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import {
+  emptyLayerStats,
+  type ContextWindow,
+  type LayerStats,
+} from '../src/contract/context-window';
 import type { Plugin } from '../src/contract/plugin';
 import type {
   Message,
@@ -43,11 +48,15 @@ type RunOptions = {
   tools?: readonly string[];
   maxHops?: number;
   model?: string;
+  contextWindow?: ContextWindow;
+  onProjection?: (stats: LayerStats) => void;
 };
 
 async function run(options: RunOptions) {
   const called: string[] = [];
   const requests: { tools: string[]; model: string | undefined }[] = [];
+  /** 每个请求**真的发出去**的消息视图（P11 接线用）。 */
+  const views: (readonly Message[])[] = [];
   const texts: string[] = [];
   let index = 0;
 
@@ -55,6 +64,7 @@ async function run(options: RunOptions) {
     name: 'scripted',
     async *stream(req) {
       requests.push({ tools: req.tools.map((t) => t.name), model: req.model });
+      views.push(req.messages);
       const events = options.script[index++] ?? [{ type: 'done', stopReason: 'end_turn' } as const];
       for (const event of events) yield event;
     },
@@ -80,6 +90,8 @@ async function run(options: RunOptions) {
     ...(options.tools === undefined ? {} : { tools: new Set(options.tools) }),
     ...(options.maxHops === undefined ? {} : { maxHops: options.maxHops }),
     ...(options.model === undefined ? {} : { model: options.model }),
+    ...(options.contextWindow === undefined ? {} : { contextWindow: options.contextWindow }),
+    ...(options.onProjection === undefined ? {} : { onProjection: options.onProjection }),
     onText: (text) => texts.push(text),
   };
 
@@ -88,7 +100,7 @@ async function run(options: RunOptions) {
   const lastResult: ToolResult | undefined =
     lastTool?.role === 'tool' ? lastTool.results.at(-1) : undefined;
 
-  return { stopReason, requests, called, texts, lastResult };
+  return { stopReason, requests, views, messages, called, texts, lastResult };
 }
 
 const callTool = (name: string): readonly StreamEvent[] => [
@@ -352,5 +364,59 @@ describe('onTools：账本吃的那一份，就是请求里真的带出去的那
     // 建一份，几跳共用（`loop.ts` 里那句话就在 while 外面）。
     // 账本要的正是"这一轮发出去的是哪一份"，不是"每一跳各是什么"。
     expect(calls).toEqual([3]);
+  });
+});
+
+describe('P11 接线：请求发投影视图，工具结果先过外置', () => {
+  it('provider 收到的是投影后的消息；历史仍按外置后的结果推进', async () => {
+    const projected: Message[] = [{ role: 'user', content: '投影后的视图' }];
+    const stats: LayerStats = { ...emptyLayerStats(), tokensBefore: 10, tokensAfter: 5 };
+    const seenStats: LayerStats[] = [];
+    let absorbed = 0;
+
+    const contextWindow: ContextWindow = {
+      async absorbToolResults(results) {
+        absorbed += results.length;
+        return results.map((result) => ({ ...result, content: `预览：${result.content}` }));
+      },
+      async project() {
+        return { messages: projected, stats, applied: [] };
+      },
+      last: () => stats,
+    };
+
+    const result = await run({
+      script: [callTool('Read'), say('好')],
+      contextWindow,
+      onProjection: (value) => seenStats.push(value),
+    });
+
+    // 两次请求（工具那一跳 + 收工那一跳）都用投影视图，而不是完整 messages。
+    expect(result.views).toEqual([projected, projected]);
+    expect(result.requests).toHaveLength(2);
+    // 外置发生在这里：进消息列表之前，转录/后续请求看到的是预览。
+    const tool = result.messages.find((message) => message.role === 'tool');
+    expect(tool?.role === 'tool' ? tool.results[0]?.content : undefined).toBe('预览：ok:Read');
+    expect(absorbed).toBe(1);
+    expect(seenStats).toHaveLength(2);
+    expect(result.messages.some((message) => message === projected[0])).toBe(false);
+  });
+
+  it('投影抛了也不拦：这一次请求用完整历史（fail-open）', async () => {
+    const contextWindow: ContextWindow = {
+      async absorbToolResults(results) {
+        return results;
+      },
+      async project() {
+        throw new Error('投影器坏了');
+      },
+      last: () => undefined,
+    };
+
+    const result = await run({ script: [say('照常回答')], contextWindow });
+
+    expect(result.stopReason).toBe('answer');
+    // 发出去的就是完整历史本身。
+    expect(result.views[0]?.some((message) => message.role === 'user')).toBe(true);
   });
 });

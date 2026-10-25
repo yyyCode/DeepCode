@@ -126,6 +126,42 @@ describe('/context 的诚实底线：不报「还剩多少」', () => {
   });
 });
 
+describe('P11：分层压缩那一行', () => {
+  const LAYERS = {
+    externalized: 12,
+    externalizedChars: 800_000,
+    snippedMessages: 30,
+    clearedResults: 7,
+    collapsedSegments: 2,
+    collapsedMessages: 60,
+    tokensBefore: 42_000,
+    tokensAfter: 9_500,
+  };
+
+  it('报出各层做了什么，以及上一次请求的前后体积', () => {
+    const lines = contextReport({
+      pieces: PIECES,
+      tools: TOOLS,
+      messages: MESSAGES,
+      compact: CONFIG,
+      layers: LAYERS,
+    });
+    const row = line(lines, '分层压缩');
+    expect(row).toContain('外置 12 个');
+    expect(row).toContain('清理 30 条旧消息');
+    expect(row).toContain('清空 7 个旧工具结果');
+    expect(row).toContain('折叠 2 段');
+    expect(row).toContain('42,000 → 9,500 token');
+    // 与前一条诚实底线同一条规矩：分层这一行也不许混进"还剩多少"。
+    expect(/还剩|剩余|剩下/.test(row)).toBe(false);
+  });
+
+  it('还没投影过就不出现这一行（不编一个 0）', () => {
+    const lines = contextReport({ pieces: PIECES, messages: MESSAGES, compact: CONFIG, tools: undefined });
+    expect(lines.some((one) => one.trimStart().startsWith('分层压缩'))).toBe(false);
+  });
+});
+
 describe('P9：工具清单也是请求的一部分，账本得算上', () => {
   it('逐工具之和 = 工具清单那一行（与系统提示那一行同形）', () => {
     const lines = contextReport({ pieces: PIECES, tools: TOOLS, messages: MESSAGES, compact: CONFIG });

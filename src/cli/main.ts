@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import type { LayerStats } from '../contract/context-window';
 import type { Message, ToolSpec } from '../contract/model-provider';
 import type { TurnReason } from '../contract/turn';
 import { CORE_ORIGIN } from '../contract/next';
@@ -26,6 +27,7 @@ import { applyManagedGateway, loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
+import { createContextWindow } from './context-window';
 import { createPromptBuilder } from './system-prompt';
 import { contextReport } from './context-view';
 import { resolvePolicy } from './settings';
@@ -67,6 +69,7 @@ const SYSTEM_PROMPT = `你是 DeepCode，一个在用户终端里工作的编码
 - 改文件用 Edit（精确替换）或 Write（整体重写）；Write 覆盖已有文件前必须先 Read 过它。
 - 需要跑测试、构建、git 就在 Bash 里跑。
 - 工具失败会以 ERROR: 开头返回给你，那是信息不是崩溃 —— 读它、改方案、再试。
+- 超大工具结果会被存到磁盘，消息里只留前 2KB 预览；需要后面的内容就用 Read 的 offset / limit 读那个路径。
 
 回答保持简短，说清楚你改了什么、为什么。`;
 
@@ -294,6 +297,9 @@ async function main(): Promise<void> {
   // 还是做不到（实测：漏掉工具那一份时，账本报 11 token，真实请求约 448）。
   // 与 `compactor` 同一种写法：`cliPlugins` 的闭包先占位，`createEngine` 之后才填得上。
   let lastTools: readonly ToolSpec[] | undefined;
+  // 五层压缩的最近一次投影统计（P11）。与 `lastTools` 同一种写法：闭包先占位，
+  // 第一次真正发请求之后才填得上。
+  let lastProjection: LayerStats | undefined;
 
   const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
   // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
@@ -358,6 +364,7 @@ async function main(): Promise<void> {
         messages,
         compact: policy.compact,
         lastUsage: compactor?.usage(),
+        layers: lastProjection,
       }),
     // `/tools` 与 `/help` 的工具那一行共用它 —— 与 `describeCommand` 同一个延迟取的位置，
     // 同一条理由（要 `dispatch`，而插件拿不到）。
@@ -396,6 +403,18 @@ async function main(): Promise<void> {
     config: policy.compact,
     warn: (line) => render.notice(line),
     signal: () => turns.current(),
+  });
+
+  // 五层压缩（P11）：第 1 层的落盘要 `$.fs` 与会话 id，第 2–4 层的投影要 provider。
+  // 第 5 层仍然是上面那个 compactor —— 两个对象的分工写在 `cli/context-window.ts` 顶部。
+  const contextWindow = createContextWindow({
+    home,
+    cwd: root,
+    sessionId: $.session.id(),
+    fs: $.fs,
+    provider: providerAdapter,
+    config: policy.compact,
+    warn: (line) => render.notice(line),
   });
 
   // 有了 `dispatch`，`$` 就是真的了 —— 补全那个延迟取的位置也填得上。
@@ -470,7 +489,19 @@ async function main(): Promise<void> {
     try {
       reason = await runTurn(
         // 一次性模式也现算一份：它就是"这一轮"，没有第二轮的余地。
-        { $, provider: providerAdapter, signal, dispatch, systemPrompt: (await builder.build()).text, turnIndex: 0 },
+        {
+          $,
+          provider: providerAdapter,
+          signal,
+          dispatch,
+          systemPrompt: (await builder.build()).text,
+          turnIndex: 0,
+          // 一次性模式同样走五层（P11）：大结果外置与读时投影不依赖 REPL。
+          contextWindow,
+          onProjection: (stats) => {
+            lastProjection = stats;
+          },
+        },
         messages,
       );
     } finally {
@@ -507,6 +538,10 @@ async function main(): Promise<void> {
       // 账本吃的那一份（见上面 `lastTools` 那段）。
       onTools: (specs) => {
         lastTools = specs;
+      },
+      contextWindow,
+      onProjection: (stats) => {
+        lastProjection = stats;
       },
       afterTurn: async () => {
         await compactor?.afterTurn();
