@@ -84,6 +84,31 @@ describe('六个核心工具', () => {
     expect((result as any).value).toContain('2\tworld');
   });
 
+  it('Read 支持 offset：从指定行开始，行号仍按原文件', async () => {
+    const ctx = makeHarness();
+    const target = join(root, 'offset.txt');
+
+    await call(ctx, 'Write', { file_path: target, content: 'a\nb\nc\nd\ne' });
+    const result = await call(ctx, 'Read', { file_path: target, offset: 3, limit: 2 });
+    const value = (result as any).value as string;
+
+    expect(value).toContain('3\tc');
+    expect(value).toContain('4\td');
+    expect(value).not.toContain('1\ta');
+    expect(value).not.toContain('5\te');
+    expect(value).toContain('共 5 行，本次显示第 3–4 行');
+  });
+
+  it('Read 的 offset 超出文件行数时说清楚', async () => {
+    const ctx = makeHarness();
+    const target = join(root, 'short.txt');
+
+    await call(ctx, 'Write', { file_path: target, content: 'a\nb' });
+    const result = await call(ctx, 'Read', { file_path: target, offset: 9 });
+    expect((result as any).value).toContain('超出文件行数');
+    expect((result as any).value).toContain('共 2 行');
+  });
+
   it('Write 拒绝覆盖没读过的已有文件', async () => {
     const ctx = makeHarness();
     const target = join(root, 'b.txt');

@@ -1,3 +1,4 @@
+import type { LayerStats } from '../contract/context-window';
 import type { Message, ToolSpec } from '../contract/model-provider';
 import { estimateTokens, messageChars } from '../core/loop';
 import { toolSpecChars, toolsChars } from '../core/tool-list';
@@ -41,6 +42,11 @@ export type ContextReportInput = {
   readonly compact: CompactConfig;
   /** 最近一次实测用量（`Compactor.usage()`）。端点没报过就是 `undefined`。 */
   readonly lastUsage?: { readonly inputTokens: number; readonly estimated: boolean } | undefined;
+  /**
+   * 最近一次请求的五层压缩统计（P11）。还没发过请求时 `undefined` ——
+   * 那一行就整行不出现，不编一个 0。
+   */
+  readonly layers?: LayerStats | undefined;
 };
 
 /** 千分位用**手写**的，不走 `toLocaleString`：那个跟着机器语言变，测试里就是一条流沙。 */
@@ -90,6 +96,18 @@ export function contextReport(input: ContextReportInput): readonly string[] {
     `  阈值　　　${num(input.compact.atTokens)} token · 自动压缩 ${input.compact.auto ? '开' : '关'}` +
       ` · 保留最近 ${input.compact.keepTurns} 轮`,
   );
+
+  // P11：五层压缩各自做了什么。数字来自投影器自己，不另算一本账。
+  if (input.layers !== undefined) {
+    const stats = input.layers;
+    lines.push(
+      `  分层压缩　外置 ${num(stats.externalized)} 个（会话累计） · ` +
+        `清理 ${num(stats.snippedMessages)} 条旧消息 · ` +
+        `清空 ${num(stats.clearedResults)} 个旧工具结果 · ` +
+        `折叠 ${num(stats.collapsedSegments)} 段 · ` +
+        `上次请求 ${num(stats.tokensBefore)} → ${num(stats.tokensAfter)} token`,
+    );
+  }
 
   const usage = input.lastUsage;
   lines.push(

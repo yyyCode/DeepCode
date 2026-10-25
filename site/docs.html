@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>技术文档 —— DeepCode</title>
-<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十阶段路线图、以及九条已知限制。">
+<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十一阶段路线图、以及十条已知限制。">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" type="image/png" href="logo-mark.png">
 <link rel="stylesheet" href="style.css">
@@ -44,7 +44,7 @@
 <section class="dochead" id="top">
   <div class="wrap">
     <h1>技术文档</h1>
-    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十阶段路线图、九条已知限制。
+    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十一阶段路线图、十条已知限制。
       它是什么、怎么装、怎么用，看 <a href="index.html">首页</a>。</p>
   </div>
 </section>
@@ -149,7 +149,7 @@
           <dt>转录</dt>
           <dd>用户级目录、0600 的 JSONL，<code>--resume</code> 接上一次会话</dd>
           <dt>历史</dt>
-          <dd><code>~/.deepcode/history</code>；<code>/context</code> 看账本（不报「还剩多少」），<code>/compact</code> 手动压、自动压缩默认关</dd>
+          <dd><code>~/.deepcode/history</code>；<code>/context</code> 看账本（不报「还剩多少」）与五层各做了什么，<code>/compact</code> 手动压、自动压缩默认关；大工具结果落盘、消息里只留预览</dd>
         </dl>
       </article>
 
@@ -247,7 +247,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
   <p class="band__mark">全部完成</p>
   <div class="band__body">
     <h2>走到哪一步了</h2>
-    <p class="band__lede">十个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
+    <p class="band__lede">十一个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
       <a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a>里。</p>
 
     <ol class="stages">
@@ -262,13 +262,14 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <li><span class="stage__k">P8</span><p><b>执行循环的收场：</b>停止原因收敛成七个产品字面量、被截断就接着往下写（≤ 3 次，<strong>每次出声</strong>）、空步与炸在中途都不丢内容、两侧统一按白名单判「做完了没有」</p></li>
       <li><span class="stage__k">P9</span><p><b>工具清单：</b>一条清单三个消费者（模型请求 / <code>/help</code> / <code>/tools</code>）收敛到一个函数；<code>/context</code> 把工具算进合计；<code>/tools</code> 说清每个工具<strong>来自哪个插件</strong>、以及<strong>哪些没进来、为什么</strong></p></li>
       <li><span class="stage__k">P10</span><p><b>子代理的边界：</b>子代理看得见哪些工具、能派多深，从<strong>调用方按「会话的全部」算</strong>挪进内核<strong>按「当前这一轮」算</strong>：嵌套一层拿不回被扣掉的面，深度上限（3 层）对 <code>Task</code> 与插件直派<strong>共用同一个数</strong></p></li>
+      <li><span class="stage__k">P11</span><p><b>上下文五层：</b>从「到阈值就只有全量摘要」铺成五道闸 —— 大结果落盘（&gt;50K 字符，预览带路径，<code>Read</code> 的 <code>offset</code> 能读回）→ 砍远古轮次 → 清可重取的工具结果 → 只压更老一段的投影摘要 → 全量摘要。第 2–4 层是<strong>读时投影</strong>，历史一个字不动；<code>pnpm bench</code> 三个场景峰值请求 token −23% ~ −94%，第 5 层摘要 1–9 次 → 0</p></li>
     </ol>
   </div>
 </section>
 
 <!-- ───────────────── 已知限制 ───────────────── -->
 <section class="wrap band" id="limits">
-  <p class="band__mark">9 条</p>
+  <p class="band__mark">10 条</p>
   <div class="band__body">
     <h2>已知限制</h2>
 
@@ -323,6 +324,13 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
         <h3>marketplace 只做本地索引</h3>
         <p><code>plugin add</code> 从一份本地索引拷插件进落点：不 fetch、不 clone、没有签名与校验和，
           也没有版本与升级。</p>
+      </article>
+
+      <article class="lim">
+        <h3>五层压缩的阈值仍是猜的</h3>
+        <p>第 2–4 层的阈值锚在 <code>compact.atTokens</code> 的 80% / 85% / 90% / 95% 上，
+          而 <code>atTokens</code> 本身是猜的；<code>pnpm bench</code> 量的是同一把尺子下的相对体积，
+          不是真实窗口。大工具结果落盘后也<strong>不清理</strong>：目录没有容量上限、没有过期清理。</p>
       </article>
     </div>
   </div>

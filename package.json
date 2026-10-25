@@ -9,6 +9,7 @@
     "dev": "tsx src/cli/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "bench": "tsx scripts/benchmark-context.ts",
     "lint": "node scripts/check-boundaries.mjs && node scripts/check-workflow-hardening.mjs"
   },
   "devDependencies": {

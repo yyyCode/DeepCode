@@ -1,4 +1,5 @@
 import type { Interface } from 'node:readline';
+import type { ContextWindow, LayerStats } from '../contract/context-window';
 import type { Message, ToolSpec } from '../contract/model-provider';
 import type { EngineInterface } from '../contract/engine';
 import type { DispatchFn } from '../core/dispatch';
@@ -60,6 +61,12 @@ export type ReplDeps = {
    * 报"发出去的那一份"，不是 `/context` 现算的，两处才可比。
    */
   onTools?: (specs: readonly ToolSpec[]) => void;
+  /**
+   * 五层压缩的接入点（P11）。省略 = 不整形，与 P11 之前逐字节相同。
+   */
+  contextWindow?: ContextWindow;
+  /** 每次请求前的投影统计（`/context` 的「分层压缩」那一行）。 */
+  onProjection?: (stats: LayerStats) => void;
   /** 每个 turn 收尾时调一次（落盘之后）。跨过压缩阈值时的提醒与自动压缩都在这儿。 */
   afterTurn?: () => Promise<void>;
 };
@@ -112,6 +119,8 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
           turnIndex: turnIndex++,
           ...(deps.onUsage === undefined ? {} : { onUsage: deps.onUsage }),
           ...(deps.onTools === undefined ? {} : { onTools: deps.onTools }),
+          ...(deps.contextWindow === undefined ? {} : { contextWindow: deps.contextWindow }),
+          ...(deps.onProjection === undefined ? {} : { onProjection: deps.onProjection }),
         },
         messages,
       );

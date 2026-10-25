@@ -40,6 +40,7 @@
 | P8 执行循环的收场 | 两层停止原因、截断续写、空步重提示、保住半句、两处白名单 | `p8-design.md:11` | `p8-design.md:282` |
 | P9 工具清单 | 一份清单三个消费者、账本算上工具、`/tools`、`$.tool.origin` | `p9-design.md:12` | `p9-design.md:307` |
 | P10 子代理的边界 | 面与深度上限挪进内核（`allow` 求交、所有路径共用一个数、`agent.spawn.depth`） | `p10-design.md:12` | `p10-design.md:240` |
+| P11 上下文五层 | 第 1 层落盘/预览、第 2–4 层读时投影、`compact.layers`、`Read` 的 `offset`、`pnpm bench` | `2026-10-26-deepcode-p11-context-layers-design.md:253` | 同文件 §7 |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
@@ -831,3 +832,57 @@ README / `docs/已知限制.md` / `docs/项目简介.md` / `docs/简历亮点与
 **收尾**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **71 个文件 / 1196 passed / 1 skipped**
 （基线 1187 passed / 1 skipped，增量 = 9 条新用例：`test/permissions.test.ts` 8 条 + `test/e2e.test.ts` 1 条，全在
 「按了 `a` 之后记住了什么」一节）。
+
+---
+
+## P11 上下文五层：把压力从最后一层分摊出去
+
+**范围**：`src/contract/context-window.ts`（五层的旋钮、统计、`ContextWindow` 接口）、
+`src/core/tokens.ts`（估算从 `loop.ts` 抽出来，避开环）、
+`src/core/context-shaping.ts`（纯函数：外置选择/预览、snip、micro、collapse）、
+`src/cli/context-window.ts`（落盘与读时投影、摘要缓存、失败方向）、
+`src/core/loop.ts`（每次请求前投影、工具结果进列表前外置）、
+`src/cli/repl.ts` / `src/cli/main.ts`（接线与 `/context` 数据）、
+`src/cli/settings.ts`（`compact.layers` 逐字段合并与降级）、
+`src/cli/context-view.ts`（「分层压缩」一行）、`src/builtins/tools/read.ts`（`offset`）、
+`scripts/benchmark-context.ts` 与 `package.json` 的 `bench`、六个测试文件/块、README / 已知限制。
+
+**为什么**：P7 只有第 5 层。到阈值之前没有任何便宜的手段，一到就直接从完整历史跳到一段摘要。
+复刻对象的五步走里，前四层要么零 API（落盘、snip、清旧结果），要么只压更老的一段；
+先把它们铺上，第 5 层才会更少被用到。
+
+**出口标准**（设计 §8.1）：
+
+1. 五层都在，第 5 层原有测试一条不改；
+2. 逐层套用后字符数单调下降；benchmark 里分层策略的第 5 层摘要次数为 0（基线 1–9 次）；
+3. 第 2–4 层执行后传入的 `messages` 逐字节不变（单测用 JSON 快照钉住）；
+4. 写盘失败保留原结果、摘要失败跳过第 4 层，两种情况都出声且不抛；
+5. 外置文件能用 `Read` 的 `offset` / `limit` 读回；
+6. `pnpm bench` 输出 Markdown 表，测试断言三个场景不劣于基线。
+
+**实测**（`pnpm bench`，2026-10-26，`atTokens = 30,000`）：
+
+| 场景 | 基线峰值 | 分层峰值 | 降幅 | 第 5 层摘要 | 外置 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| huge-reads | 140,062 | 8,344 | −94.0% | 9 → 0 | 15 |
+| long-session | 30,168 | 23,128 | −23.3% | 1 → 0 | 0 |
+| mixed | 32,080 | 9,474 | −70.5% | 9 → 0 | 6 |
+
+**预登记偏差**（设计 §7）：读时投影而非写时压缩；比例阈值而非绝对窗口；第 4 层仍要 API；
+跨阈值可能打断 prompt cache；落盘目录不清理；不做压缩后文件恢复。
+
+**施工期发现的两件事**（写设计时不知道）：
+
+- **第 3 层在三个 benchmark 场景里 0 命中**。不是没接上：第 2 层先切，切完通常已低于 85%，
+  第 3 层按比例就不触发。它真正生效的是「轮次少、结果多」（切点不存在）与「闲置 60 分钟」。
+  设计 §8.2 已按实测改写，没有假装它每次都在干活。
+- **「折叠 N 段」只能数真的生成过摘要的段**。读时投影每次请求都会命中同一段 head，
+  若按应用次数累计，一次会话能数出几十段；改成命中缓存只应用、不计数（`cli/context-window.ts`）。
+
+**顺手钉住的一处形状**：没有任何一层写 `compact.layers` 时，解析结果里**不放** `layers: {}` ——
+否则"没配过"与"配了个空"在深比较里长得不一样，旧测试也会无端变红。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **75 个文件 / 1244 passed / 1 skipped**。
+新增的用例分布在七处：`context-shaping`（12）、`context-window`（11）、`context-benchmark`（4）、
+`context-view` 的分层行（2）、`settings` 的 `compact.layers`（6）、`tools` 的 `offset`（2）、
+`loop-options` 的接线与 fail-open（2），共 39 条。

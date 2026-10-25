@@ -12,6 +12,7 @@ import type { ManagedInstruction } from '../contract/instructions';
 import { sandboxRule, type SandboxConfig } from '../contract/sandbox';
 import { isPluginName } from '../contract/plugin-manifest';
 import { DEFAULT_TELEMETRY, type TelemetryPolicy } from '../contract/telemetry';
+import { DEFAULT_CONTEXT_LAYERS, type ContextLayerConfig } from '../contract/context-window';
 
 /**
  * 权限设置的五个来源，低 → 高。数组顺序就是 `/permissions` 的输出顺序。
@@ -64,6 +65,11 @@ export type CompactConfig = {
   readonly atTokens: number;
   /** 压缩时保留最近几轮的原文。一轮 = 一条 `role === 'user'` 消息及其之后的一切。 */
   readonly keepTurns: number;
+  /**
+   * 第 1–4 层的旋钮（P11）。省略 = 全用 `DEFAULT_CONTEXT_LAYERS`。
+   * 阈值全部是 `atTokens` 的比例 —— 我们不发明模型窗口。
+   */
+  readonly layers?: Partial<ContextLayerConfig>;
 };
 
 export const DEFAULT_COMPACT: CompactConfig = { auto: false, atTokens: 100_000, keepTurns: 6 };
@@ -348,10 +354,27 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   // ── 压缩偏好 ──
   // 后读到的覆盖先读到的（数组顺序就是低 → 高）。它没有"更严/更松"的方向，
   // 硬套权限那一套只会造出一条解释不通的规则。
-  const compact: CompactConfig = { ...DEFAULT_COMPACT };
+  //
+  // `layers` 要**逐字段**合并，不能用 `Object.assign(compact, layer)`：后者会把高层的
+  // `layers` 整个换掉，于是低层设的 `snipAtRatio` 被高层只设 `microKeepRecent` 的一份
+  // 配置抹掉 —— 一份只写了一个字段的设置不该把别的字段打回默认。
+  const merged = {
+    auto: DEFAULT_COMPACT.auto,
+    atTokens: DEFAULT_COMPACT.atTokens,
+    keepTurns: DEFAULT_COMPACT.keepTurns,
+    layers: {} as Partial<ContextLayerConfig>,
+  };
   for (const source of SETTINGS_SOURCES) {
-    Object.assign(compact, compactLayers.get(source) ?? {});
+    const layer = compactLayers.get(source) ?? {};
+    const { layers: layerLayers, ...rest } = layer;
+    Object.assign(merged, rest);
+    if (layerLayers !== undefined) Object.assign(merged.layers, layerLayers);
   }
+  // 没有任何一层写过 `layers` 时不塞一个空对象：`CompactConfig` 里它是可选的，
+  // 多出来的 `layers: {}` 会让"没配过"和"配了个空"在深比较与序列化里长得不一样。
+  const { layers: mergedLayers, ...compactBase } = merged;
+  const compact: CompactConfig =
+    Object.keys(mergedLayers).length === 0 ? compactBase : { ...compactBase, layers: mergedLayers };
 
   // ── 遥测 ──
   // ⚠️ **不是**"后读到的覆盖先读到的"（那是 compact 的规矩）。这里只有两个方向：
@@ -974,7 +997,7 @@ function readCompact(
   }
 
   const record = value as Record<string, unknown>;
-  const out: { auto?: boolean; atTokens?: number; keepTurns?: number } = {};
+  const out: { auto?: boolean; atTokens?: number; keepTurns?: number; layers?: Partial<ContextLayerConfig> } = {};
 
   if (record.auto !== undefined) {
     if (typeof record.auto === 'boolean') out.auto = record.auto;
@@ -988,11 +1011,123 @@ function readCompact(
     else warn(`${label(layer.source)} ${where} compact.${key} 不是正整数，按默认值处理。`);
   }
 
+  const layers = readContextLayers(record.layers, layer, where, warn);
+  if (layers !== undefined) out.layers = layers;
+
   const unknown = Object.keys(record).filter(
-    (key) => key !== 'auto' && key !== 'atTokens' && key !== 'keepTurns',
+    (key) => key !== 'auto' && key !== 'atTokens' && key !== 'keepTurns' && key !== 'layers',
   );
   if (unknown.length > 0) {
     warn(`${label(layer.source)} ${where} 的 compact 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+  }
+
+  return out;
+}
+
+/** `compact.layers` 里的正整数旋钮。 */
+const LAYER_INT_KEYS = [
+  'toolResultMaxChars',
+  'toolResultPreviewChars',
+  'toolMessageMaxChars',
+  'snipKeepTurns',
+  'microKeepRecent',
+  'microIdleMs',
+  'collapseKeepTurns',
+  'collapseUrgentKeepTurns',
+] as const;
+
+/** `compact.layers` 里的比例旋钮，取值 `(0, 1]`。 */
+const LAYER_RATIO_KEYS = [
+  'snipAtRatio',
+  'microAtRatio',
+  'collapseAtRatio',
+  'collapseUrgentRatio',
+] as const;
+
+/**
+ * 解析一层的 `compact.layers`（P11）。
+ *
+ * 形状错的处置与 `compact` 一致：**字段级降级**。它不是权限，没有「猜严/猜松」的方向；
+ * 一个字段写错不该把整份设置废掉。但两类跨字段约束必须管：
+ *
+ * 1. 预览不能比外置阈值还长（否则「外置」反而让消息变长）；
+ * 2. 比例阶梯必须单调（`snip ≤ micro ≤ collapse ≤ urgent`），否则第 2 层会在第 3 层
+ *    之后才触发，阶梯就不成其为阶梯。
+ *
+ * 违反时只说**一个**字段并按默认值处理，不静默修正成另一个值 —— 用户写下的数与实际
+ * 生效的数必须对得上，对不上就要有话说。
+ */
+function readContextLayers(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  warn: (line: string) => void,
+): Partial<ContextLayerConfig> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    warn(`${label(layer.source)} ${where} 的 compact.layers 整块忽略 —— 不是一个对象。`);
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  type MutableLayers = { -readonly [K in keyof ContextLayerConfig]?: ContextLayerConfig[K] };
+  const out: MutableLayers = {};
+  const set = (key: keyof ContextLayerConfig, value: number): void => {
+    (out as Record<string, number>)[key] = value;
+  };
+
+  for (const key of LAYER_INT_KEYS) {
+    const raw = record[key];
+    if (raw === undefined) continue;
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw > 0) set(key, raw);
+    else warn(`${label(layer.source)} ${where} compact.layers.${key} 不是正整数，按默认值处理。`);
+  }
+
+  for (const key of LAYER_RATIO_KEYS) {
+    const raw = record[key];
+    if (raw === undefined) continue;
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0 && raw <= 1) set(key, raw);
+    else {
+      warn(
+        `${label(layer.source)} ${where} compact.layers.${key} 不是 (0, 1] 的比例，按默认值处理。`,
+      );
+    }
+  }
+
+  const known = new Set<string>([...LAYER_INT_KEYS, ...LAYER_RATIO_KEYS]);
+  const unknown = Object.keys(record).filter((key) => !known.has(key));
+  if (unknown.length > 0) {
+    warn(
+      `${label(layer.source)} ${where} 的 compact.layers 里有不认识的子键：${unknown.join('、')}（已忽略）。`,
+    );
+  }
+
+  const preview = out.toolResultPreviewChars ?? DEFAULT_CONTEXT_LAYERS.toolResultPreviewChars;
+  const max = out.toolResultMaxChars ?? DEFAULT_CONTEXT_LAYERS.toolResultMaxChars;
+  if (preview >= max) {
+    warn(
+      `${label(layer.source)} ${where} compact.layers.toolResultPreviewChars 必须小于 ` +
+        'toolResultMaxChars，这两项按默认值处理。',
+    );
+    delete out.toolResultPreviewChars;
+    delete out.toolResultMaxChars;
+  }
+
+  const ratio = (key: (typeof LAYER_RATIO_KEYS)[number]): number =>
+    out[key] ?? DEFAULT_CONTEXT_LAYERS[key];
+  const ladder = [
+    ['snipAtRatio', 'microAtRatio'],
+    ['microAtRatio', 'collapseAtRatio'],
+    ['collapseAtRatio', 'collapseUrgentRatio'],
+  ] as const;
+  for (const [lower, upper] of ladder) {
+    if (ratio(lower) > ratio(upper)) {
+      warn(
+        `${label(layer.source)} ${where} compact.layers.${lower} 大于 ${upper} —— ` +
+          `比例阶梯必须单调，${lower} 按默认值处理。`,
+      );
+      delete out[lower];
+    }
   }
 
   return out;
