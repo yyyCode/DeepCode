@@ -41,6 +41,7 @@
 | P9 工具清单 | 一份清单三个消费者、账本算上工具、`/tools`、`$.tool.origin` | `p9-design.md:12` | `p9-design.md:307` |
 | P10 子代理的边界 | 面与深度上限挪进内核（`allow` 求交、所有路径共用一个数、`agent.spawn.depth`） | `p10-design.md:12` | `p10-design.md:240` |
 | P11 上下文五层 | 第 1 层落盘/预览、第 2–4 层读时投影、`compact.layers`、`Read` 的 `offset`、`pnpm bench` | `2026-10-26-deepcode-p11-context-layers-design.md:253` | 同文件 §7 |
+| P12 跨会话记忆 | 四类记忆、索引常驻 + 正文按需、关键词/小模型召回、`Memory` 工具与 `/memory`、`memory` 设置、`pnpm bench:memory` | `2026-10-26-deepcode-p12-memory-design.md:330` | 同文件 §7 |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
@@ -886,3 +887,51 @@ README / `docs/已知限制.md` / `docs/项目简介.md` / `docs/简历亮点与
 新增的用例分布在七处：`context-shaping`（12）、`context-window`（11）、`context-benchmark`（4）、
 `context-view` 的分层行（2）、`settings` 的 `compact.layers`（6）、`tools` 的 `offset`（2）、
 `loop-options` 的接线与 fail-open（2），共 39 条。
+
+## P12 跨会话记忆：索引常驻、正文按需
+
+**范围**：`src/contract/memory.ts`（四类封闭集合、上限常量、`MemoryConfig` / `MemoryStats`）、
+`src/core/memory.ts`（纯函数：frontmatter 解析、索引生成与双上限截断、中英切词与打分、
+小模型名单解析、陈旧度、不可见字符与伪装标签的中和、注入渲染）、
+`src/cli/memory.ts`（扫描/召回/读写/索引重建、`Memory` 工具、`/memory`、插件接线）、
+`src/cli/settings.ts`（`memory` 段逐字段合并与降级）、`src/cli/context-view.ts`（「记忆」一行）、
+`src/cli/plugins.ts` / `src/cli/main.ts`（第一方装配与账本）、`src/contract/engine.ts`
+（`FsNoun.stat` 加 `mtimeMs`，`modified` 缺失时兜底）、`scripts/benchmark-memory.ts` 与
+`package.json` 的 `bench:memory`、六个测试文件/块、README / 已知限制 / 官网。
+
+**为什么**：P7 的「记忆与上下文」只有会话内的东西 —— `AGENTS.md` 要人维护，转录是个别会话的。
+跨会话还剩下一样没地方放：用户说过「别 mock 数据库」、版本哪天发布、看板在哪个链接。
+Claude Code 的做法是四条封闭类型 + 一条一个文件 + 索引常驻 + 小模型按需召回；这一阶段照这个形状做，
+只把「小模型秘书」换成默认的确定性关键词召回（零 API、可离线 benchmark），并留了 `recallModel` 的开关。
+
+**出口标准**（设计 §8.1）：四类封闭且 feedback 必须带 `**Why:**` / `**How to apply:**`；索引常驻、
+正文只在召回时注入；12 条标注查询全中；250 条时索引 ≤200 行；陈旧提醒只在超过 1 天时出现；
+零宽/伪装标签在注入前被中和；目录缺失、坏文件、小模型失败、工具参数坏全部 fail-open；
+`save` → 索引出现 → `read` 读得回 → `forget` 消失；没有记忆目录时系统提示与 P11 逐字节相同。
+
+**实测**（`pnpm bench:memory`，2026-10-26）：
+
+| 场景 | 记忆数 | 全量注入正文 | 索引 + 召回 | 降幅 | 命中 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| recall-40 | 40 | 7,598 token | 1,062 token（索引 787 + 召回 239） | −86.0% | 12/12 |
+| large-index | 250 | 47,778 token | 5,451 token（索引 4,120 + 召回 1,199） | −88.6% | 12/12 |
+| mixed-language | 40 | 7,598 token | 1,062 token（索引 787 + 召回 239） | −86.0% | 8/8 |
+
+口径：token 仍是 `ceil(chars/4)` 估算；召回走关键词（离线、零 API）；命中 = 期望的那条进了前 5。
+`large-index` 的索引是 200 行 / 4,120 token —— 截断生效，警告也在。
+
+**预登记偏差**（设计 §7，共 12 条）：默认秘书是关键词而非模型；`MEMORY.md` 由程序生成；
+不做并行预取；项目级而非用户级；不做语义检索；陈旧提醒只改提示文本；子代理看不到记忆；
+`forget` 无撤销；不校验绝对日期；中和不是注入防御；不缓存扫描结果；索引行数与字节双查。
+
+**施工期发现的两件事**（写设计时不知道）：
+
+- **`prompt.section` 是链，不是唯一贡献者**。最初那条 hook 只返回自己的节，会把内层已经算出来的
+  `AGENTS.md` 那一节整个丢掉。改成先 `next(e)`、再把自己的节**追加**在后面，并把无记忆那一支
+  也返回 `inner` —— 契约里那句「内层在前」不是装饰（`test/memory-plugin.test.ts` 钉住）。
+- **benchmark 的命中率只能证明「造好的样本上关键词够用」**。12/12 是刻意的：每条记忆有一个
+  唯一关键词，查询里写着它。换个说法、跨语言就未必 —— 这一点写进了已知限制，没有拿它当召回质量。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **78 个文件 / 1299 passed / 1 skipped**。
+新增用例：`memory`（30）、`memory-plugin`（14）、`memory-benchmark`（4）、`context-view` 的记忆行（3）、
+`settings` 的 `memory` 段（4），并把 `/tools` 的端到端计数从 8 改成 9（`Memory` 是模型可见工具）。

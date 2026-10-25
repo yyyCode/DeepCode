@@ -1,4 +1,5 @@
 import type { LayerStats } from '../contract/context-window';
+import type { MemoryStats } from '../contract/memory';
 import type { Message, ToolSpec } from '../contract/model-provider';
 import { estimateTokens, messageChars } from '../core/loop';
 import { toolSpecChars, toolsChars } from '../core/tool-list';
@@ -47,6 +48,11 @@ export type ContextReportInput = {
    * 那一行就整行不出现，不编一个 0。
    */
   readonly layers?: LayerStats | undefined;
+  /**
+   * 记忆系统最近一次扫描的账（P12）。`undefined` = 这一轮还没扫过；
+   * `enabled === false` = 配置关掉了 —— 两种都如实说，不合成一行。
+   */
+  readonly memory?: MemoryStats | undefined;
 };
 
 /** 千分位用**手写**的，不走 `toLocaleString`：那个跟着机器语言变，测试里就是一条流沙。 */
@@ -107,6 +113,24 @@ export function contextReport(input: ContextReportInput): readonly string[] {
         `折叠 ${num(stats.collapsedSegments)} 段 · ` +
         `上次请求 ${num(stats.tokensBefore)} → ${num(stats.tokensAfter)} token`,
     );
+  }
+
+  // P12：记忆那一行。索引每轮都进系统提示，所以它的 token 数已经在「系统提示」里；
+  // 这一行报的是**它为什么这么大**（多少条）与这一轮召回了谁。
+  if (input.memory !== undefined) {
+    const memory = input.memory;
+    if (!memory.enabled) {
+      lines.push('  记忆　　　关（memory.enabled = false）');
+    } else {
+      const mode =
+        memory.recallMode === 'model' ? '小模型' : memory.recallMode === 'keyword' ? '关键词' : '无';
+      lines.push(
+        `  记忆　　　${num(memory.count)} 条 · 索引 ${num(memory.indexLines)} 行 / ` +
+          `${num(estimateTokens(memory.indexChars))} token` +
+          `${memory.indexTruncated ? '（已截断）' : ''} · ` +
+          `召回 ${num(memory.recalled.length)} 条 / ${num(estimateTokens(memory.recalledChars))} token（${mode}）`,
+      );
+    }
   }
 
   const usage = input.lastUsage;

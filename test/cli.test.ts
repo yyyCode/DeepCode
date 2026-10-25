@@ -20,6 +20,7 @@ import { runTurn } from '../src/core/loop';
 import type { CoreImpls } from '../src/core/dispatch';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { Renderer } from '../src/cli/render';
+import { DEFAULT_MEMORY } from '../src/contract/memory';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
@@ -60,6 +61,7 @@ const NO_POLICY: ResolvedPolicy = {
   personalRules: [],
   sandbox: EMPTY_SANDBOX,
   compact: DEFAULT_COMPACT,
+  memory: DEFAULT_MEMORY,
   telemetry: DEFAULT_TELEMETRY,
   plugins: NO_PLUGIN_POLICY,
   instructions: [],
@@ -383,6 +385,7 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
         personalRules: [{ raw: 'Bash', tool: 'Bash', decision: 'allow' }],
         sandbox: EMPTY_SANDBOX,
         compact: DEFAULT_COMPACT,
+        memory: DEFAULT_MEMORY,
         telemetry: DEFAULT_TELEMETRY,
         plugins: NO_PLUGIN_POLICY,
         instructions: [],
@@ -683,14 +686,15 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
         { cwd: process.cwd(), env, input: '/tools\n/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
       );
 
-      // ⚠️ 真会话里是**八个**：六个内建 + 子代理插件给的 `Task` / `Skill`。
+      // ⚠️ 真会话里是**九个**：六个内建 + 子代理插件给的 `Task` / `Skill` + 记忆的 `Memory`。
       // 写死这个数是有意的 —— 它把"模型能用哪些"与"哪个插件给的"两件事一起钉住了，
       // 多一个少一个都会红（`/tools` 的个数本来就是个该被人看见的数）。
-      expect(stdout).toContain('模型这一轮能用的工具（8 个）：');
-      // 来源是**插件名**，不是工具名 —— 写反了八个会一起错（`tool-read` vs `Read`）。
+      expect(stdout).toContain('模型这一轮能用的工具（9 个）：');
+      // 来源是**插件名**，不是工具名 —— 写反了九个会一起错（`tool-read` vs `Read`）。
       expect(stdout).toContain('Read　来自 tool-read');
       expect(stdout).toContain('Bash　来自 tool-bash');
       expect(stdout).toContain('Task　来自 subagents');
+      expect(stdout).toContain('Memory　来自 memory');
       // 一个都看不见时那一段不出现（六个内建都注册了 describe）。
       expect(stdout).not.toContain('不进模型可见清单的');
       expect(stdout).not.toContain('未知命令');
@@ -850,6 +854,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       ],
       sandbox: EMPTY_SANDBOX,
       compact: DEFAULT_COMPACT,
+      memory: DEFAULT_MEMORY,
       telemetry: DEFAULT_TELEMETRY,
       plugins: NO_PLUGIN_POLICY,
       instructions: [],
@@ -896,6 +901,7 @@ describe('cli 命令：/permissions 把生效的权限摊开', () => {
       personalRules: [],
       sandbox: EMPTY_SANDBOX,
       compact: DEFAULT_COMPACT,
+      memory: DEFAULT_MEMORY,
       telemetry: DEFAULT_TELEMETRY,
       plugins: NO_PLUGIN_POLICY,
       instructions: [],

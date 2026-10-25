@@ -16,7 +16,7 @@ export function createFsNoun(): FsNoun {
     list: (dir) => readdir(dir),
     stat: async (path) => {
       const s = await stat(path);
-      return { size: s.size, isDirectory: s.isDirectory() };
+      return { size: s.size, isDirectory: s.isDirectory(), mtimeMs: s.mtimeMs };
     },
   };
 }

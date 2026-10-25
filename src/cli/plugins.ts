@@ -15,6 +15,7 @@ import { createSessionCommands, type CommandDescription } from './commands';
 import { createPermissionsCommand } from './permissions-command';
 import { createConfigCommand } from './config-command';
 import { createSubagentsPlugin } from './subagents';
+import { createMemoryPlugin, type MemoryPlugin } from './memory';
 import type { ToolListing } from '../core/tool-list';
 import type { ResolvedPolicy } from './settings';
 import type { Renderer } from './render';
@@ -130,6 +131,12 @@ export type CliPluginBundle = {
    * 只活在 `createActivityPlugin` 的闭包里的话，退出摘要就没得可读了。
    */
   readonly tally: Tally;
+  /**
+   * 记忆插件（P12）。交出去是为了 `/context` 能读它最近一次扫描的账
+   * （条数、索引行数、这一轮召回了谁）—— 与 `tally` 同一条理由：只活在闭包里的账，
+   * 屏幕上就看不到。
+   */
+  readonly memory: MemoryPlugin;
 };
 
 /**
@@ -150,6 +157,14 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   // 与上面那份账本同一条道理：**必须是同一个对象**，否则按了 `a` 之后
   // `/permissions` 还是一句"什么都没记住"。
   const grants = createSessionGrants();
+  // 记忆（P12）。它是第一方的一员：`Memory` 工具的名字要进下面的第一方豁免名单，
+  // 否则一份个人配置里的 `plugins.deny: ["memory"]` 就能把记忆关掉。
+  const memory = createMemoryPlugin({
+    home: deps.home,
+    root: deps.root,
+    config: deps.policy.memory,
+    warn: deps.warn,
+  });
 
   // ⚠️ 顺序是契约，不是随手排的（下面每条都承重）：
   // 1. 座位比顺序更重要：prepend 的 plugin-guard 与 sec-default、user 的 permissions
@@ -173,6 +188,8 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 个人规则：policy 之外的四个来源。会话里当场批准的那几条也从这儿进同一条判定。
     createPermissionsPlugin({ rules: deps.policy.personalRules, grants }),
     createChangesPlugin(deps.changes),
+    // 记忆排在工具串前面：它注册的 `Memory` 工具与 `prompt.section` 贡献者都是第一方。
+    memory,
     ...coreTools,
     // 组合面：应答 agent.offer、注册 Task 与 Skill。放在工具这一串里，
     // 名字自动进下面的第一方名单（`names`），于是 deny 名单点它也没用。
@@ -251,5 +268,6 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 连这张表都钉不动它们 —— 见 core/create.ts。
     thirdParty: discovered.map((plugin) => plugin.name),
     tally,
+    memory,
   };
 }

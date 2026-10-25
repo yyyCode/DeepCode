@@ -37,7 +37,12 @@ export type FsNoun = {
   write(path: string, content: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   list(dir: string): Promise<readonly string[]>;
-  stat(path: string): Promise<{ readonly size: number; readonly isDirectory: boolean }>;
+  stat(path: string): Promise<{
+    readonly size: number;
+    readonly isDirectory: boolean;
+    /** 文件修改时间（毫秒）。记忆的 `modified` 缺失时靠它兜底（P12）。 */
+    readonly mtimeMs: number;
+  }>;
 };
 
 export type ProcessNoun = {

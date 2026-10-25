@@ -579,3 +579,38 @@ describe('instructions 段：只有托管层能下发', () => {
     expect(unknownKey.warnings.join('\n')).toContain('不认识的子键');
   });
 });
+
+describe('memory 段（P12）', () => {
+  it('默认开着、最多召回 5 条、不配小模型', async () => {
+    const { policy } = await load({});
+    expect(policy.memory).toEqual({ enabled: true, maxRecall: 5 });
+  });
+
+  it('逐字段合并：高层只写一个字段，低层的别的字段还在', async () => {
+    const { policy } = await load({
+      [USER]: '{"memory":{"maxRecall":3,"recallModel":"cheap"}}',
+      [PROJECT]: '{"memory":{"enabled":false}}',
+    });
+    expect(policy.memory).toEqual({ enabled: false, maxRecall: 3, recallModel: 'cheap' });
+  });
+
+  it('字段级降级：类型不对只丢那一个字段并出声', async () => {
+    const { policy, warnings } = await load({
+      [USER]: '{"memory":{"enabled":"yes","maxRecall":0,"recallModel":"  "}}',
+    });
+    expect(policy.memory).toEqual({ enabled: true, maxRecall: 5 });
+    expect(warnings.join('\n')).toContain('memory.enabled 不是布尔值');
+    expect(warnings.join('\n')).toContain('memory.maxRecall 不是正整数');
+    expect(warnings.join('\n')).toContain('memory.recallModel 不是非空字符串');
+  });
+
+  it('memory 块不是对象 / 有不认识的子键 → 整块或那一个键忽略 + 出声', async () => {
+    const notObject = await load({ [USER]: '{"memory":[]}' });
+    expect(notObject.policy.memory).toEqual({ enabled: true, maxRecall: 5 });
+    expect(notObject.warnings.join('\n')).toContain('memory 块整块忽略');
+
+    const unknownKey = await load({ [USER]: '{"memory":{"enabled":false,"模式":"语义"}}' });
+    expect(unknownKey.policy.memory.enabled).toBe(false);
+    expect(unknownKey.warnings.join('\n')).toContain('不认识的子键');
+  });
+});
