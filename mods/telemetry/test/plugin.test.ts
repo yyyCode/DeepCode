@@ -9,6 +9,7 @@ import { cliPlugins } from '../../../src/cli/plugins';
 import { createPalette } from '../../../src/cli/ansi';
 import { createRenderer } from '../../../src/cli/render';
 import { createSessionChanges } from '../../../src/cli/changes';
+import { DEFAULT_MEMORY } from '../../../src/contract/memory';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
@@ -287,6 +288,7 @@ describe('装配级', () => {
     personalRules: [],
     sandbox: EMPTY_SANDBOX,
     compact: DEFAULT_COMPACT,
+    memory: DEFAULT_MEMORY,
     telemetry: DEFAULT_TELEMETRY,
     plugins: { enable: [], enableByUser: [], deny: [] },
     instructions: [],

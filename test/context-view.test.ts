@@ -194,3 +194,55 @@ describe('P9：工具清单也是请求的一部分，账本得算上', () => {
     expect(line(empty, '工具清单')).not.toContain('还没发过请求');
   });
 });
+
+describe('记忆那一行（P12）', () => {
+  it('开着时报条数、索引与召回，并标明召回模式', () => {
+    const lines = contextReport({
+      pieces: PIECES,
+      messages: MESSAGES,
+      compact: CONFIG,
+      tools: undefined,
+      memory: {
+        enabled: true,
+        count: 3,
+        broken: 0,
+        indexLines: 8,
+        indexChars: 400,
+        indexTruncated: false,
+        recalled: ['a'],
+        recalledChars: 200,
+        recallMode: 'keyword',
+      },
+    });
+    const memory = line(lines, '记忆');
+    expect(memory).toContain('3 条');
+    expect(memory).toContain('索引 8 行 / 100 token');
+    expect(memory).toContain('召回 1 条 / 50 token（关键词）');
+  });
+
+  it('关掉时只说关，不报一堆 0', () => {
+    const lines = contextReport({
+      pieces: PIECES,
+      messages: MESSAGES,
+      compact: CONFIG,
+      tools: undefined,
+      memory: {
+        enabled: false,
+        count: 0,
+        broken: 0,
+        indexLines: 0,
+        indexChars: 0,
+        indexTruncated: false,
+        recalled: [],
+        recalledChars: 0,
+        recallMode: 'none',
+      },
+    });
+    expect(line(lines, '记忆')).toContain('关（memory.enabled = false）');
+  });
+
+  it('还没扫过时整行不出现 —— 不编一个 0', () => {
+    const lines = contextReport({ pieces: PIECES, messages: MESSAGES, compact: CONFIG, tools: undefined });
+    expect(lines.some((one) => one.trimStart().startsWith('记忆'))).toBe(false);
+  });
+});

@@ -60,7 +60,7 @@ function fakeFs(options: { failWrite?: boolean } = {}): {
         return [...files.keys()].filter((path) => path.startsWith(dir));
       },
       async stat(path) {
-        return { size: files.get(path)?.length ?? 0, isDirectory: false };
+        return { size: files.get(path)?.length ?? 0, isDirectory: false, mtimeMs: 0 };
       },
     },
   };

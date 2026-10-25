@@ -365,6 +365,8 @@ async function main(): Promise<void> {
         compact: policy.compact,
         lastUsage: compactor?.usage(),
         layers: lastProjection,
+        // 记忆的账由它自己记（扫描发生在 `prompt.section` 里），这里只取最近一次。
+        memory: bundle.memory.stats(),
       }),
     // `/tools` 与 `/help` 的工具那一行共用它 —— 与 `describeCommand` 同一个延迟取的位置，
     // 同一条理由（要 `dispatch`，而插件拿不到）。

@@ -12,6 +12,7 @@ import { createSessionChanges } from '../src/cli/changes';
 import { createRenderer } from '../src/cli/render';
 import { createEngine } from '../src/core/create';
 import { modPlugins, scriptedProvider } from './harness';
+import { DEFAULT_MEMORY } from '../src/contract/memory';
 import {
   DEFAULT_COMPACT,
   DEFAULT_TELEMETRY,
@@ -25,6 +26,7 @@ const POLICY: ResolvedPolicy = {
   personalRules: [],
   sandbox: EMPTY_SANDBOX,
   compact: DEFAULT_COMPACT,
+  memory: DEFAULT_MEMORY,
   telemetry: DEFAULT_TELEMETRY,
   plugins: { enable: [], enableByUser: [], deny: [] },
   instructions: [],

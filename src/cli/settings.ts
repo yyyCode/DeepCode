@@ -13,6 +13,7 @@ import { sandboxRule, type SandboxConfig } from '../contract/sandbox';
 import { isPluginName } from '../contract/plugin-manifest';
 import { DEFAULT_TELEMETRY, type TelemetryPolicy } from '../contract/telemetry';
 import { DEFAULT_CONTEXT_LAYERS, type ContextLayerConfig } from '../contract/context-window';
+import { DEFAULT_MEMORY, type MemoryConfig } from '../contract/memory';
 
 /**
  * 权限设置的五个来源，低 → 高。数组顺序就是 `/permissions` 的输出顺序。
@@ -125,12 +126,16 @@ export type GatewayConfig = {
 /** 一层的 `compact` 段：只存这一层**写了**的字段。 */
 type CompactLayer = Partial<CompactConfig>;
 
+/** 一层的 `memory` 段：只存这一层**写了**的字段。合并规矩同 `compact`。 */
+type MemoryLayer = Partial<MemoryConfig>;
+
 /** 认得出来的顶层键。**加一个顶层块就得加一项** —— 漏了就是给用户发一条假警告。 */
 const KNOWN_TOP_LEVEL = new Set([
   'permissions',
   'plugins',
   'sandbox',
   'compact',
+  'memory',
   'telemetry',
   'instructions',
   'gateway',
@@ -181,6 +186,10 @@ export type ResolvedPolicy = {
    * 压缩偏好。它不是权限 —— 挤在这份"权限快照"里只因为 `resolvePolicy` 是唯一走完五层的地方。
    */
   readonly compact: CompactConfig;
+  /**
+   * 记忆系统（P12）。与 `compact` 同一种东西：不是权限，挤进来只因为这里走完了五层。
+   */
+  readonly memory: MemoryConfig;
   /**
    * 遥测开关。同样是"挤进来"的：只有 user 与 policy 两层能说话，
    * 但判定要用到五层读完之后的结论。
@@ -314,6 +323,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   const pluginsBySource = new Map<SettingsSource, PluginsLayer>();
   const sandboxLayers = new Map<SettingsSource, SandboxLayer>();
   const compactLayers = new Map<SettingsSource, CompactLayer>();
+  const memoryLayers = new Map<SettingsSource, MemoryLayer>();
   const telemetryLayers = new Map<SettingsSource, TelemetryLayer>();
   const instructionLayers = new Map<SettingsSource, readonly ManagedInstruction[]>();
   const gatewayBySource = new Map<SettingsSource, GatewayConfig>();
@@ -325,6 +335,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     pluginsBySource.set(layer.source, read.plugins);
     sandboxLayers.set(layer.source, read.sandbox);
     compactLayers.set(layer.source, read.compact);
+    memoryLayers.set(layer.source, read.memory);
     telemetryLayers.set(layer.source, read.telemetry);
     instructionLayers.set(layer.source, read.instructions);
     gatewayBySource.set(layer.source, read.gateway);
@@ -376,6 +387,16 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   const compact: CompactConfig =
     Object.keys(mergedLayers).length === 0 ? compactBase : { ...compactBase, layers: mergedLayers };
 
+  // ── 记忆 ──
+  // 与 compact 同一套：后读到的覆盖先读到的，逐字段合并。
+  // `enabled: false` 在高层生效时**不**把低层也抹成空 —— 整块关掉就够了，
+  // 剩下的字段只在重新打开时才有意义。
+  let memory: MemoryConfig = { ...DEFAULT_MEMORY };
+  for (const source of SETTINGS_SOURCES) {
+    // `readMemory` 只放已经认过的键，所以这里整块铺开是安全的。
+    memory = { ...memory, ...(memoryLayers.get(source) ?? {}) };
+  }
+
   // ── 遥测 ──
   // ⚠️ **不是**"后读到的覆盖先读到的"（那是 compact 的规矩）。这里只有两个方向：
   // 用户层能把它打开，托管层能把它关掉 —— 个人配置在这件事上**没有**说话的份。
@@ -411,6 +432,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     },
     sandbox,
     compact,
+    memory,
     telemetry,
     // 只有托管层的话能到这儿 —— 别的层写了会在 readInstructions 里被丢掉并出声。
     // 不必像 sandbox 那样再遍历一遍其余四层：丢弃就发生在解析那一层，
@@ -439,6 +461,7 @@ type LayerRead = {
   readonly plugins: PluginsLayer;
   readonly sandbox: SandboxLayer;
   readonly compact: CompactLayer;
+  readonly memory: MemoryLayer;
   readonly telemetry: TelemetryLayer;
   readonly instructions: readonly ManagedInstruction[];
   /**
@@ -464,6 +487,7 @@ async function readLayer(
       plugins: EMPTY_PLUGINS,
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
+      memory: {},
       telemetry: {},
       instructions: [],
       gateway: EMPTY_GATEWAY,
@@ -480,6 +504,7 @@ async function readLayer(
       plugins: EMPTY_PLUGINS,
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
+      memory: {},
       telemetry: {},
       instructions: [],
       gateway: EMPTY_GATEWAY,
@@ -507,6 +532,7 @@ async function readLayer(
       plugins: EMPTY_PLUGINS,
       sandbox: EMPTY_SANDBOX_LAYER,
       compact: {},
+      memory: {},
       telemetry: {},
       instructions: [],
       gateway: EMPTY_GATEWAY,
@@ -543,6 +569,7 @@ async function readLayer(
   // 否则一份只有 sandbox 段、没有 permissions 段的设置会把闸丢掉。
   const sandbox = readSandbox(record.sandbox, layer, origin, home, warn);
   const compact = readCompact(record.compact, layer, origin, warn);
+  const memory = readMemory(record.memory, layer, origin, warn);
   // 同在 permissions 的早期 return 之前 —— 一份只写 telemetry 的设置文件不该被丢掉。
   const telemetry = readTelemetry(record.telemetry, layer, origin, warn);
   // ⚠️ 与 plugins / sandbox / telemetry 同一条：**必须在 permissions 的早期 return
@@ -560,6 +587,7 @@ async function readLayer(
       plugins: plugins.value,
       sandbox,
       compact,
+      memory,
       telemetry,
       instructions,
       gateway,
@@ -613,6 +641,7 @@ async function readLayer(
     plugins: plugins.value,
     sandbox,
     compact,
+    memory,
     telemetry,
     instructions,
     gateway,
@@ -1019,6 +1048,54 @@ function readCompact(
   );
   if (unknown.length > 0) {
     warn(`${label(layer.source)} ${where} 的 compact 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
+  }
+
+  return out;
+}
+
+/**
+ * 解析一层的 `memory` 段（P12）。形状错的处置与 `compact` 一致：**字段级降级**，
+ * 只有那一个字段类型不对时按没写处理 + 出声。它不是权限，没有「猜严/猜松」的方向。
+ */
+function readMemory(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  warn: (line: string) => void,
+): MemoryLayer {
+  if (value === undefined) return {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    warn(`${label(layer.source)} ${where} 的 memory 块整块忽略 —— 不是一个对象。`);
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  const out: { enabled?: boolean; maxRecall?: number; recallModel?: string } = {};
+
+  if (record.enabled !== undefined) {
+    if (typeof record.enabled === 'boolean') out.enabled = record.enabled;
+    else warn(`${label(layer.source)} ${where} memory.enabled 不是布尔值，按默认值处理。`);
+  }
+  if (record.maxRecall !== undefined) {
+    if (typeof record.maxRecall === 'number' && Number.isInteger(record.maxRecall) && record.maxRecall > 0) {
+      out.maxRecall = record.maxRecall;
+    } else {
+      warn(`${label(layer.source)} ${where} memory.maxRecall 不是正整数，按默认值处理。`);
+    }
+  }
+  if (record.recallModel !== undefined) {
+    if (typeof record.recallModel === 'string' && record.recallModel.trim() !== '') {
+      out.recallModel = record.recallModel.trim();
+    } else {
+      warn(`${label(layer.source)} ${where} memory.recallModel 不是非空字符串，按没写处理。`);
+    }
+  }
+
+  const unknown = Object.keys(record).filter(
+    (key) => key !== 'enabled' && key !== 'maxRecall' && key !== 'recallModel',
+  );
+  if (unknown.length > 0) {
+    warn(`${label(layer.source)} ${where} 的 memory 里有不认识的子键：${unknown.join('、')}（已忽略）。`);
   }
 
   return out;
