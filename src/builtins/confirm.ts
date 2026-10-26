@@ -7,10 +7,12 @@ const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep']);
  * 不碰磁盘、不执行命令，但也不是"读一个文件"的那一类：借道放行，不问。
  *
  * - `Skill`：把一段文本加载进上下文 —— 与 `Read` 同类。
- * - `Task`：派一个子代理。**放过它绝不等于免确认**：子代理内部每一次工具调用都要
- *   再走一遍这条链（`core/loop.ts` 是同一个 `runTurn`），它要写文件照样弹 y/N。
- *   在 `Task` 上再问一次只是让用户多按一次 y，还会误导出"我批准了 Task
+ * - `Task` / `Explore`：派一个子代理。**放过它绝不等于免确认**：子代理内部每一次工具调用
+ *   都要再走一遍这条链（`core/loop.ts` 是同一个 `runTurn`），它要写文件照样弹 y/N。
+ *   在派发工具上再问一次只是让用户多按一次 y，还会误导出"我批准了 Task
  *   就是批准了它接下来做的一切"。
+ *   `Explore` 多一层资格：只有声明了 `readOnly: true` 且带 `tools` 的 agent 能被它选中，
+ *   内核还会拿实际面逐个核对（`core/nouns/agent.ts`）。**这一道是能力判断，不是权限放宽。**
  * - `EnterPlanMode` / `ExitPlanMode`：计划模式的两个开关。它们自己就是一次权限收窄/恢复，
  *   Exit 还会单独问用户批不批准计划；在本链上再问一次只会问两遍。计划模式真正的
  *   只读判定在 `builtins/plan.ts` 的 `tool.check`，这一条只是"确认器认识它们"。
@@ -24,6 +26,7 @@ const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep']);
 const PASS_THROUGH_TOOLS = new Set([
   'Skill',
   'Task',
+  'Explore',
   'EnterPlanMode',
   'ExitPlanMode',
 ]);

@@ -689,19 +689,20 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
         { cwd: process.cwd(), env, input: '/tools\n/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
       );
 
-      // ⚠️ 真会话里是**十个**：六个内建 + 子代理插件给的 `Task` / `Skill` + 记忆的
-      // `Memory` + 计划模式的入口 `EnterPlanMode`。写死这个数是有意的 —— 它把"模型
-      // 能用哪些"与"哪个插件给的"两件事一起钉住了，多一个少一个都会红（`/tools` 的
-      // 个数本来就是个该被人看见的数）。
-      expect(stdout).toContain('模型这一轮能用的工具（10 个）：');
-      // 来源是**插件名**，不是工具名 —— 写反了十个会一起错（`tool-read` vs `Read`）。
+      // ⚠️ 真会话里是**十一个**：六个内建 + 子代理插件给的 `Task` / `Explore` / `Skill`
+      // + 记忆的 `Memory` + 计划模式的入口 `EnterPlanMode`。写死这个数是有意的 —— 它把
+      // "模型能用哪些"与"哪个插件给的"两件事一起钉住了，多一个少一个都会红（`/tools`
+      // 的个数本来就是个该被人看见的数）。
+      expect(stdout).toContain('模型这一轮能用的工具（11 个）：');
+      // 来源是**插件名**，不是工具名 —— 写反了十一个会一起错（`tool-read` vs `Read`）。
       expect(stdout).toContain('Read　来自 tool-read');
       expect(stdout).toContain('Bash　来自 tool-bash');
       expect(stdout).toContain('Task　来自 subagents');
+      expect(stdout).toContain('Explore　来自 subagents');
       expect(stdout).toContain('Memory　来自 memory');
       expect(stdout).toContain('EnterPlanMode　来自 plan-mode');
       // 计划模式没开时 `ExitPlanMode` 没有意义，被 plan-mode 插件的 describe 藏掉。
-      // 所以这一段**第一次**出现（之前九个工具全都可见）。
+      // 所以这一段**第一次**出现（之前十个工具全都可见）。
       expect(stdout).toContain('不进模型可见清单的（1 个）：');
       expect(stdout).toContain('ExitPlanMode　被权限规则隐藏');
       expect(stdout).not.toContain('未知命令');

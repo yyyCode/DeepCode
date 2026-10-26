@@ -25,6 +25,15 @@ export type AgentSpec = {
   readonly model?: string;
   /** 本子代理单次调用的最大往返次数，省略 = loop 的 MAX_HOPS。 */
   readonly maxTurns?: number;
+  /**
+   * **作者声明**这个 agent 的工具面全是只读的（P15）。只有 `Explore` 会用它。
+   *
+   * 它放不放宽任何权限：`Task` 照旧能派它，`tools` 照旧收窄。它只是一个**资格**，
+   * 而且内核不信任这个布尔 —— 真派的时候会拿这一轮的实际面逐个核对
+   * （`core/nouns/agent.ts`）。声明 `readOnly` 却没写 `tools` 的 agent 在发现阶段
+   * 会丢掉这个标志：省略 `tools` 等于继承父面，其中可能就有写工具。
+   */
+  readonly readOnly?: boolean;
 };
 
 export type SkillSpec = {
@@ -60,6 +69,14 @@ export type AgentSpawnRequest = {
   /** 已解析的模型；undefined = 用会话自己的（= 父级那个）。 */
   readonly model?: string;
   readonly maxHops?: number;
+  /**
+   * 要求这次派生**只能**落在只读面上（P15，`Explore` 专用）。
+   *
+   * 内核在算出这一轮真正的面之后、派 `agent.spawn` 之前核对：面里任何一个工具没有
+   * 声明 `readOnly: true`，这次派生就被拒。因此它是**验证请求**，不是放行开关 ——
+   * 声明它不会让任何工具变得可写或可读，只会让不满足的那次跑不起来（fail-closed）。
+   */
+  readonly readOnly?: boolean;
 };
 
 /**

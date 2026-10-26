@@ -21,8 +21,12 @@ import type { Plugin } from '../contract/plugin';
  * （项目自己的目录），不是复刻对象的 `.claude/plans/`。这两条都写进设计文档的偏差清单。
  */
 
-/** 计划模式里允许的只读工具。`Skill` 只把一段正文加载进上下文，不碰磁盘。 */
-const PLAN_READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'Skill']);
+/**
+ * 计划模式里允许的只读工具。`Skill` 只把一段正文加载进上下文，不碰磁盘。
+ * `Explore` 是 P15 加的：它派出的面由内核逐个核对 `readOnly`，不满足就拒，
+ * 所以放它进来是"只读研究的并发入口"，不是把写能力带进计划模式。
+ */
+const PLAN_READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'Skill', 'Explore']);
 
 /** 两个模式工具。进入时可见；退出时可见 —— 反过来各自隐藏。 */
 const PLAN_TOOLS = new Set(['EnterPlanMode', 'ExitPlanMode']);
@@ -84,7 +88,7 @@ export function createPlanMode(options: { readonly now?: () => number } = {}): P
       turns = 0;
       return (
         `已进入计划模式（只读）。计划文件：${planPath}\n` +
-        '先用 Read / Glob / Grep 看清现状，把方案写成完整计划，再调用 ExitPlanMode 交给用户批准。'
+        '先用 Read / Glob / Grep / Explore 看清现状，把方案写成完整计划，再调用 ExitPlanMode 交给用户批准。'
       );
     },
     leave() {
@@ -115,7 +119,7 @@ export function createPlanMode(options: { readonly now?: () => number } = {}): P
 export function planModePrompt(input: { readonly path: string; readonly turns: number }): string {
   const lines = [
     '计划模式（只读）：',
-    '- 你现在只能探索：Read / Glob / Grep / Skill。Write / Edit / Bash / Task 等不在工具清单里。',
+    '- 你现在只能探索：Read / Glob / Grep / Skill / Explore。Write / Edit / Bash / Task 等不在工具清单里。',
     '- 先读现状再下结论，不要猜文件内容；不要尝试改文件。',
     '- 完成探索后调用 ExitPlanMode，把完整计划放进 plan 参数：目标、涉及文件、步骤、验证方式、风险。',
     `- 计划文件：${input.path}`,

@@ -35,6 +35,7 @@ import { contextReport } from './context-view';
 import { resolvePolicy } from './settings';
 import { discoverPlugins, loadPlugins } from './plugin-dir';
 import { discoverAgents } from './agents';
+import { BUILTIN_AGENTS } from './builtin-agents';
 import { discoverSkills } from './skills';
 import { runPluginCommand } from './plugin-command';
 import { runConfigCommand } from './config-cli';
@@ -270,7 +271,14 @@ async function main(): Promise<void> {
   // 只有判为 `loaded` 的插件贡献名册 —— 被 deny 的、项目级没 enable 的、清单坏掉的，
   // 它们的 agent 也不该出现。
   const pluginDirs = found.loaded.map((plugin) => ({ name: plugin.name, dir: plugin.dir }));
-  const agents = await discoverAgents({ root, home, plugins: pluginDirs, warn: warnLine });
+  const agents = await discoverAgents({
+    root,
+    home,
+    plugins: pluginDirs,
+    // 开箱类型优先级最低：同名文件赢，内置静默让位（见 discoverAgents 的注释）。
+    builtins: BUILTIN_AGENTS,
+    warn: warnLine,
+  });
   const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
 
   // 压缩器要到 `createEngine` **之后**才建得出来（它需要 `dispatch`），而 `/compact`

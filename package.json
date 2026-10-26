@@ -13,6 +13,7 @@
     "bench:memory": "tsx scripts/benchmark-memory.ts",
     "bench:prompt": "tsx scripts/benchmark-system-prompt.ts",
     "bench:loop": "tsx scripts/benchmark-agent-loop.ts",
+    "bench:subagent": "tsx scripts/benchmark-subagents.ts",
     "lint": "node scripts/check-boundaries.mjs && node scripts/check-workflow-hardening.mjs"
   },
   "devDependencies": {
