@@ -25,6 +25,7 @@ export const globTool: Plugin = {
       { tool: 'Glob' },
       () => ({
         description: '按路径模式查找文件，例如 `src/**/*.ts`。返回相对路径列表。',
+        readOnly: true,
         inputSchema: {
           type: 'object',
           properties: {

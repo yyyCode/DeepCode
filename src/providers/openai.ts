@@ -33,6 +33,9 @@ export function createOpenAIProvider(config: OpenAIConfig): ModelProvider {
 
   return {
     name: 'openai',
+    // `systemParts` 在这里**有意不接**：OpenAI 兼容端点没有显式的 cache_control，
+    // 靠的是稳定前缀自动命中。把 `system` 拼成一条 system 消息，静态段天然排在最前，
+    // 已经是最有利于命中的形状；拆成两条反而可能被端点当成不同前缀。
     async *stream({ system, messages, tools, signal, model }) {
       const effectiveModel = model ?? config.model;
       const response = await fetch(`${baseUrl}/chat/completions`, {

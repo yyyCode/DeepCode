@@ -3,6 +3,7 @@ import type {
   Message,
   ModelProvider,
   StreamEvent,
+  SystemPromptParts,
   ToolSpec,
   Usage,
 } from '../contract/model-provider';
@@ -26,7 +27,7 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
     // 不翻译、不映射 —— 我们不知道用户配的端点认不认它们，猜错还不如让端点自己说。
     // 出错的提示语也要用**真正发出去的那个** id，否则报的是"模型 claude-opus-5-5 不存在"，
     // 而真正发出去的是 haiku，用户照着提示去查会查错地方。
-    async *stream({ system, messages, tools, signal, model }) {
+    async *stream({ system, systemParts, messages, tools, signal, model }) {
       const effectiveModel = model ?? config.model;
       const response = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
@@ -38,7 +39,7 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
         body: JSON.stringify({
           model: effectiveModel,
           max_tokens: config.maxTokens ?? 8192,
-          system,
+          system: toAnthropicSystem(system, systemParts),
           messages: toAnthropicMessages(messages),
           tools: tools.map(toAnthropicTool),
           stream: true,
@@ -121,6 +122,34 @@ export function createAnthropicProvider(config: AnthropicConfig): ModelProvider 
 /** 没有用量就不带那个字段 —— 带上一个 `usage: undefined` 会让"端点报了"与"端点没报"长得一样。 */
 function doneEvent(stopReason: string, usage: Usage | undefined): StreamEvent {
   return usage === undefined ? { type: 'done', stopReason } : { type: 'done', stopReason, usage };
+}
+
+/**
+ * 系统提示 → Anthropic 的 `system` 字段。
+ *
+ * 没有拆分时原样发字符串（旧行为逐字节不变）。有拆分时发两个 text block：
+ * 静态段带 `cache_control: { type: 'ephemeral' }`，动态段不带。
+ *
+ * 为什么断点只放一个：Anthropic 的缓存前缀顺序是 tools → system → messages，
+ * 把断点放在**静态系统提示的末尾**，一次就同时盖住工具清单与静态正文 ——
+ * 这两样恰好是每次请求里最大且最稳定的部分。消息前缀也会变（每轮追加），
+ * 再打一个断点收益小、失效判定复杂，这一阶段不做。
+ */
+function toAnthropicSystem(system: string, parts: SystemPromptParts | undefined): unknown {
+  if (parts === undefined) return system;
+
+  const blocks: unknown[] = [];
+  // 空静态段不能带断点：会变成"缓存一个空块"，端点不接受。
+  if (parts.static !== '') {
+    blocks.push({
+      type: 'text',
+      text: parts.static,
+      cache_control: { type: 'ephemeral' },
+    });
+  }
+  if (parts.dynamic !== '') blocks.push({ type: 'text', text: parts.dynamic });
+  // 两段都空时退回传进来的整段（通常是空串），保持请求形状合法。
+  return blocks.length === 0 ? system : blocks;
 }
 
 /** 中立的 Message 表示 → Anthropic 协议。工具结果在 Anthropic 里是 user 消息里的 tool_result block。 */

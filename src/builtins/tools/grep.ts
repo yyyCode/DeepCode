@@ -16,6 +16,7 @@ export const grepTool: Plugin = {
       { tool: 'Grep' },
       () => ({
         description: '在文件内容里做正则搜索。返回 `相对路径:行号: 该行内容`。',
+        readOnly: true,
         inputSchema: {
           type: 'object',
           properties: {

@@ -126,6 +126,26 @@ describe('/context 的诚实底线：不报「还剩多少」', () => {
   });
 });
 
+describe('P13：静态前缀那一行', () => {
+  it('有 cache 标记时报静态/动态各自的 token', () => {
+    const marked = [
+      { name: 'role', text: '甲'.repeat(400), cache: 'static' as const }, // 100
+      { name: 'environment', text: '乙'.repeat(120), cache: 'dynamic' as const }, // 30
+    ];
+    const lines = contextReport({ pieces: marked, messages: [], compact: CONFIG, tools: undefined });
+    const prefix = line(lines, '缓存前缀');
+    expect(prefix).toContain('静态 100 token');
+    expect(prefix).toContain('动态 30 token');
+    expect(prefix).toContain('可缓存');
+    expect(prefix).toContain('每轮重算');
+  });
+
+  it('没有 cache 标记时整行不出现 —— 旧分节账不接受伪装的静态段', () => {
+    const lines = contextReport({ pieces: PIECES, messages: [], compact: CONFIG, tools: undefined });
+    expect(lines.some((one) => one.trimStart().startsWith('缓存前缀'))).toBe(false);
+  });
+});
+
 describe('P11：分层压缩那一行', () => {
   const LAYERS = {
     externalized: 12,

@@ -2,6 +2,7 @@ import type {
   ContentBlock,
   Message,
   ModelProvider,
+  SystemPromptParts,
   ToolResult,
   ToolSpec,
   Usage,
@@ -52,6 +53,13 @@ export type LoopContext = {
   signal: AbortSignal;
   dispatch: <N extends EventName>(event: N, args: Args<N>, origin: Origin) => Promise<Result<N>>;
   systemPrompt: string;
+  /**
+   * 系统提示的静态/动态拆分（P13）。省略 = 不启用分级缓存（旧行为）。
+   *
+   * 与 `systemPrompt` **同时**给：字符串仍然是唯一事实来源，这份拆分只是给
+   * provider 标缓存断点用的。两处若不一致，后果是缓存不命中，不是请求变错。
+   */
+  systemParts?: SystemPromptParts;
   turnIndex: number;
   /**
    * 允许调用的工具。**undefined = 不筛**（会话主循环就是这一支）。
@@ -109,7 +117,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<Tu
 
   // 工具清单的**唯一一份**（`core/tool-list.ts`）：模型拿到的、`/help` 列的、`/tools` 列的
   // 与账本算的是同一个函数的结果（P9 §3.1）。`onTools` 把这一份原样报给账本。
-  const { specs: tools } = await listTools({
+  const { specs: tools, readOnly } = await listTools({
     $: ctx.$,
     dispatch: ctx.dispatch,
     ...(ctx.tools === undefined ? {} : { tools: ctx.tools }),
@@ -204,6 +212,7 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<Tu
       try {
         for await (const event of ctx.provider.stream({
           system: ctx.systemPrompt,
+          ...(ctx.systemParts === undefined ? {} : { systemParts: ctx.systemParts }),
           messages: requestMessages,
           tools,
           signal: ctx.signal,
@@ -338,13 +347,10 @@ export async function runTurn(ctx: LoopContext, messages: Message[]): Promise<Tu
 
     // 对话翻页了（去调工具）：前面那半句不再接在这句话头上。
     carried = '';
-    // 工具仍然**串行**执行：并行 Bash 的交错输出对用户没有任何好处，不确定性倒是白送的。
-    // 但结果**汇总成一条**消息 —— 一轮里模型要的几个工具是同一件事的几个面，
+    // 只读工具成批并发，会写的串行，写工具是屏障（见 `runTools`）。
+    // 结果**汇总成一条**消息 —— 一轮里模型要的几个工具是同一件事的几个面，
     // 拆成多条消息会让支持并行工具调用的端点以为这是几轮（设计 §5）。
-    const collected: ToolResult[] = [];
-    for (const use of toolUses) {
-      collected.push(await runOneTool(ctx, use));
-    }
+    const collected = await runTools(ctx, toolUses, readOnly);
     let results: readonly ToolResult[] = collected;
     // 第 1 层：超大结果落盘，消息里只留预览。它在**进消息列表之前**做 ——
     // 之后所有消费者（请求、转录、账本）看到的都是同一份预览，不会出现
@@ -403,18 +409,86 @@ function turnUsage(
   };
 }
 
-/** 抛 tool.check 判定 → 需要就问用户 → 抛 tool.call 执行。 */
-async function runOneTool(
+type ToolCall = Extract<ContentBlock, { type: 'tool_use' }>;
+
+/**
+ * 一轮里的工具调度：**只读成批并发、会写的串行、写工具是屏障**。
+ *
+ * 分组按模型给的顺序切，不越过写工具：`[Read, Read, Write, Read]` 是
+ * `(Read ‖ Read) → Write → Read`，不是"所有 Read 一起去、写工具排最后"。
+ * 后一种会让写之前的 Read 看到旧文件、写之后的 Read 看到新文件，而两条结果
+ * 在消息里的顺序与模型以为的执行顺序对不上 —— 那是最难查的一类错。
+ *
+ * 准入（白名单 / `tool.check` / 问人）仍然**逐条串行**：确认提示不能两个一起弹。
+ * `tool.result` 也在准入之后按原顺序逐条派 —— 它是插件面，不能让并发替它决定顺序。
+ */
+async function runTools(
   ctx: LoopContext,
-  use: Extract<ContentBlock, { type: 'tool_use' }>,
-): Promise<ToolResult> {
+  toolUses: readonly ToolCall[],
+  readOnly: ReadonlySet<string>,
+): Promise<readonly ToolResult[]> {
+  const collected = new Array<ToolResult>(toolUses.length);
+  let index = 0;
+
+  while (index < toolUses.length) {
+    const use = toolUses[index]!;
+    if (!readOnly.has(use.name)) {
+      collected[index] = await runOneTool(ctx, use);
+      index += 1;
+      continue;
+    }
+
+    // 连续的一段只读 —— 遇到写工具（或没声明只读的插件工具）就是屏障。
+    const batch: { readonly index: number; readonly use: ToolCall }[] = [];
+    while (index < toolUses.length && readOnly.has(toolUses[index]!.name)) {
+      batch.push({ index, use: toolUses[index]! });
+      index += 1;
+    }
+
+    // 先逐条准入：被拒的当场落结果，不参与并发。
+    const runnable: { readonly index: number; readonly use: ToolCall }[] = [];
+    for (const item of batch) {
+      const admitted = await admitTool(ctx, item.use);
+      if (admitted.kind === 'done') collected[item.index] = admitted.result;
+      else runnable.push(item);
+    }
+
+    // 只读工具互不写外部状态，可以一起跑。一个抛了整轮就失败 —— 与串行时
+    // 遇到同一个错的行为一致（那时也是停在第一条上，后面的不再跑）。
+    const settled = await Promise.all(
+      runnable.map((item) => invokeTool(ctx, item.use)),
+    );
+    for (let offset = 0; offset < runnable.length; offset++) {
+      const item = runnable[offset]!;
+      collected[item.index] = await observeTool(ctx, item.use, settled[offset]!);
+    }
+  }
+
+  return collected;
+}
+
+/** 准入的两种落点：已经能出结果（拒绝/白名单外），或者放行去执行。 */
+type Admission =
+  | { readonly kind: 'done'; readonly result: ToolResult }
+  | { readonly kind: 'run'; readonly use: ToolCall };
+
+/** 执行完的两种落点：真跑过（要派 `tool.result`），或者 `tool.call` 自己拒了。 */
+type Invocation =
+  | { readonly ran: true; readonly content: string; readonly isError: boolean }
+  | { readonly ran: false; readonly result: ToolResult };
+
+/** 抛 tool.check 判定 → 需要就问用户。 */
+async function admitTool(ctx: LoopContext, use: ToolCall): Promise<Admission> {
   // 白名单的第二个落点，**在 tool.check 之前**：清单外的工具根本走不到权限链上。
   // 只做"看不见"不够 —— 模型可以照样点名一个它没见过的工具，插件也可以替你应答它。
   if (ctx.tools !== undefined && !ctx.tools.has(use.name)) {
     return {
-      toolUseId: use.id,
-      content: `ERROR: 已拒绝 —— 工具 ${use.name} 不在本次的工具清单里（可用：${[...ctx.tools].join(', ')}）`,
-      isError: true,
+      kind: 'done',
+      result: {
+        toolUseId: use.id,
+        content: `ERROR: 已拒绝 —— 工具 ${use.name} 不在本次的工具清单里（可用：${[...ctx.tools].join(', ')}）`,
+        isError: true,
+      },
     };
   }
 
@@ -425,7 +499,14 @@ async function runOneTool(
   );
 
   if (check.decision === 'deny') {
-    return { toolUseId: use.id, content: `ERROR: 已拒绝 —— ${check.rule ?? '没有给出理由'}`, isError: true };
+    return {
+      kind: 'done',
+      result: {
+        toolUseId: use.id,
+        content: `ERROR: 已拒绝 —— ${check.rule ?? '没有给出理由'}`,
+        isError: true,
+      },
+    };
   }
 
   if (check.decision === 'ask') {
@@ -451,7 +532,10 @@ async function runOneTool(
     const once = said === 'y' || said === 'yes';
     const always = said === 'a' || said === 'all';
     if (!once && !always) {
-      return { toolUseId: use.id, content: 'ERROR: 用户拒绝了这次操作', isError: true };
+      return {
+        kind: 'done',
+        result: { toolUseId: use.id, content: 'ERROR: 用户拒绝了这次操作', isError: true },
+      };
     }
     // 内核只把"人说了什么"报出去 —— 翻成规则、记住、下次据此裁决，是 `permissions` 的事。
     await ctx.dispatch(
@@ -461,6 +545,11 @@ async function runOneTool(
     );
   }
 
+  return { kind: 'run', use };
+}
+
+/** 真正执行：派 `tool.call`。`tool.result` 留给 `observeTool` —— 它可能被延后。 */
+async function invokeTool(ctx: LoopContext, use: ToolCall): Promise<Invocation> {
   const result = await ctx.dispatch(
     'tool.call',
     { tool: use.name, input: use.input, toolUseId: use.id },
@@ -468,21 +557,51 @@ async function runOneTool(
   );
 
   if ('deny' in result) {
-    return { toolUseId: use.id, content: `ERROR: ${result.deny}`, isError: true };
+    // `tool.call` 自己拒了 = 工具没跑过。`tool.result` 不派（P4d 那条"假账"）。
+    return {
+      ran: false,
+      result: { toolUseId: use.id, content: `ERROR: ${result.deny}`, isError: true },
+    };
   }
 
   const content = typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
   // 沿用既有那条判据（原先直接写在这一行的 `isError` 里）：工具自己报错时返回一段
   // 以 `ERROR:` 开头的正文。另立一套会让同一件事有两个判据。
-  const ok = !content.startsWith('ERROR:');
+  return { ran: true, content, isError: content.startsWith('ERROR:') };
+}
+
+/** 派 `tool.result` 并把钩子补的话并进结果。串行调用 —— 顺序由这里定。 */
+async function observeTool(
+  ctx: LoopContext,
+  use: ToolCall,
+  invocation: Invocation,
+): Promise<ToolResult> {
+  if (!invocation.ran) return invocation.result;
 
   const observed = await ctx.dispatch(
     'tool.result',
-    { tool: use.name, input: use.input, toolUseId: use.id, ok, output: content },
+    {
+      tool: use.name,
+      input: use.input,
+      toolUseId: use.id,
+      ok: !invocation.isError,
+      output: invocation.content,
+    },
     CORE_ORIGIN,
   );
 
-  return { toolUseId: use.id, content: withContext(content, observed.context), isError: !ok };
+  return {
+    toolUseId: use.id,
+    content: withContext(invocation.content, observed.context),
+    isError: invocation.isError,
+  };
+}
+
+/** 单条路径：准入 → 执行 → 观察。会写工具走这一条，串行。 */
+async function runOneTool(ctx: LoopContext, use: ToolCall): Promise<ToolResult> {
+  const admitted = await admitTool(ctx, use);
+  if (admitted.kind === 'done') return admitted.result;
+  return observeTool(ctx, use, await invokeTool(ctx, use));
 }
 
 function sleep(ms: number): Promise<void> {

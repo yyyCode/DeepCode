@@ -12,6 +12,9 @@ export const readTool: Plugin = {
       { tool: 'Read' },
       () => ({
         description: '读取一个文本文件的内容，返回带行号的正文。',
+        // 只读：不碰外部世界，一轮里多次 Read 可以并发。`store.set('read:…')`
+        // 是会话内的簿记，不是被读的文件。
+        readOnly: true,
         inputSchema: {
           type: 'object',
           properties: {

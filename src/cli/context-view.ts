@@ -72,6 +72,23 @@ export function contextReport(input: ContextReportInput): readonly string[] {
       input.pieces.reduce((total, piece) => total + piece.text.length, 0),
     );
     lines.push(`  系统提示　${num(systemTokens)} token —— ${each.join(' · ')}`);
+
+    // P13：静态前缀与动态尾巴各占多少。只有**真的带标记**的分节才报这一行 ——
+    // 旧测试夹具没有 `cache` 字段，硬算会把它当成动态，报出一个假的 0。
+    const staticChars = input.pieces.reduce(
+      (total, piece) => total + (piece.cache === 'static' ? piece.text.length : 0),
+      0,
+    );
+    const dynamicChars = input.pieces.reduce(
+      (total, piece) => total + (piece.cache === 'dynamic' ? piece.text.length : 0),
+      0,
+    );
+    if (input.pieces.some((piece) => piece.cache !== undefined)) {
+      lines.push(
+        `  缓存前缀　静态 ${num(estimateTokens(staticChars))} token（可缓存） · ` +
+          `动态 ${num(estimateTokens(dynamicChars))} token（每轮重算）`,
+      );
+    }
   }
 
   const tools = input.tools;

@@ -32,6 +32,13 @@ export type ToolListing = {
    * `test/tool-list.test.ts` 钉的是它们。所以别为了省事把它们合并成一句。
    */
   readonly skipped: readonly { readonly name: string; readonly why: string }[];
+  /**
+   * 声明了 `readOnly: true` 的**可见**工具。执行面拿它决定谁可以并发（`core/loop.ts`）。
+   *
+   * 与 `specs` 同一份快照、同一次 `tool.describe` —— 模型看见的与内核据此调度的
+   * 不能是两次不同的说法。没声明的工具不在集合里（默认串行）。
+   */
+  readonly readOnly: ReadonlySet<string>;
 };
 
 /** 白名单外 —— 这是设计（子代理的工具面），不是故障。 */
@@ -49,6 +56,7 @@ export async function listTools(deps: {
 }): Promise<ToolListing> {
   const specs: ToolSpec[] = [];
   const skipped: { name: string; why: string }[] = [];
+  const readOnly = new Set<string>();
 
   for (const name of deps.$.tool.list()) {
     // 与下面 `hidden` 那一条同源：**安静**略去，一条 debug。
@@ -73,13 +81,14 @@ export async function listTools(deps: {
         description: described.description,
         inputSchema: described.inputSchema,
       });
+      if (described.readOnly === true) readOnly.add(name);
     } catch (error) {
       deps.$.logger.warn(`工具 ${name} 没有注册描述，已从模型可见列表中略去：${String(error)}`);
       skipped.push({ name, why: WHY_NO_DESCRIPTION });
     }
   }
 
-  return { specs, skipped };
+  return { specs, skipped, readOnly };
 }
 
 /**
