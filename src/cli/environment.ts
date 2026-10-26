@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * 环境探测（P13）。放在单独的文件里，因为它是**唯一碰盘**的那一部分：
@@ -32,7 +32,13 @@ export function shellName(
   platform: string = process.platform,
 ): string {
   const raw = env.SHELL ?? env.ComSpec ?? env.COMSPEC;
-  if (raw !== undefined && raw !== '') return basename(raw);
+  if (raw !== undefined && raw !== '') {
+    // 两种分隔符都认。`node:path.basename` 跟随**运行平台**：Linux 上它不把 `\`
+    // 当分隔符，`C:\Windows\system32\cmd.exe` 会整条返回。环境变量可能来自另一个
+    // 平台（WSL、跨平台测试 fixture、CI 上的 `ComSpec` 断言）。
+    const parts = raw.split(/[\\/]/);
+    return parts[parts.length - 1] || raw;
+  }
   return platform === 'win32' ? 'cmd.exe' : 'sh';
 }
 
