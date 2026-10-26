@@ -16,7 +16,8 @@ export type SubagentsDeps = {
 const TASK_DESCRIPTION =
   '派一个子代理去独立完成一件事。它**看不到**你和我现在的对话，只能看到 prompt 里写的内容 —— ' +
   '把任务说清楚：要它做什么、看哪些文件、回报什么。可用子代理见系统提示词里的清单，' +
-  'subagent_type 必须与那里写的名字完全一致。';
+  'subagent_type 必须与那里写的名字完全一致。Task 是**串行**的：要并行只读探索请用 Explore；' +
+  '有先后依赖、要写盘或两个子代理会碰同一个文件的任务，才用 Task 一条一条来。';
 
 const TASK_SCHEMA = {
   type: 'object',
@@ -26,6 +27,24 @@ const TASK_SCHEMA = {
     model: { type: 'string', description: '可选：覆盖这个 agent 用的模型' },
   },
   required: ['subagent_type', 'prompt'],
+};
+
+const EXPLORE_DESCRIPTION =
+  '派一个**只读**子代理去独立探索：定位文件、梳理调用链、收集事实。它看不到当前对话，' +
+  '只能看到 prompt。只接受声明了 readOnly 的 agent（省略 subagent_type = 内置 explore）。' +
+  '同一条回复里可以发多个 Explore，它们会**并发**执行 —— 只把互不依赖的探索一起发；' +
+  '写盘、执行命令或有先后依赖的任务用 Task（串行）。';
+
+const EXPLORE_SCHEMA = {
+  type: 'object',
+  properties: {
+    subagent_type: {
+      type: 'string',
+      description: '只读 agent 名字，精确匹配；省略 = 内置 explore',
+    },
+    prompt: { type: 'string', description: '交给子代理的全部任务说明' },
+  },
+  required: ['prompt'],
 };
 
 const SKILL_DESCRIPTION =
@@ -38,6 +57,61 @@ const SKILL_SCHEMA = {
   properties: { name: { type: 'string', description: '技能名，精确匹配' } },
   required: ['name'],
 };
+
+/**
+ * `Task` 与 `Explore` 共用的那一次派生。**只有 `readOnly` 与调用方不同**：
+ * 前者不传，后者传 `true`（内核据此核对实际面）。其余每一步 —— 回落提示、
+ * 工具声明、模型分层、失败翻译 —— 两个入口必须一模一样，所以只有一份。
+ */
+async function spawnAgent(
+  $: EngineInterface,
+  deps: SubagentsDeps,
+  spec: AgentSpec,
+  prompt: string,
+  model: string | undefined,
+  readOnly = false,
+): Promise<{ readonly value: string } | { readonly deny: string }> {
+  // 正文为空 ⇒ 回落到会话的基础提示。**回落判断在这儿**，内核不知道这回事（设计 §2.3）。
+  const systemPrompt =
+    spec.prompt.trim() === ''
+      ? `${deps.baseSystemPrompt}\n\n你是子代理「${spec.name}」：${spec.description}。` +
+        '只调用工具清单里出现的工具；清单里没有的，说明做不到，不要硬试。'
+      : spec.prompt;
+
+  // agent 文件里写的 `tools` / `disallowedTools` 当**声明**交给内核 —— 由它拿
+  // 父级那一轮的面去求交（P10 设计 §3.2）。插件手上没有那份面，也不该猜。
+  const result = await $.agent.spawn({
+    name: spec.name,
+    systemPrompt,
+    task: prompt,
+    ...(spec.tools === undefined ? {} : { allow: spec.tools }),
+    ...(spec.disallowedTools === undefined ? {} : { deny: spec.disallowedTools }),
+    ...(model === undefined ? {} : { model }),
+    ...(spec.maxTurns === undefined ? {} : { maxHops: spec.maxTurns }),
+    ...(readOnly ? { readOnly: true } : {}),
+  });
+
+  // 内核拒了这次派生（深度太深 / 只读面不成立）。翻成工具层的一次 deny，
+  // 与 P10 之前那条 deny 在屏幕上长得一模一样。
+  if (!result.ok) return { deny: result.reason };
+
+  $.ui.notice(`子代理 ${spec.name} 回来了（${result.stopReason}，第 ${result.depth} 层）`);
+
+  // 子代理失败**不是**让父级整个 turn 炸掉，而是变成本次 tool.call 的错误结果
+  // （设计 §5.3）：父级要知道"那个子代理没做完"并继续，而不是自己一起倒下。
+  // `ERROR:` 前缀是 loop.ts 判 isError 的依据。
+  //
+  // ⚠️ 判据是 `isNormalTurn` 这个**白名单**，不是黑名单。P8 之前这里列的是
+  // "哪几种算不正常"，于是 `truncated`（被长度上限砍断）不在名单里 —— 一个
+  // 只写了一半的子代理把那半截当成完整答复交回父级，谁都不知道它没写完。
+  // 正文照带回去：父级既看得见"它没做完"，也拿得到那半截内容。
+  if (!isNormalTurn(result.stopReason)) {
+    return {
+      value: `ERROR: 子代理 ${spec.name} 未正常结束（${result.stopReason}）\n\n${result.text}`,
+    };
+  }
+  return { value: result.text };
+}
 
 /**
  * 组合面的第一方插件：应答 `agent.offer`、注册 `Task` 与 `Skill` 两个工具。
@@ -67,6 +141,7 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
           // 印的是**文件里写的**那份白名单，不是解析后的：省略 = 继承全部，
           // 真解析出来会随会话此刻的工具表变，印一份会变的清单没有意义（设计 §7）。
           ...(spec.tools === undefined ? {} : { tools: spec.tools }),
+          ...(spec.readOnly === true ? { readOnly: true } : {}),
         })),
         skills: deps.skills.map((spec) => ({ name: spec.name, description: spec.description })),
       }));
@@ -113,48 +188,52 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
 
         // 模型分层的解析顺序：调用参数 → spec 自带的 → 父级（undefined = 适配器配置里那个）。
         const model = callModel ?? spec.model;
-        // 正文为空 ⇒ 回落到会话的基础提示。**回落判断在这儿**，内核不知道这回事（设计 §2.3）。
-        const systemPrompt =
-          spec.prompt.trim() === ''
-            ? `${deps.baseSystemPrompt}\n\n你是子代理「${spec.name}」：${spec.description}。` +
-              '只调用工具清单里出现的工具；清单里没有的，说明做不到，不要硬试。'
-            : spec.prompt;
+        return await spawnAgent($, deps, spec, prompt, model);
+      });
 
-        // （"派子代理 X"那一条在上面的 `agent.spawn` hook 里 —— 那条通知现在由内核的
-        // 事件驱动，见那里的理由。）
+      // ── Explore ─────────────────────────────────────────────────────────
+      // 与 Task 共用同一次派生，只多两样：工具面必须是只读的（这里先筛 agent，
+      // 内核再验一次实际的面），以及 `readOnly: true` 这个**验证请求**。
+      // 它自己在 `tool.describe` 里声明 readOnly，于是同一轮里连续的多个 Explore
+      // 会被 `core/loop.ts` 的 `runTools` 成批并发；Task 没声明，所以仍然串行。
+      on('tool.describe', { tool: 'Explore' }, () => ({
+        description: EXPLORE_DESCRIPTION,
+        inputSchema: EXPLORE_SCHEMA,
+        readOnly: true,
+      }));
 
-        // agent 文件里写的 `tools` / `disallowedTools` 当**声明**交给内核 —— 由它拿
-        // 父级那一轮的面去求交（P10 设计 §3.2）。插件手上没有那份面，也不该猜。
-        const result = await $.agent.spawn({
-          name: spec.name,
-          systemPrompt,
-          task: prompt,
-          ...(spec.tools === undefined ? {} : { allow: spec.tools }),
-          ...(spec.disallowedTools === undefined ? {} : { deny: spec.disallowedTools }),
-          ...(model === undefined ? {} : { model }),
-          ...(spec.maxTurns === undefined ? {} : { maxHops: spec.maxTurns }),
-        });
+      on('tool.call', { tool: 'Explore' }, async ($, e) => {
+        const input = (e.input ?? {}) as Record<string, unknown>;
+        const type =
+          typeof input.subagent_type === 'string' && input.subagent_type.trim() !== ''
+            ? input.subagent_type
+            : 'explore';
+        const prompt = typeof input.prompt === 'string' ? input.prompt : '';
 
-        // 内核拒了这次派生（今天只有一种：嵌套太深）。翻成工具层的一次 deny，
-        // 与 P10 之前那条 deny 在屏幕上长得一模一样。
-        if (!result.ok) return { deny: result.reason };
+        if (prompt.trim() === '') {
+          return { deny: 'Explore 的 prompt 是空的 —— 子代理看不到别的上下文，没有任务它无从下手' };
+        }
 
-        $.ui.notice(`子代理 ${spec.name} 回来了（${result.stopReason}，第 ${result.depth} 层）`);
-
-        // 子代理失败**不是**让父级整个 turn 炸掉，而是变成本次 tool.call 的错误结果
-        // （设计 §5.3）：父级要知道"那个子代理没做完"并继续，而不是自己一起倒下。
-        // `ERROR:` 前缀是 loop.ts 判 isError 的依据。
-        //
-        // ⚠️ 判据是 `isNormalTurn` 这个**白名单**，不是黑名单。P8 之前这里列的是
-        // "哪几种算不正常"，于是 `truncated`（被长度上限砍断）不在名单里 —— 一个
-        // 只写了一半的子代理把那半截当成完整答复交回父级，谁都不知道它没写完。
-        // 正文照带回去：父级既看得见"它没做完"，也拿得到那半截内容。
-        if (!isNormalTurn(result.stopReason)) {
+        const spec = deps.agents.find((candidate) => candidate.name === type);
+        if (spec === undefined) {
           return {
-            value: `ERROR: 子代理 ${spec.name} 未正常结束（${result.stopReason}）\n\n${result.text}`,
+            deny:
+              deps.agents.length === 0
+                ? `没有可派的子代理（subagent_type=${type}）：这个会话一个 agent 都没装`
+                : `没有叫 ${type} 的子代理。可选的：${deps.agents.map((a) => a.name).join(', ')}`,
           };
         }
-        return { value: result.text };
+        // 资格判断是**便宜的快速失败**；真正的验证在内核（它拿实际面逐个核对）。
+        // 两处判的是同一件事，这里先判是为了给模型一句"改用 Task"的明确指引。
+        if (spec.readOnly !== true || spec.tools === undefined) {
+          return {
+            deny:
+              `${spec.name} 不是只读子代理（没有同时声明 readOnly: true 与 tools），` +
+              '不能走 Explore。要派它写盘或执行命令，请用 Task（串行）。',
+          };
+        }
+
+        return await spawnAgent($, deps, spec, prompt, spec.model, true);
       });
 
       // ── Skill ───────────────────────────────────────────────────────────

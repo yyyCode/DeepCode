@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { discoverAgents } from '../src/cli/agents';
+import { BUILTIN_AGENTS } from '../src/cli/builtin-agents';
 
 let root = '';
 let home = '';
@@ -149,6 +150,55 @@ describe('agent 名册：三个来源', () => {
     await put(root, 'a.md', doc('name: a\ndescription: d'));
     const agents = await discoverAgents({ root, home: root, warn: (l) => warns.push(l) });
     expect(agents).toHaveLength(1);
+    expect(warns.filter((l) => l.includes('提供'))).toEqual([]);
+  });
+});
+
+describe('agent 名册：只读声明', () => {
+  it('readOnly: true 与 tools 一起读进来', async () => {
+    await put(root, 'a.md', doc('name: a\ndescription: d\ntools: Read, Grep\nreadOnly: true'));
+    const agents = await discoverAgents({ root, home });
+    expect(agents[0]?.readOnly).toBe(true);
+    expect(agents[0]?.tools).toEqual(['Read', 'Grep']);
+  });
+
+  it('readOnly: true 但没写 tools → 忽略标志并 warn（它会继承父级的写工具）', async () => {
+    const warns: string[] = [];
+    await put(root, 'a.md', doc('name: a\ndescription: d\nreadOnly: true'));
+    const agents = await discoverAgents({ root, home, warn: (l) => warns.push(l) });
+    expect(agents[0]?.readOnly).toBeUndefined();
+    expect(warns.some((l) => l.includes('readOnly') && l.includes('tools'))).toBe(true);
+  });
+
+  it('readOnly 不是 true / false → 忽略并 warn', async () => {
+    const warns: string[] = [];
+    await put(root, 'a.md', doc('name: a\ndescription: d\ntools: Read\nreadOnly: 也许'));
+    const agents = await discoverAgents({ root, home, warn: (l) => warns.push(l) });
+    expect(agents[0]?.readOnly).toBeUndefined();
+    expect(warns.some((l) => l.includes('readOnly'))).toBe(true);
+  });
+});
+
+describe('agent 名册：内置类型', () => {
+  it('三个开箱类型就在，且 explore / plan 是只读的', async () => {
+    const agents = await discoverAgents({ root, home, builtins: BUILTIN_AGENTS });
+    expect(agents.map((agent) => agent.name)).toEqual(['explore', 'general-purpose', 'plan']);
+    expect(agents.find((agent) => agent.name === 'explore')?.readOnly).toBe(true);
+    expect(agents.find((agent) => agent.name === 'plan')?.readOnly).toBe(true);
+    expect(agents.find((agent) => agent.name === 'general-purpose')?.readOnly).toBeUndefined();
+    expect(agents.find((agent) => agent.name === 'general-purpose')?.tools).toBeUndefined();
+  });
+
+  it('项目级同名文件覆盖内置类型：文件赢，且不告状', async () => {
+    const warns: string[] = [];
+    await put(root, 'explore.md', doc('name: explore\ndescription: 项目自己的探索者\ntools: Read'));
+    const agents = await discoverAgents({
+      root,
+      home,
+      builtins: BUILTIN_AGENTS,
+      warn: (l) => warns.push(l),
+    });
+    expect(agents.find((agent) => agent.name === 'explore')?.description).toBe('项目自己的探索者');
     expect(warns.filter((l) => l.includes('提供'))).toEqual([]);
   });
 });

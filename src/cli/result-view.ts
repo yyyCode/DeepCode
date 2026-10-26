@@ -31,6 +31,9 @@ export function actionTarget(tool: string, input: unknown): string {
       return text(data['command']) ?? '';
     case 'Task':
       return [text(data['subagent_type']), text(data['description'])].filter(Boolean).join(' ');
+    case 'Explore':
+      // `Explore` 没有 description，省略 subagent_type 时内核会派内置 explore。
+      return text(data['subagent_type']) ?? 'explore';
     case 'Skill':
       return text(data['name']) ?? '';
     case 'Glob':

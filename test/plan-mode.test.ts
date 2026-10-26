@@ -10,6 +10,7 @@ import { createPlanMode, createPlanModePlugin } from '../src/builtins/plan';
 import { CORE_ORIGIN } from '../src/contract/next';
 import type { EngineInterface } from '../src/contract/engine';
 import type { ModelProvider } from '../src/contract/model-provider';
+import type { Plugin } from '../src/contract/plugin';
 
 /**
  * 计划模式（P14）。
@@ -134,6 +135,41 @@ describe('进入计划模式', () => {
     for (const name of ['Write', 'Edit', 'Bash', 'EnterPlanMode']) {
       expect(after).not.toContain(name);
     }
+  });
+
+  it('Explore 也在计划模式的只读面里', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepcode-plan-explore-'));
+    const mode = createPlanMode({ now: () => 123 });
+    const explore: Plugin = {
+      name: 'fake-explore',
+      uses: ['tool.describe', 'tool.call'],
+      register(on) {
+        on('tool.describe', { tool: 'Explore' }, () => ({
+          description: '并发派只读子代理',
+          inputSchema: {},
+          readOnly: true,
+        }));
+        on('tool.call', { tool: 'Explore' }, () => ({ value: 'ok' }));
+      },
+    };
+    const made = await createEngine({
+      plugins: [createPlanModePlugin(mode), explore, ...coreTools, confirmPlugin],
+      provider,
+      ui: { print: () => {}, notice: () => {}, ask: async () => 'y' },
+      sessionInfo: { id: 's1', cwd: root, root },
+      env: {},
+      signal: () => new AbortController().signal,
+    });
+    await mode.enter(made.$);
+    const listing = await listTools({ $: made.$, dispatch: made.dispatch });
+    expect(listing.specs.map((spec) => spec.name)).toContain('Explore');
+    const check = await made.dispatch(
+      'tool.check',
+      { tool: 'Explore', input: {}, toolUseId: 'u1' },
+      CORE_ORIGIN,
+    );
+    expect(check.decision).toBe('allow');
+    await rm(root, { recursive: true, force: true });
   });
 
   it('工具清单被藏起来了，直接点名调用仍然会在 tool.check 被拒', async () => {

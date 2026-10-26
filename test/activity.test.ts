@@ -66,6 +66,8 @@ describe('result-view —— 纯函数', () => {
     expect(actionTarget('Task', { subagent_type: 'explore', description: '找 X' })).toBe(
       'explore 找 X',
     );
+    expect(actionTarget('Explore', { subagent_type: 'explore' })).toBe('explore');
+    expect(actionTarget('Explore', {})).toBe('explore');
     // 认不出来的输入退化成"没有落点"，而不是把 undefined 印到屏幕上。
     expect(actionTarget('Bash', {})).toBe('');
     expect(actionTarget('Bash', null)).toBe('');
