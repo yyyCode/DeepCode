@@ -73,6 +73,9 @@ function fakeWorld(): World {
         }
         return [...names];
       },
+      async mkdir(path) {
+        dirs.add(key(path));
+      },
       async stat(path) {
         if (dirs.has(key(path))) return { size: 0, isDirectory: true, mtimeMs: 0 };
         const content = files.get(key(path));

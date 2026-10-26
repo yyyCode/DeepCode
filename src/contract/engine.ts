@@ -37,6 +37,8 @@ export type FsNoun = {
   write(path: string, content: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   list(dir: string): Promise<readonly string[]>;
+  /** 递归创建目录。计划模式写计划文件前要用（P14）。 */
+  mkdir(path: string): Promise<void>;
   stat(path: string): Promise<{
     readonly size: number;
     readonly isDirectory: boolean;

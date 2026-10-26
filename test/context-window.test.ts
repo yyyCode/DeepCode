@@ -59,6 +59,9 @@ function fakeFs(options: { failWrite?: boolean } = {}): {
       async list(dir) {
         return [...files.keys()].filter((path) => path.startsWith(dir));
       },
+      async mkdir() {
+        // 内存 fs 没有目录概念。
+      },
       async stat(path) {
         return { size: files.get(path)?.length ?? 0, isDirectory: false, mtimeMs: 0 };
       },
