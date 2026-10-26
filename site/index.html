@@ -33,7 +33,7 @@
     </button>
 
     <nav class="nav" id="nav" aria-label="页面目录">
-      <a href="#features">能力</a>
+      <a href="#design">内核</a>
       <a href="#safety">安全</a>
       <a href="#start">安装</a>
       <a href="docs.html">技术文档</a>
@@ -81,7 +81,7 @@
 
     <dl class="facts">
       <div class="fact"><dt>运行时依赖</dt><dd>0</dd></div>
-      <div class="fact"><dt>用例</dt><dd>1196 全绿 / 71 个文件</dd></div>
+      <div class="fact"><dt>用例</dt><dd>1341 全绿 / 84 个文件</dd></div>
       <div class="fact"><dt>事件</dt><dd>23 / 42 已实现</dd></div>
       <div class="fact"><dt>质量门</dt><dd>typecheck / lint / test</dd></div>
     </dl>
@@ -89,51 +89,71 @@
   </div>
 </section>
 
-<!-- ───────────────── 六个能力 ───────────────── -->
-<section class="sec" id="features">
+<!-- ───────────────── 内核设计 ───────────────── -->
+<section class="sec" id="design">
   <div class="wrap">
-    <h2 class="sec__h">说出来就行，剩下的它自己做</h2>
-    <p class="sec__sub">读文件、改文件、跑命令在一个循环里走完，不用切窗口、不用复制粘贴。</p>
+    <h2 class="sec__h">循环、上下文、记忆、提示</h2>
+    <p class="sec__sub">四块都是从零写的，每一块都有可复现的 benchmark 或测试顶着。
+      估出来的数，文档里就写着是估的。</p>
 
-    <div class="cards">
-      <article class="card">
-        <p class="card__sig">&gt; 跑一下测试，把失败的那条修掉</p>
-        <h3>一句话，一个闭环</h3>
-        <p>读懂仓库、改完代码、跑起来验证 —— 改错了就再来一轮，直到测试真的过。</p>
+    <div class="loop" role="img" aria-label="一次 turn 的形状：你的话交给模型，模型点名工具，工具结果写回消息，再问一次，直到模型交回话">
+      <div class="loop__row">
+        <span class="loop__node">你的话</span>
+        <span class="loop__arrow" aria-hidden="true">→</span>
+        <span class="loop__node loop__node--core">模型：一次决策</span>
+        <span class="loop__arrow" aria-hidden="true">→</span>
+        <span class="loop__node">调用工具</span>
+      </div>
+      <p class="loop__ret"><span aria-hidden="true">↺</span>
+        结果写回消息，再问一次 —— 直到它 <code>end_turn</code> 把话交回你</p>
+    </div>
+
+    <div class="designs">
+      <article class="design">
+        <p class="design__key">src/core/loop.ts</p>
+        <h3>一次请求，一次决策</h3>
+        <p class="design__body">模型每被叫一次，只做一件事：点名工具，或者把话交回给你。没有 ReAct 的 Thought 步，也不为「想一想」多跑一轮。
+          同一批调用里，<code>Read</code> / <code>Glob</code> / <code>Grep</code> 并发跑、默认不问；
+          <code>Write</code> / <code>Edit</code> / <code>Bash</code> 串行，每一条都先停下来问你。计划模式不新增循环 ——
+          <code>EnterPlanMode</code> / <code>ExitPlanMode</code> 是两个普通工具，进入后写工具从清单里消失，
+          <code>tool.check</code> 兜底拒绝。</p>
+        <p class="design__fact">N 次工具 = N+1 次请求，额外请求 0（benchmark 钉住）</p>
       </article>
 
-      <article class="card">
-        <p class="card__sig">执行 Bash? (y=是  a=本次会话总是允许  N=否)</p>
-        <h3>每次动手都先问你</h3>
-        <p>要写盘、要执行命令的动作，先给你看它准备做什么，再停在那里等你一个答案：<code>y</code> 放行这一次，
-          <code>a</code> 本次会话这一类都放行（<code>Bash</code> 按那一条命令记，其余工具按整个工具记），
-          别的输入都算拒绝。</p>
+      <article class="design">
+        <p class="design__key">src/core/context-shaping.ts</p>
+        <h3>五道闸，由轻到重</h3>
+        <p class="design__body">重了先外置大工具结果，再砍最老的整轮，再清可重新获取的旧结果，只在更老的一段上做摘要，最后才全量摘要。
+          第 2–4 层是读时投影：转录一个字不动，<code>--resume</code> 接回来仍是全文。</p>
+        <p class="design__fact">&gt; 50 000 字符的结果落盘，消息里留 2 000 字符预览</p>
       </article>
 
-      <article class="card">
-        <p class="card__sig">Bash(git push:*) → deny</p>
-        <h3>托管策略掀不翻</h3>
-        <p>五层规则来源按 <code>deny &gt; ask &gt; allow</code> 判定：个人设置只能把「问一次」变成「直接做」，收紧不了也放宽不了托管的那一层。</p>
+      <article class="design">
+        <p class="design__key">src/core/memory.ts</p>
+        <h3>一条记忆，一个文件</h3>
+        <p class="design__body">记忆落成项目目录里的 Markdown，<code>MEMORY.md</code> 只是索引，每轮随系统提示进去；正文只在被召回时注入，最多 5 条。
+          默认关键词匹配，零 API、可离线复现；配 <code>memory.recallModel</code> 才让模型挑。</p>
+        <p class="design__fact">项目级，不是用户级 —— 换个目录就是另一份记忆</p>
       </article>
 
-      <article class="card">
-        <p class="card__sig">prepend → user → append → builtin → core</p>
-        <h3>插件与内建同一条接口</h3>
-        <p>内建工具和第三方插件注册在同一条链上，按权威序串起来。加功能不用改内核。</p>
-      </article>
-
-      <article class="card">
-        <p class="card__sig">deepcode --resume</p>
-        <h3>会话接得上</h3>
-        <p>转录落成 <code>0600</code> 的 JSONL，放在用户级目录、不进项目目录；<code>--resume</code> 接上一次，<code>/context</code> 随时看账本。</p>
-      </article>
-
-      <article class="card">
-        <p class="card__sig">apiKey / baseUrl / model</p>
-        <h3>换供应商不用换工具</h3>
-        <p>Anthropic 与 OpenAI 两种协议，换成任何兼容端点只改这三样。</p>
+      <article class="design">
+        <p class="design__key">src/cli/prompt-text.ts</p>
+        <h3>静态前缀，动态尾巴</h3>
+        <p class="design__body">角色、安全、工作方式、工具、输出这几节不随项目变，拼成静态前缀；环境、指令文件、记忆、计划提示走动态尾巴。
+          Anthropic 端点只在静态段末尾打一个缓存断点，换项目、换日期都打不散它。</p>
+        <p class="design__fact">静态正文约 310 token；pnpm bench:prompt 可复现 20 轮缓存账</p>
       </article>
     </div>
+
+    <div class="chips">
+      <span class="chips__k">还有</span>
+      <span class="chip"><code>--resume</code> 接上一次会话</span>
+      <span class="chip">插件与内建同一条链</span>
+      <span class="chip">Anthropic / OpenAI 兼容端点，只改三样配置</span>
+    </div>
+
+    <p class="sec__foot">每一块的取舍、偏差与 benchmark 都在 <a href="docs.html">技术文档</a> 里；
+      做不到什么、哪些数是猜的，见 <a href="https://github.com/yyyCode/DeepCode/blob/main/site/已知限制.md">已知限制</a>。</p>
   </div>
 </section>
 
