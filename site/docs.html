@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>技术文档 —— DeepCode</title>
-<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十四阶段路线图、以及十一条已知限制。">
+<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十五阶段路线图、以及十一条已知限制。">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" type="image/png" href="logo-mark.png">
 <link rel="stylesheet" href="style.css">
@@ -44,7 +44,7 @@
 <section class="dochead" id="top">
   <div class="wrap">
     <h1>技术文档</h1>
-    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十四阶段路线图、十一条已知限制。
+    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十五阶段路线图、十一条已知限制。
       它是什么、怎么装、怎么用，看 <a href="index.html">首页</a>。</p>
   </div>
 </section>
@@ -267,7 +267,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <li><span class="stage__k">P10</span><p><b>子代理的边界：</b>子代理看得见哪些工具、能派多深，从<strong>调用方按「会话的全部」算</strong>挪进内核<strong>按「当前这一轮」算</strong>：嵌套一层拿不回被扣掉的面，深度上限（3 层）对 <code>Task</code> 与插件直派<strong>共用同一个数</strong></p></li>
       <li><span class="stage__k">P11</span><p><b>上下文五层：</b>从「到阈值就只有全量摘要」铺成五道闸 —— 大结果落盘（&gt;50K 字符，预览带路径，<code>Read</code> 的 <code>offset</code> 能读回）→ 砍远古轮次 → 清可重取的工具结果 → 只压更老一段的投影摘要 → 全量摘要。第 2–4 层是<strong>读时投影</strong>，历史一个字不动；<code>pnpm bench</code> 三个场景峰值请求 token −23% ~ −94%，第 5 层摘要 1–9 次 → 0</p></li>
       <li><span class="stage__k">P12</span><p><b>跨会话记忆：</b>四类封闭记忆（<code>user</code> / <code>feedback</code> / <code>project</code> / <code>reference</code>）一条一个文件，索引<strong>每轮</strong>进提示、正文只在被召回时注入；默认<strong>关键词召回</strong>（零 API、可离线复现），可选小模型；<code>Memory</code> 工具 save / read / forget，<code>/memory</code> 与 <code>/context</code> 的「记忆」一行；250 条时索引按 200 行截断，<code>pnpm bench:memory</code> 实测注入量 −86% ~ −89%</p></li>
-      <li><span class="stage__k">P13</span><p><b>系统提示与前缀缓存：</b>七节静态正文（角色、安全边界、可逆性、专用工具、Git、输出）冻成<strong>逐字节稳定的前缀</strong>，环境 / 指令 / 记忆 / 清单留在动态尾巴；Anthropic 在静态段末尾打 <code>cache_control</code>，OpenAI 兼容端点靠稳定前缀自动命中；<code>/context</code> 报「缓存前缀」两段各多少 token，<code>pnpm bench:prompt</code> 算 20 轮缓存账 —— 小项目省 50%、巨型 <code>AGENTS.md</code> 省 25%，第 2 轮回本</p></li>
+      <li><span class="stage__k">P13</span><p><b>系统提示与前缀缓存：</b>七节静态正文（角色、安全边界、可逆性、专用工具、Git、输出）冻成<strong>逐字节稳定的前缀</strong>，环境 / 指令 / 记忆 / 清单留在动态尾巴；Anthropic 在静态段末尾打 <code>cache_control</code>，OpenAI 兼容端点靠稳定前缀自动命中；<code>/context</code> 报「缓存前缀」两段各多少 token，<code>pnpm bench:prompt</code> 算 20 轮缓存账 —— 小项目省 50%、巨型 <code>AGENTS.md</code> 省 25%，第 2 轮回本；同一轮里 <code>Read</code> / <code>Glob</code> / <code>Grep</code> 成批并发、不问，<code>Write</code> / <code>Edit</code> / <code>Bash</code> 串行并逐条确认</p></li>
       <li><span class="stage__k">P14</span><p><b>执行循环与计划模式：</b>循环不做 ReAct 的三段式 —— 一次请求一次决策（<code>tool_use</code> 或 <code>end_turn</code>），N 次工具就是 N+1 次模型请求，<code>pnpm bench:loop</code> 把「框架额外请求 = 0」钉住；<code>EnterPlanMode</code> / <code>ExitPlanMode</code> 是<strong>普通工具</strong>不是引擎分支，计划模式只留只读工具（<code>tool.describe</code> 隐藏 + <code>tool.check</code> 兜底），计划落盘 <code>.deepcode/plans/</code>，用户按 <code>y</code> 才恢复读写；省掉的工具 schema 大于注入的计划提示（20 轮净省 2,596 token）</p></li>
       <li><span class="stage__k">P15</span><p><b>子代理运行时：</b>开箱三个类型（<code>explore</code> / <code>plan</code> / <code>general-purpose</code>，文件同名可覆盖）；<code>readOnly: true</code> 只是作者声明，内核拿这一轮真正的面逐个核对，混进写工具就拒；<code>Explore</code> 声明只读后同一条回复里的多个探索<strong>并发</strong>（<code>Task</code> 仍串行），父面从全局栈换成 <code>AsyncLocalStorage</code>，并发的兄弟不再互相污染；派发口径写进清单与工具描述。<code>pnpm bench:subagent</code>：60,000 字符结果交给 <code>explore</code> 后父级只剩 <b>0.4%</b>，三个探索峰值 <b>3 vs 1</b></p></li>
     </ol>
@@ -365,7 +365,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
     <div>
       <p class="foot__h">文档</p>
       <ul>
-        <li><a href="index.html">首页（安装与能力）</a></li>
+        <li><a href="index.html">首页（安装与内核）</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/README.md">README（安装 / 启动 / 使用）</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/site/已知限制.md">已知限制（完整清单）</a></li>
         <li><a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a></li>

@@ -55,7 +55,7 @@ body {
   font: 400 17px/1.75 var(--sans);
 }
 
-h1, h2, h3 { margin: 0; font-weight: 700; line-height: 1.32; letter-spacing: -0.012em; }
+h1, h2, h3 { margin: 0; font-weight: 700; line-height: 1.32; letter-spacing: -0.012em; text-wrap: balance; }
 p { margin: 0 0 1rem; }
 
 a { color: var(--ink); text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
@@ -211,34 +211,63 @@ section[id] { scroll-margin-top: 4.6rem; }
 .fact { padding: 0.75rem 1rem 0.8rem 0; }
 .fact + .fact { border-left: 1px solid var(--line-2); padding-left: 1.1rem; }
 .fact dt { font-size: 0.78rem; color: var(--ink-3); }
-.fact dd { margin: 0.18rem 0 0; font: 0.78rem/1.6 var(--mono); color: var(--ink); }
+.fact dd {
+  margin: 0.18rem 0 0; font: 0.78rem/1.6 var(--mono); color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── 首页 · 分节 ────────────────────────────────────── */
 
 .sec { padding: clamp(3.2rem, 7vw, 5.4rem) 0; text-align: center; }
 .sec:last-of-type { padding-bottom: clamp(2.6rem, 5vw, 3.8rem); }
+/* 安全那一节退成一条浅色带：不用黑色（黑只留给终端），只用一层灰把
+   「三道闸」和上下两节分开。 */
+.sec--alt { background: #eef1f5; border-block: 1px solid var(--line); }
 .sec__h { font-size: clamp(1.5rem, 1.15rem + 1.5vw, 2.15rem); letter-spacing: -0.03em; }
 .sec__sub { margin: 0.85rem auto 0; max-width: 34rem; color: var(--ink-2); text-wrap: pretty; }
 .sec__foot { margin: 1.4rem auto 0; max-width: 44rem; font-size: 0.88rem; color: var(--ink-3); }
 .sec__cta { margin-top: 1.9rem; }
 
-/* 能力卡：方块里的第一行是终端里真出现过的一句话，不是图标。 */
-.cards {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem; margin-top: 2.6rem; text-align: left;
-}
-.card {
+/* 内核示意：一块真正的循环图，不是装饰。三个节点一条回边；
+   黑色的那个是每次请求里唯一发生的事，其余两格是它周围的输入输出。 */
+.loop {
+  max-width: 52rem; margin: 2.2rem auto 0; padding: 1.15rem 1.25rem 1.05rem;
   background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-lg);
-  padding: 1.3rem 1.4rem 1.5rem; transition: border-color 0.15s ease;
+  text-align: left;
 }
-.card:hover { border-color: var(--line-strong); }
-.card__sig {
-  margin: 0 0 1rem; padding: 0.32rem 0.62rem;
-  background: var(--fill); border-radius: 8px;
-  font: 400 0.78rem/1.6 var(--mono); color: var(--ink);
+.loop__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.55rem; }
+.loop__node {
+  padding: 0.6rem 0.95rem; border: 1px solid var(--line); border-radius: 10px;
+  font: 400 0.82rem/1.5 var(--mono); color: var(--ink-2); white-space: nowrap;
 }
-.card h3 { font-size: 1.04rem; margin-bottom: 0.5rem; }
-.card p:last-child { margin: 0; font-size: 0.92rem; color: var(--ink-2); }
+.loop__node--core { background: var(--ink); border-color: var(--ink); color: #fff; }
+.loop__arrow { font: 400 0.9rem/1 var(--mono); color: var(--ink-3); }
+/* 回边用一条虚线画出来：它不是第四步，是从右端绕回中间那格的路。 */
+.loop__ret {
+  margin: 1rem 0 0; padding-top: 0.75rem; text-align: center;
+  border-top: 1px dashed var(--line-strong);
+  font: 400 0.78rem/1.7 var(--mono); color: var(--ink-3);
+}
+.loop__ret code { font-size: 0.95em; }
+
+/* 四块内核做成一张有发丝线分隔的面板，而不是四张同样的圆角卡：
+   它们同属一个引擎，分成四格只是阅读顺序，不各是一个独立的产品。 */
+.designs {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1.1rem; text-align: left;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.design { display: flex; flex-direction: column; padding: 1.45rem 1.55rem 1.3rem; }
+.design:nth-child(even) { border-left: 1px solid var(--line-2); }
+.design:nth-child(n + 3) { border-top: 1px solid var(--line-2); }
+.design__key { margin: 0 0 0.7rem; font: 400 0.76rem/1.5 var(--mono); color: var(--ink-3); }
+.design h3 { font-size: 1.1rem; margin-bottom: 0.55rem; }
+.design__body { margin: 0 0 1.15rem; font-size: 0.92rem; line-height: 1.78; color: var(--ink-2); }
+.design__fact {
+  margin: auto 0 0; padding-top: 0.8rem; border-top: 1px solid var(--line-2);
+  font: 400 0.76rem/1.7 var(--mono); color: var(--ink-3);
+}
 
 /* 三道闸：真的是一条按顺序过的链，所以用真名字标序，不加 01/02/03。 */
 .steps {
@@ -391,8 +420,11 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (min-width: 860px) { .mods { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 760px) { .foot__in { grid-template-columns: 1fr 1.6fr; gap: 2.6rem; } }
 
-@media (max-width: 980px) {
-  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* 到 900 以下收成一列：两列时每条正文只剩二十来字一行，读起来比堆着还累。 */
+@media (max-width: 899px) {
+  .designs { grid-template-columns: 1fr; }
+  .design:nth-child(even) { border-left: 0; }
+  .design:nth-child(n + 2) { border-top: 1px solid var(--line-2); }
 }
 @media (max-width: 860px) {
   .steps { grid-template-columns: 1fr; }
@@ -412,8 +444,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fact:nth-child(3) { border-left: 0; padding-left: 0; }
 }
-@media (max-width: 640px) {
-  .cards { grid-template-columns: 1fr; }
+@media (max-width: 620px) {
+  /* 窄屏上横排会把这循环折成两行、箭头吊在行尾；竖过来读反而更顺。 */
+  .loop__row { flex-direction: column; }
+  .loop__arrow { transform: rotate(90deg); }
 }
 @media (max-width: 560px) {
   body { font-size: 16px; }

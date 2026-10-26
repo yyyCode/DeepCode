@@ -520,7 +520,7 @@ CLI 就**不注册**自己那条 `/diff`，否则同一条命令会打两遍。
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，71 个文件 1196 个用例
+pnpm test        # 测试，86 个文件 1359 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 
