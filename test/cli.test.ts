@@ -363,6 +363,9 @@ describe('cliPlugins：清单的顺序契约与应答者（问注册面，不问
       // 活动面（P6a）也在 tool.check 上挂了一只手：它只**看**裁决（deny 要看得见），
       // 不改裁决 —— 但它在链上的位置是实打实的一格，所以列在这儿。
       ['cli-activity', 'builtin'],
+      // 计划模式（P14）也挂了一只手：开着的时候它在这里拦写工具。没开时它只是
+      // `next` 放行，但仍然是链上的一格。
+      ['plan-mode', 'builtin'],
       ['confirm', 'builtin'],
     ]);
   });
@@ -686,17 +689,21 @@ describe('cli 参数：开关不能被当成话发给模型', () => {
         { cwd: process.cwd(), env, input: '/tools\n/context\n/exit\n', encoding: 'utf8', timeout: 60_000 },
       );
 
-      // ⚠️ 真会话里是**九个**：六个内建 + 子代理插件给的 `Task` / `Skill` + 记忆的 `Memory`。
-      // 写死这个数是有意的 —— 它把"模型能用哪些"与"哪个插件给的"两件事一起钉住了，
-      // 多一个少一个都会红（`/tools` 的个数本来就是个该被人看见的数）。
-      expect(stdout).toContain('模型这一轮能用的工具（9 个）：');
-      // 来源是**插件名**，不是工具名 —— 写反了九个会一起错（`tool-read` vs `Read`）。
+      // ⚠️ 真会话里是**十个**：六个内建 + 子代理插件给的 `Task` / `Skill` + 记忆的
+      // `Memory` + 计划模式的入口 `EnterPlanMode`。写死这个数是有意的 —— 它把"模型
+      // 能用哪些"与"哪个插件给的"两件事一起钉住了，多一个少一个都会红（`/tools` 的
+      // 个数本来就是个该被人看见的数）。
+      expect(stdout).toContain('模型这一轮能用的工具（10 个）：');
+      // 来源是**插件名**，不是工具名 —— 写反了十个会一起错（`tool-read` vs `Read`）。
       expect(stdout).toContain('Read　来自 tool-read');
       expect(stdout).toContain('Bash　来自 tool-bash');
       expect(stdout).toContain('Task　来自 subagents');
       expect(stdout).toContain('Memory　来自 memory');
-      // 一个都看不见时那一段不出现（六个内建都注册了 describe）。
-      expect(stdout).not.toContain('不进模型可见清单的');
+      expect(stdout).toContain('EnterPlanMode　来自 plan-mode');
+      // 计划模式没开时 `ExitPlanMode` 没有意义，被 plan-mode 插件的 describe 藏掉。
+      // 所以这一段**第一次**出现（之前九个工具全都可见）。
+      expect(stdout).toContain('不进模型可见清单的（1 个）：');
+      expect(stdout).toContain('ExitPlanMode　被权限规则隐藏');
       expect(stdout).not.toContain('未知命令');
 
       // 而且账本那一行也在：这一轮还没发过请求时，它照实说（P9 §3.2）。

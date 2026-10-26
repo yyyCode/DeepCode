@@ -5,6 +5,7 @@ import type { AgentSpec, SkillSpec } from '../contract/agent';
 import { coreTools } from '../builtins/tools';
 import { confirmPlugin } from '../builtins/confirm';
 import { commandsPlugin } from '../builtins/commands';
+import { createPlanModePlugin } from '../builtins/plan';
 import { createPermissionsPlugin, createSessionGrants } from '../builtins/permissions';
 import { createPluginGuardPlugin, type PluginDenyRule } from '../builtins/plugin-guard';
 import { streamPlugin } from './stream';
@@ -188,6 +189,10 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
     // 个人规则：policy 之外的四个来源。会话里当场批准的那几条也从这儿进同一条判定。
     createPermissionsPlugin({ rules: deps.policy.personalRules, grants }),
     createChangesPlugin(deps.changes),
+    // 计划模式（P14）排在所有工具之前：它用一条宽 `tool.describe` / `tool.check`
+    // 在工具与确认器外面决定"这一轮看不看得见、够不够得着"。排在 coreTools 里面
+    // 的话，`next` 已经落到真正的工具描述上，藏不住 Write / Edit / Bash。
+    createPlanModePlugin(),
     // 记忆排在工具串前面：它注册的 `Memory` 工具与 `prompt.section` 贡献者都是第一方。
     memory,
     ...coreTools,

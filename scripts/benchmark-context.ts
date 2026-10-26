@@ -100,6 +100,9 @@ function memoryFs(): FsNoun {
     async list(dir) {
       return [...files.keys()].filter((path) => path.startsWith(dir));
     },
+    async mkdir() {
+      // 内存 fs 没有目录概念：计划文件直接写，不需要建目录。
+    },
     async stat(path) {
       return { size: files.get(path)?.length ?? 0, isDirectory: false, mtimeMs: 0 };
     },

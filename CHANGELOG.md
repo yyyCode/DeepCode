@@ -990,3 +990,68 @@ tools 252、git 215、output 133。口径：`ceil(chars/4)` 估算；缓存写 1
 新增用例：`environment`（5）、`system-prompt-cache`（6）、`system-prompt-benchmark`（5）、
 provider 缓存形状（4）、`/context` 缓存前缀（2），共 22 条；`system-prompt` 的 5 条改成新的
 `staticSections` 参数，断言不变。
+
+## P14 Agent 循环与计划模式：循环只有工具与收手，计划模式是两个工具
+
+**范围**：`src/builtins/plan.ts`（`PlanMode` 状态、`EnterPlanMode` / `ExitPlanMode`、
+`tool.describe` 收窄工具面、`tool.check` 兜底、`prompt.section` 注入只读说明、`turn.start` 计数、
+`/plan` 命令）、`src/contract/engine.ts`（`FsNoun.mkdir`）、`src/core/nouns/fs.ts`（递归建目录）、
+`src/builtins/confirm.ts`（两个模式工具放进 `PASS_THROUGH_TOOLS`）、`src/cli/plugins.ts`（第一方装配）、
+`scripts/benchmark-agent-loop.ts` 与 `package.json` 的 `bench:loop`、两个新测试文件与 `cli`/夹具增补、
+README / 官网 / 已知限制。
+
+**为什么**：循环本身早就是 Tool-Use 形状（没有 ReAct 的 Thought 步骤，`tool_use` 或 `end_turn` 二选一），
+但这件事没有被写成契约，也没有任何度量能证明"框架没有偷偷多打一轮"。计划模式则完全没有：
+复杂任务会在探索阶段就开始改文件，方案错了也只能在改坏的树上继续。
+这一阶段照复刻对象把 `EnterPlanMode` / `ExitPlanMode` 做成**普通工具**，引擎循环一个字没改。
+
+**出口标准**（设计 §8.1）：N 次工具 = N+1 次模型请求且 `extraRequests === 0`；
+计划模式可见工具只剩 `Read` / `Glob` / `Grep` / `Skill` / `ExitPlanMode`；点名 `Write` 在
+`tool.check` 被拒、`Read` 放行；空计划不落盘也不问人；`y` 才写盘、退出、恢复写工具，其他答案留在计划模式；
+第 5 轮出现提醒、第 4 轮没有；P13 的静态前缀与缓存形状不变；`/plan` 进入、`/plan off` 退出且不执行。
+
+**实测**（`pnpm bench:loop`，2026-10-26）：
+
+| 工具调用 | 模型请求 | 工具执行 | 框架额外请求 |
+| ---: | ---: | ---: | ---: |
+| 0 | 1 | 0 | 0 |
+| 1 | 2 | 1 | 0 |
+| 3 | 4 | 3 | 0 |
+| 5 | 6 | 5 | 0 |
+| 10 | 11 | 10 | 0 |
+
+| 阶段 | 可见工具 | 工具 schema token |
+| --- | ---: | ---: |
+| 普通模式 | 7（EnterPlanMode / Read / Write / Edit / Bash / Glob / Grep） | 422 |
+| 计划模式 | 4（ExitPlanMode / Read / Glob / Grep） | 234 |
+
+| 计划轮次 | 普通模式 | 计划模式 | 计划提示 | 工具 schema 节省 | 净变化（负 = 更省） |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 422 | 290 | 56 | 188 | −132 |
+| 5 | 2,110 | 1,461 | 291 | 940 | −649 |
+| 10 | 4,220 | 2,922 | 582 | 1,880 | −1,298 |
+| 20 | 8,440 | 5,844 | 1,164 | 3,760 | −2,596 |
+
+口径：token = `ceil(chars/4)` 估算；Tool-Use Loop 那张表跑的是真的 `runTurn`（provider 是脚本），
+「框架额外请求」= 模型请求 −（工具调用 + 1）；净账只算工具 schema + 计划提示，不含对话历史、
+工具结果与缓存。计划模式省钱不等于更快 —— 它多出来的是本来就该花的探索轮。
+
+**预登记偏差**（设计 §7，共 12 条）：没有 Shift+Tab（手动入口是 `/plan`）；计划文件在
+`.deepcode/plans/` 而不是 `.claude/plans/`；计划模式状态不持久化；不传给子代理（`Task` 在计划模式里
+被藏掉）；工具清单与系统提示有一轮延迟；提醒按轮数不按墙钟；只认工具名白名单（新只读工具要手动加）；
+批准是一次性的；拒绝也保存文件；benchmark 不测计划质量；token 是估的；没有快捷键与状态栏。
+
+**施工期发现的三件事**（写设计时不知道）：
+
+- **提醒会晚一轮**。系统提示在 `runTurn` 之前拼，而轮数在 `runTurn` 里的 `turn.start` 才加：
+  `turns` 是"已完成的轮数"，第 5 轮的提示读到的却是 4。`PlanMode.prompt()` 补 `+1` 修正，
+  测试也改成"数完 3 轮无提醒、数完 4 轮有提醒" —— 不修的话第一次提醒落在第 6 轮。
+- **一轮只取一次工具清单**。`listTools` 在 `runTurn` 开头算一次，所以进入计划模式的**当轮**，
+  模型仍看得到写工具、也看不到只读说明；拦得住它的只有 `tool.check`。这是已知限制，
+  不是"藏起来了却还能写" —— 藏与拒是两道闸，第二道不依赖第一道。
+- **`/tools` 的个数从 9 变成 10，而且第一次出现「不进模型可见清单的」那一段**。`EnterPlanMode`
+  进了可见清单，`ExitPlanMode` 在没进计划模式时被藏掉。两条端到端断言按设计变红，改数时顺手把
+  「为什么这次会第一次出现隐藏段」写进注释。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **84 个文件 / 1341 passed / 1 skipped**。
+新增用例：`plan-mode`（8）、`agent-loop-benchmark`（5），共 13 条；`cli` 的两条按新工具面更新。

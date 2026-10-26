@@ -11,13 +11,22 @@ const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep']);
  *   再走一遍这条链（`core/loop.ts` 是同一个 `runTurn`），它要写文件照样弹 y/N。
  *   在 `Task` 上再问一次只是让用户多按一次 y，还会误导出"我批准了 Task
  *   就是批准了它接下来做的一切"。
+ * - `EnterPlanMode` / `ExitPlanMode`：计划模式的两个开关。它们自己就是一次权限收窄/恢复，
+ *   Exit 还会单独问用户批不批准计划；在本链上再问一次只会问两遍。计划模式真正的
+ *   只读判定在 `builtins/plan.ts` 的 `tool.check`，这一条只是"确认器认识它们"。
  *
- * ⚠️ 这两个名字**必须**在这儿，否则它们一出生就是死的：下面那条"不认识的工具 → deny"
+ * ⚠️ 这几个名字**必须**在这儿，否则它们一出生就是死的：下面那条"不认识的工具 → deny"
  * 会把它们当场拒掉。这是 P3 的 `todo` 插件踩过的同一个坑 ——
  * 它的注释（`plugins/todo/main.mjs`）说得很清楚：插件工具要么自己在 `builtin` 之外
- * 答一次 `tool.check`，要么确认器得认识它。`Task`/`Skill` 是第一方工具，走第二条。
+ * 答一次 `tool.check`，要么确认器得认识它。`Task`/`Skill`/计划模式工具是第一方工具，
+ * 走第二条。
  */
-const PASS_THROUGH_TOOLS = new Set(['Skill', 'Task']);
+const PASS_THROUGH_TOOLS = new Set([
+  'Skill',
+  'Task',
+  'EnterPlanMode',
+  'ExitPlanMode',
+]);
 
 /** 会改动磁盘或执行命令的工具，需要确认。 */
 const MUTATING_TOOLS = new Set(['Write', 'Edit', 'Bash']);

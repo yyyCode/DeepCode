@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import type { FsNoun } from '../../contract/engine';
 
 export function createFsNoun(): FsNoun {
@@ -14,6 +14,7 @@ export function createFsNoun(): FsNoun {
       }
     },
     list: (dir) => readdir(dir),
+    mkdir: (path) => mkdir(path, { recursive: true }).then(() => undefined),
     stat: async (path) => {
       const s = await stat(path);
       return { size: s.size, isDirectory: s.isDirectory(), mtimeMs: s.mtimeMs };
