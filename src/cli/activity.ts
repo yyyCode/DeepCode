@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
 import type { Plugin } from '../contract/plugin';
 import type { FileChange } from './changes';
@@ -42,11 +43,19 @@ export function createActivityPlugin(deps: ActivityDeps): Plugin {
   const now = deps.now ?? ((): number => Date.now());
 
   /**
-   * 子代理嵌套了几层。`agent.spawn` 没有配对的那一半事件，所以靠"当前正有一个 Task
-   * 在 tool.call 里"来判断：层数不为 0 时，里面的 `turn.start` / `turn.complete`
-   * 是子代理的轮次，**不能**拿它们去重置外层那一轮的账。
+   * 子代理嵌套了几层。`agent.spawn` 没有配对的那一半事件，所以靠"当前正有一个
+   * Task / Explore 在 tool.call 里"来判断：层数不为 0 时，里面的
+   * `turn.start` / `turn.complete` 是子代理的轮次，**不能**拿它们去重置外层那一轮的账。
+   *
+   * **为什么按异步上下文存而不是一个计数器**（P15）：三个 `Explore` 可以并发跑，
+   * 兄弟调用都是从父级上下文里发起的（depth 0），而子代理内部的工具调用在 depth 1。
+   * 一个共享计数器会把第二、第三个兄弟当成"嵌套"，于是父级那一轮少记两次工具调用。
    */
-  let nesting = 0;
+  const subagentDepth = new AsyncLocalStorage<number>();
+
+  /** 两个派发入口共用同一条嵌套判定 —— 少算一个，并发子代理的轮次就会冲掉父级的账。 */
+  const isSubagentTool = (tool: string): boolean => tool === 'Task' || tool === 'Explore';
+  const depthNow = (): number => subagentDepth.getStore() ?? 0;
 
   return {
     name: 'cli-activity',
@@ -87,10 +96,11 @@ export function createActivityPlugin(deps: ActivityDeps): Plugin {
        */
       on('tool.call', async ($, e, next) => {
         const started = now();
+        const depth = depthNow();
         tally.toolCalls += 1;
         // 顶层轮次的工具数才进"本轮"那一栏。子代理内部的调用已经计在它外面那次
-        // Task 上了 —— 两边都算的话，一次 Task 会被数成它自己加上它跑过的所有工具。
-        if (nesting === 0) tally.turnToolCalls += 1;
+        // 派发上了 —— 两边都算的话，一次 Task 会被数成它自己加上它跑过的所有工具。
+        if (depth === 0) tally.turnToolCalls += 1;
 
         const target = fitTo(actionTarget(e.tool, e.input), 80);
         render.activity((tick) => [
@@ -98,12 +108,14 @@ export function createActivityPlugin(deps: ActivityDeps): Plugin {
             formatDuration(tick.elapsedMs),
         ]);
 
-        // 派子代理：它内部的每一轮都在这一层里跑，账不能被它们重置。
-        if (e.tool === 'Task') nesting += 1;
+        // 派子代理：它内部的每一轮都在更深一层的上下文里跑，账不能被它们重置。
+        // 兄弟并发调用各自从父级上下文开始，所以它们都是 depth 0、都算父级的工具。
+        const invoke = (): ReturnType<typeof next> =>
+          isSubagentTool(e.tool) ? subagentDepth.run(depth + 1, () => next(e)) : next(e);
 
         let result: Awaited<ReturnType<typeof next>>;
         try {
-          result = await next(e);
+          result = await invoke();
         } catch (error) {
           // 中断（`Ctrl-C` 打的是整条链）会让 next 抛出来。抛出去之前把活动行收掉：
           // 屏幕上留半行小圆圈，用户的下一条命令就会接着它写。
@@ -112,8 +124,6 @@ export function createActivityPlugin(deps: ActivityDeps): Plugin {
             `${marker(palette)}${palette.red('中断')}`,
           ]);
           throw error;
-        } finally {
-          if (e.tool === 'Task') nesting -= 1;
         }
 
         const durationMs = now() - started;
@@ -147,7 +157,7 @@ export function createActivityPlugin(deps: ActivityDeps): Plugin {
       //
       // 子代理那几层不算独立的一轮：它们的工具调用已经计在外层那一轮的 Task 上了。
       on('turn.start', ($, e, next) => {
-        if (nesting === 0) {
+        if (depthNow() === 0) {
           tally.turnStartedAt = now();
           tally.turnToolCalls = 0;
           tally.turnChanges = changes.size();
@@ -159,7 +169,7 @@ export function createActivityPlugin(deps: ActivityDeps): Plugin {
         tally.tokens += e.inputTokens + e.outputTokens;
         if (e.usageEstimated === true) tally.estimated = true;
 
-        if (nesting === 0) {
+        if (depthNow() === 0) {
           const changed = changes.size() - tally.turnChanges;
           render.settle([
             turnLine(

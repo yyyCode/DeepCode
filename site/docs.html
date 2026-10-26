@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>技术文档 —— DeepCode</title>
-<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十四阶段路线图、以及十一条已知限制。">
+<meta name="description" content="DeepCode 的实现细节：七个设计决定、六个模块与事件链、权限规则的写法、十五阶段路线图、以及十一条已知限制。">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" type="image/png" href="logo-mark.png">
 <link rel="stylesheet" href="style.css">
@@ -44,7 +44,7 @@
 <section class="dochead" id="top">
   <div class="wrap">
     <h1>技术文档</h1>
-    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十四阶段路线图、十一条已知限制。
+    <p>实现细节：七个设计决定、六个模块与那条链、权限规则的写法、十五阶段路线图、十一条已知限制。
       它是什么、怎么装、怎么用，看 <a href="index.html">首页</a>。</p>
   </div>
 </section>
@@ -89,7 +89,7 @@
 
       <article class="dec">
         <h3 class="dec__h">内建工具不是特例</h3>
-        <p>十个可见工具走<strong>同一条</strong>接口：清单来自注册面上 <code>tool.call</code> 的 matcher 取值，
+        <p>十一个可见工具走<strong>同一条</strong>接口：清单来自注册面上 <code>tool.call</code> 的 matcher 取值，
           再过白名单与 <code>hidden</code> 两道。<code>core/tool-list.ts</code> 是这一份清单的<strong>唯一算法</strong>。</p>
       </article>
     </div>
@@ -159,7 +159,7 @@
         <h3 class="mod__h">工具与插件<span>一条接口，没有硬编码表</span></h3>
         <dl>
           <dt>工具</dt>
-          <dd>十个走<strong>同一条</strong>接口：六个内建 + <code>Task</code> / <code>Skill</code> / <code>Memory</code> / <code>EnterPlanMode</code>（第一方插件给的）；<code>ExitPlanMode</code> 没进计划模式时被隐藏</dd>
+          <dd>十一个走<strong>同一条</strong>接口：六个内建 + <code>Task</code> / <code>Skill</code> / <code>Memory</code> / <code>EnterPlanMode</code> / <code>Explore</code>（第一方插件给的）；<code>ExitPlanMode</code> 没进计划模式时被隐藏</dd>
           <dt>插件</dt>
           <dd>不 import 内核，只拿到注册回调；内建 mod 与第三方插件走同一个接口</dd>
           <dt>边界</dt>
@@ -195,8 +195,8 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <code>pnpm lint</code> 直接红。</p>
 
     <div class="callout">
-      <p><strong>42 个事件已声明，23 个已实现；十个可见工具里六个内建、四个由第一方插件提供
-        （<code>Task</code> / <code>Skill</code> / <code>Memory</code> / <code>EnterPlanMode</code>，
+      <p><strong>42 个事件已声明，23 个已实现；十一个可见工具里六个内建、五个由第一方插件提供
+        （<code>Task</code> / <code>Skill</code> / <code>Memory</code> / <code>EnterPlanMode</code> / <code>Explore</code>，
         <code>ExitPlanMode</code> 在计划模式外被隐藏）。</strong>其余 19 个事件用到时会抛
         <code>NotImplementedError</code>。</p>
     </div>
@@ -250,7 +250,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
   <p class="band__mark">全部完成</p>
   <div class="band__body">
     <h2>走到哪一步了</h2>
-    <p class="band__lede">十四个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
+    <p class="band__lede">十五个阶段<strong>全部完成</strong>。每阶段的出口标准与偏差记在
       <a href="https://github.com/yyyCode/DeepCode/blob/main/CHANGELOG.md">变更记录</a>里。</p>
 
     <ol class="stages">
@@ -269,6 +269,7 @@ plugins/       第三方插件 —— 不 import 内核，只拿到注册回调<
       <li><span class="stage__k">P12</span><p><b>跨会话记忆：</b>四类封闭记忆（<code>user</code> / <code>feedback</code> / <code>project</code> / <code>reference</code>）一条一个文件，索引<strong>每轮</strong>进提示、正文只在被召回时注入；默认<strong>关键词召回</strong>（零 API、可离线复现），可选小模型；<code>Memory</code> 工具 save / read / forget，<code>/memory</code> 与 <code>/context</code> 的「记忆」一行；250 条时索引按 200 行截断，<code>pnpm bench:memory</code> 实测注入量 −86% ~ −89%</p></li>
       <li><span class="stage__k">P13</span><p><b>系统提示与前缀缓存：</b>七节静态正文（角色、安全边界、可逆性、专用工具、Git、输出）冻成<strong>逐字节稳定的前缀</strong>，环境 / 指令 / 记忆 / 清单留在动态尾巴；Anthropic 在静态段末尾打 <code>cache_control</code>，OpenAI 兼容端点靠稳定前缀自动命中；<code>/context</code> 报「缓存前缀」两段各多少 token，<code>pnpm bench:prompt</code> 算 20 轮缓存账 —— 小项目省 50%、巨型 <code>AGENTS.md</code> 省 25%，第 2 轮回本；同一轮里 <code>Read</code> / <code>Glob</code> / <code>Grep</code> 成批并发、不问，<code>Write</code> / <code>Edit</code> / <code>Bash</code> 串行并逐条确认</p></li>
       <li><span class="stage__k">P14</span><p><b>执行循环与计划模式：</b>循环不做 ReAct 的三段式 —— 一次请求一次决策（<code>tool_use</code> 或 <code>end_turn</code>），N 次工具就是 N+1 次模型请求，<code>pnpm bench:loop</code> 把「框架额外请求 = 0」钉住；<code>EnterPlanMode</code> / <code>ExitPlanMode</code> 是<strong>普通工具</strong>不是引擎分支，计划模式只留只读工具（<code>tool.describe</code> 隐藏 + <code>tool.check</code> 兜底），计划落盘 <code>.deepcode/plans/</code>，用户按 <code>y</code> 才恢复读写；省掉的工具 schema 大于注入的计划提示（20 轮净省 2,596 token）</p></li>
+      <li><span class="stage__k">P15</span><p><b>子代理运行时：</b>开箱三个类型（<code>explore</code> / <code>plan</code> / <code>general-purpose</code>，文件同名可覆盖）；<code>readOnly: true</code> 只是作者声明，内核拿这一轮真正的面逐个核对，混进写工具就拒；<code>Explore</code> 声明只读后同一条回复里的多个探索<strong>并发</strong>（<code>Task</code> 仍串行），父面从全局栈换成 <code>AsyncLocalStorage</code>，并发的兄弟不再互相污染；派发口径写进清单与工具描述。<code>pnpm bench:subagent</code>：60,000 字符结果交给 <code>explore</code> 后父级只剩 <b>0.4%</b>，三个探索峰值 <b>3 vs 1</b></p></li>
     </ol>
   </div>
 </section>

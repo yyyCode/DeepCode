@@ -4,7 +4,7 @@
 安全底线是每个会写盘或执行命令的动作，都要你在终端上按一次 `y`。
 
 不只是「读 → 改 → 跑测试」的闭环：工具系统、权限与沙箱、插件与分发、内建 mod、界面、上下文、
-执行循环、工具清单、子代理的边界、上下文五层压缩、跨会话记忆、计划模式都已落地（P0–P14，
+执行循环、工具清单、子代理的边界与只读并发、上下文五层压缩、跨会话记忆、计划模式都已落地（P0–P15，
 逐阶段的**范围 / 出口标准 / 偏差**记在 [`CHANGELOG.md`](CHANGELOG.md)）。做不到什么、哪些数是猜的，逐条在
 [`site/已知限制.md`](site/已知限制.md) —— 这一页只留会改变**你怎么用它**的那几条。
 
@@ -85,6 +85,7 @@ deepcode --help / --version
 `readOnly`，相邻的几条会一起跑；`Write` / `Edit` / `Bash` 是屏障 —— 排在它前面的只读都结束
 才轮到它，它结束才轮到后面的只读。结果顺序始终按模型请求的顺序回填，与谁先跑完无关。
 插件工具默认按"会写"处理（串行），除非它在 `tool.describe` 里声明 `readOnly: true`。
+`Explore` 就是这样声明的 —— 同一条回复里的多个只读探索会并发；`Task` 没声明，仍然串行。
 
 工具要写盘或跑命令时，终端会打出预览并停下等一个答案：
 
@@ -164,7 +165,7 @@ deepcode --help / --version
 你：/plan            ← 也可以手动进
 ```
 
-进去以后**只能读**：`Read` / `Glob` / `Grep` / `Skill` 在清单里，`Write` / `Edit` / `Bash` / `Task`
+进去以后**只能读**：`Read` / `Glob` / `Grep` / `Skill` / `Explore` 在清单里，`Write` / `Edit` / `Bash` / `Task`
 不在；就算模型点名调用也会被拒（`tool.check` 的第二道闸，不是靠提示词自觉）。整条一轮的成本也低一些：
 省掉的工具 schema 比注入的计划提示更多（[`pnpm bench:loop`](scripts/benchmark-agent-loop.ts)）。
 
@@ -175,8 +176,9 @@ deepcode --help / --version
 <工作目录>/.deepcode/plans/plan-<会话 id>-<时间戳>.md
 ```
 
-拒绝执行不会删掉计划文件 —— 被拒的是执行，不是计划。子代理与 Bash 拿不到，所以计划模式里也没有
-"绕过去"的路。没有 Shift+Tab，手动开关就是 `/plan` / `/plan off`。
+拒绝执行不会删掉计划文件 —— 被拒的是执行，不是计划。`Task` 与 Bash 拿不到；`Explore` 能派，
+但内核只放行验证为只读的工具面，所以计划模式里也没有"绕过去"的路。
+没有 Shift+Tab，手动开关就是 `/plan` / `/plan off`。
 
 ## 一轮怎么收场
 
@@ -409,10 +411,11 @@ marketplace 就是一份**本地目录**：`<目录>/.deepcode-plugin/marketplac
 
 `Task`（派子代理）与 `Skill`（加载技能）是**第一方插件**
 （[`src/cli/subagents.ts`](src/cli/subagents.ts)）注册的工具，**不是内建工具**；记忆的 `Memory`
-（`src/cli/memory.ts`）与计划模式的 `EnterPlanMode`（[`src/builtins/plan.ts`](src/builtins/plan.ts)）
-也是。模型看得见的工具因此从六个内建
-（`Read` / `Write` / `Edit` / `Bash` / `Glob` / `Grep`）变成**十个**；
-`ExitPlanMode` 也在册，但没进计划模式时被隐藏 —— `/tools` 会把它列在「不进模型可见清单的」。名册来自两处约定目录：
+（`src/cli/memory.ts`）、计划模式的 `EnterPlanMode`（[`src/builtins/plan.ts`](src/builtins/plan.ts)）
+与只读探索的 `Explore` 也是。模型看得见的工具因此从六个内建
+（`Read` / `Write` / `Edit` / `Bash` / `Glob` / `Grep`）变成**十一个**
+（`Task` / `Skill` / `Memory` / `EnterPlanMode` / `Explore`）；
+`ExitPlanMode` 也在册，但没进计划模式时被隐藏 —— `/tools` 会把它列在「不进模型可见清单的」。名册来自三处约定目录，外加三个开箱类型：
 
 | 类型 | 项目级 | 用户级 | 插件级 |
 | --- | --- | --- | --- |
@@ -420,18 +423,29 @@ marketplace 就是一份**本地目录**：`<目录>/.deepcode-plugin/marketplac
 | 技能 | `.deepcode/skills/<name>/SKILL.md` | `~/.deepcode/skills/<name>/SKILL.md` | `<plugin>/skills/<name>/SKILL.md` |
 
 - 文件开头是 frontmatter，正文是**系统提示词**（agent）或**知识正文**（技能）。agent 认 `name` /
-  `description` / `model` / `tools` / `disallowedTools` / `maxTurns`；不认识的字段会**出声忽略**。
+  `description` / `model` / `tools` / `disallowedTools` / `maxTurns` / `readOnly`；不认识的字段会**出声忽略**。
 - **`description` 是路由的全部依据** —— 模型看到的只有这一行，不是文件。没有它就永远选不中，
   这样的文件会被跳过并给出警告。
 - agent 的 `tools` 省略 = **继承父级那一轮的工具面**（父级是会话就继承会话，父级是子代理就继承
   那个子代理这一轮看得见的）；给出 = **在那份面里求交** —— 只能更小，拿不回父级看不见的东西。
   「全权」指的是工具面，**不是免确认**：子代理写文件照样弹 `y/N`。子代理**看不到**当前对话，
   `prompt` 就是它的全部上下文。
+- `readOnly: true` 是**作者声明，不是权限**：必须同时写 `tools`（省略 `tools` 会继承可能含写工具的
+  父面，发现阶段会警告并忽略这个标志）。它只决定这个 agent 能不能进 `Explore` 的名册；
+  内核在派发前还会拿**这一轮真正的面**逐个核对，混进写工具就拒 —— 文件撒谎没用，理由会点名那个工具。
+- 开箱有三个类型，优先级最低（同名文件覆盖它且不出声）：`explore` / `plan` 只读、固定
+  `Read` / `Glob` / `Grep`，正文整份替换；`general-purpose` 省略 `tools`，继承父面。三个都不写死
+  供应商模型别名。
+- 派发口径也写进了模型看得见的地方：独立只读探索用 `Explore`（同一条回复可发多个，会并发）；
+  要写盘或有先后依赖的用 `Task`（串行）；几条工具调用就能做完的小任务不要派；两个子代理不要改同一个文件。
 - 嵌套靠白名单（`tools` 里有 `Task` 才能再派），外加 3 层的硬上限 —— 一次失控的递归要花真钱，
   所以上限是保险丝，不是策略。这份面与这个数都在**内核**里算：不管走 `Task` 还是插件直接调
   `$.agent.spawn`，走的都是同一行判定（P10）。
 - 项目级的 agent 与技能**不需要显式启用**（与插件不同）：它们是文本，和这个仓库的 README、源码同级。
   技能只加载正文，旁边的 `references/` / `scripts/` 由模型自己用 `Read` / `Bash` 取。
+- 收益账可离线复现：[`pnpm bench:subagent`](scripts/benchmark-subagents.ts) 把同一个 60 000 字符的
+  工具结果直接读 vs 交给 `explore` 读 —— 父级字符降到 0.4%；三个独立探索 `Explore` 峰值并发 3、
+  `Task` 峰值 1；再验证一个谎报 `readOnly` 的 agent 确实被内核拒。
 
 ## 内建 mod
 
@@ -492,7 +506,8 @@ CLI 就**不注册**自己那条 `/diff`，否则同一条命令会打两遍。
   —— 它是给手滑与误操作加的一道闸，不是反对抗手段，所以**不是"可以放开权限"的理由**。
 - **没有路径围栏**：工具能碰到你进程权限内的任何路径，不限工作目录 —— 别在装着重要东西的机器上放它乱跑。
 - **子代理不继承指令文件**：`AGENTS.md` / `CLAUDE.md` 一个字都不进它的系统提示（**刻意**的硬隔离），
-  代价是它不知道项目规矩 —— 要它守的规矩得写进那个 agent 文件或 `prompt` 里。
+  代价是它不知道项目规矩 —— 要它守的规矩得写进那个 agent 文件或 `prompt` 里。内置的
+  `explore` / `plan` 同样如此；`general-purpose` 回落到基础提示，也仍然不含指令文件。
 - **中断只杀外壳**：Windows 上 `Bash` 经 `cmd.exe` 起命令，`Ctrl-C` 掐断的是这层外壳，
   下面的孙进程可能继续残留。
 - **账本里的数字全是估的**，工具那一行尤其粗 —— 够用是因为它要的是"离阈值还有多远"这个量级，
@@ -505,7 +520,7 @@ CLI 就**不注册**自己那条 `/diff`，否则同一条命令会打两遍。
 ```bash
 pnpm typecheck   # 类型检查
 pnpm lint        # 两个检查：依赖边界 + 工作流硬化
-pnpm test        # 测试，84 个文件 1341 个用例
+pnpm test        # 测试，86 个文件 1359 个用例
 pnpm dev         # 免去 bin 转手，直接跑 tsx（cwd 是本仓库）
 ```
 

@@ -237,6 +237,8 @@ export type EventResult = {
       readonly name: string;
       readonly description: string;
       readonly tools?: readonly string[];
+      /** 作者声明：这个 agent 的面全是只读的，可以用 `Explore` 并发派（P15）。 */
+      readonly readOnly?: boolean;
     }[];
     readonly skills: readonly { readonly name: string; readonly description: string }[];
   };

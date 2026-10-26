@@ -63,6 +63,7 @@ export const STATIC_PROMPT_SECTIONS: readonly PromptSection[] = [
 - 看文件用 Read、找文件用 Glob、搜内容用 Grep，不要用 Bash 的 cat / find / grep 代替。
 - 改文件用 Edit（精确替换）或 Write（整体重写）；Write 覆盖已有文件前必须先 Read 过它。
 - 跑测试、构建、Git 与其他命令用 Bash。
+- 独立、只读的探索可以并行：同一条回复里发多个 Explore 会并发执行；要写盘或有先后依赖的用 Task，串行。几条工具调用就能做完的小任务自己做完，不要派。
 - 工具以 ERROR: 开头返回的是信息，不是崩溃：读它、改方案、再试。
 - 超大工具结果会落盘，消息里只留前 2KB 预览；需要后文用 Read 的 offset / limit 读那个路径。`,
   },

@@ -18,6 +18,7 @@ export const KNOWN_AGENT_FIELDS: readonly string[] = [
   'tools',
   'disallowedTools',
   'maxTurns',
+  'readOnly',
 ];
 
 export type AgentRosterDeps = {
@@ -27,6 +28,12 @@ export type AgentRosterDeps = {
   readonly home: string;
   /** **已装载**的插件（只算判为 loaded 的）。被 deny 的、没 enable 的不贡献名册。 */
   readonly plugins?: readonly { readonly name: string; readonly dir: string }[];
+  /**
+   * 开箱类型（P15）。**优先级最低**：三个来源都跑完之后才合并，同名文件已经占了名字
+   * 就静默跳过 —— 覆盖一个内置类型是预期行为，为它打一条 warn 只是噪音。
+   * 默认 `[]`：发现函数本身不认识具体产品名册（`main.ts` 显式传 `BUILTIN_AGENTS`）。
+   */
+  readonly builtins?: readonly AgentSpec[];
   readonly warn?: (line: string) => void;
 };
 
@@ -64,6 +71,14 @@ export async function discoverAgents(deps: AgentRosterDeps): Promise<readonly Ag
       claimed.set(spec.name, describeOrigin(root));
       agents.push(spec);
     }
+  }
+
+  // 内置类型最后合并。同名不告状：覆盖一个内置类型是预期行为，与"两份用户文件撞名"
+  // 不是同一件事 —— 后者永远出声（上面那条 warn）。
+  for (const spec of deps.builtins ?? []) {
+    if (claimed.has(spec.name)) continue;
+    claimed.set(spec.name, '内置类型');
+    agents.push(spec);
   }
 
   return agents.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -124,6 +139,14 @@ async function readAgent(
   const tools = readList(fm, 'tools');
   const disallowedTools = readList(fm, 'disallowedTools');
   const maxTurns = readPositiveInt(fm, 'maxTurns', path, warn);
+  const readOnly = readBool(fm, 'readOnly', path, warn);
+  if (readOnly === true && tools === undefined) {
+    // 省略 tools = 继承父面（可能含 Write / Bash）。这时 readOnly 是自相矛盾的声明，
+    // 丢掉标志而不是丢掉整个 agent：它仍然可以用 Task 串行派。
+    warn(
+      `${path}：readOnly: true 需要同时写 tools（省略 tools 会继承父级的全部工具，可能含写工具）—— 这个标志忽略，agent 仍可用 Task 派。`,
+    );
+  }
 
   // 可选字段一律用展开，不写 `tools: undefined`：省得依赖 exactOptionalPropertyTypes 关着。
   return {
@@ -136,7 +159,24 @@ async function readAgent(
     // `inherit` 是缺省，与"没写"是同一种含义：用父级那个（参考实现 15 个 agent 里 8 个写它）。
     ...(model === undefined || model === 'inherit' ? {} : { model }),
     ...(maxTurns === undefined ? {} : { maxTurns }),
+    ...(readOnly === true && tools !== undefined ? { readOnly: true } : {}),
   };
+}
+
+/** `true` / `false` 两个值（大小写不敏感）；别的值 warn + 忽略。 */
+function readBool(
+  fm: Frontmatter,
+  key: string,
+  path: string,
+  warn: (line: string) => void,
+): boolean | undefined {
+  const raw = readScalar(fm, key);
+  if (raw === undefined) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  warn(`${path}：${key} 要是 true 或 false，读到 ${raw} —— 忽略这个字段。`);
+  return undefined;
 }
 
 function readPositiveInt(

@@ -42,6 +42,9 @@
 | P10 子代理的边界 | 面与深度上限挪进内核（`allow` 求交、所有路径共用一个数、`agent.spawn.depth`） | `p10-design.md:12` | `p10-design.md:240` |
 | P11 上下文五层 | 第 1 层落盘/预览、第 2–4 层读时投影、`compact.layers`、`Read` 的 `offset`、`pnpm bench` | `2026-10-26-deepcode-p11-context-layers-design.md:253` | 同文件 §7 |
 | P12 跨会话记忆 | 四类记忆、索引常驻 + 正文按需、关键词/小模型召回、`Memory` 工具与 `/memory`、`memory` 设置、`pnpm bench:memory` | `2026-10-26-deepcode-p12-memory-design.md:330` | 同文件 §7 |
+| P13 系统提示与前缀缓存 | 七节静态前缀、动态环境段、Anthropic `cache_control`、`/context` 两段、`pnpm bench:prompt` | `2026-10-26-deepcode-p13-system-prompt-design.md` §7 | 同文件 §6 |
+| P14 执行循环与计划模式 | Tool-Use 循环、`EnterPlanMode` / `ExitPlanMode`、只读计划面、`pnpm bench:loop` | `2026-10-26-deepcode-p14-agent-loop-plan-mode-design.md` §8 | 同文件 §7 |
+| P15 子代理运行时 | 开箱三型、`readOnly` 内核验证、`Explore` 只读并发、`AsyncLocalStorage` 父面、`pnpm bench:subagent` | `2026-10-26-deepcode-p15-subagent-runtime-design.md` §5 | 同文件 §6 |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
@@ -1055,3 +1058,65 @@ README / 官网 / 已知限制。
 
 **验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **84 个文件 / 1341 passed / 1 skipped**。
 新增用例：`plan-mode`（8）、`agent-loop-benchmark`（5），共 13 条；`cli` 的两条按新工具面更新。
+
+## P15 子代理运行时：开箱类型、只读并发与派发口径
+
+**范围**：`src/contract/agent.ts`（`readOnly` 声明 / 请求字段）、`src/contract/events.ts`
+（`agent.offer` 标注）、`src/cli/builtin-agents.ts`（三个开箱类型）、`src/cli/agents.ts`
+（`readOnly` 解析与内置名册合并）、`src/core/nouns/agent.ts`（`AsyncLocalStorage` 父面、
+只读验证、事件移到验证之后）、`src/cli/subagents.ts`（`Explore` 工具、`Task` / `Explore` 描述、
+共用 `spawnAgent`）、`src/cli/offer.ts`（名册标注与派发口径）、`src/builtins/confirm.ts`
+（`Explore` 借道）、`src/builtins/plan.ts`（计划模式只读面加 `Explore`）、`src/cli/activity.ts`
+（子代理深度改异步上下文）、`src/cli/result-view.ts`、`src/cli/prompt-text.ts`、
+`scripts/benchmark-subagents.ts` 与 `package.json` 的 `bench:subagent`、两个新测试套件与
+`agents` / `offer` / `plan-mode` / `activity` / `cli` 的增补、README / 官网 / 项目简介 / 本文。
+
+**为什么**：P4a/P10 已经把隔离、工具面与深度上限做成了结构，但开箱名册是空的；
+`Task` 没声明 `readOnly`，同一轮里的多个探索只能串行；「什么时候别派」也没写进模型看得见的地方。
+这一阶段补开箱类型、只读并发与派发口径，并给出一条能离线复现的收益账。输入材料里与契约级事实源
+冲突的两处（「禁止嵌套」vs 深度 3、「后台是默认」vs 只做前台）按事实源处理，理由记在设计 §1。
+
+**出口标准**（设计 §5）：委派后的父级字符数小于直接读的 1/4；`Explore` 峰值并发 = 3、
+`Task` = 1 且并发墙钟更短；`explore` 那一轮请求里只有 `Read` / `Glob` / `Grep`；`general-purpose`
+不能走 `Explore`；说谎的 `readOnly` agent 被内核拒、理由点名写工具、不派 `agent.spawn` 事件；
+三个内置类型开箱就在，项目级同名文件静默覆盖；并发兄弟的父面与深度互不污染。
+
+**实测**（`pnpm bench:subagent`，2026-10-26）：
+
+| 模式 | 父级 messages 字符 | 父级 token（估） | 模型请求 |
+| --- | ---: | ---: | ---: |
+| 父级直接读 60,000 字符结果 | 60,099 | 15,025 | 2 |
+| 派 `explore` 读 | 245 | 62 | 4 |
+
+| 入口 | 调用 | 峰值并发 | 墙钟 |
+| --- | ---: | ---: | ---: |
+| `Explore` | 3 | 3 | 50 ms |
+| `Task` | 3 | 1 | 138 ms |
+
+| agent | 结果 | 子代理请求 | 理由 |
+| --- | --- | ---: | --- |
+| 声明 `readOnly` 但面里含 `Write` | 拒绝 | 0 | 点名 `Write`，并提示改用 `Task`（串行） |
+
+口径：token 是 `ceil(chars/4)` 估算；隔离表只算父级 messages，不含系统提示与工具 schema；
+并发表用 40ms 模拟一次探索，墙钟含框架开销，断言方向是结构（3 vs 1、并发更短）而非绝对毫秒。
+
+**预登记偏差**（设计 §6，共 8 条）：可见工具从 10 个变成 11 个；内置类型对每个会话都可见；
+新增 `readOnly` frontmatter 字段；`agent.spawn` 事件晚于只读验证；`AsyncLocalStorage` 把父面
+从显式栈变成隐式异步上下文，`runTurn` 之外的 `spawn` 退回会话层（行为仍安全）；计划模式多允许
+一个 `Explore`；内置 `explore` / `plan` 的正文整份替换，因此看不到 `AGENTS.md`；并发只覆盖只读，
+写子代理仍串行，同文件并行编辑没有防护。
+
+**施工期发现的两件事**（写设计时不知道）：
+
+- **活动面的全局嵌套计数器会把并发兄弟当成嵌套**。`activity.ts` 原来用一个共享 `nesting`
+  计数判断「这是不是子代理里的工具」，串行时成立；三个 `Explore` 并发后，兄弟的调用互相看到
+  对方的计数，父级那一轮的工具数被少算。改成 `AsyncLocalStorage<number>`：只有真正在
+  `Task` / `Explore` 调用里跑的工具才是第 1 层，并发兄弟各自是 0 层。
+- **删掉 `explore` 的 `readOnly` 会让它被自己的校验拒掉**。反向验证时看到的不是「峰值变 1」，
+  而是 `Explore` 的资格判断先拒绝这个 agent（「不是只读子代理，请用 Task」）。并发与派发资格
+  共用同一个声明，这是有意的 fail-closed 耦合；测试把两条都钉住了。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **86 个文件 / 1359 passed / 1 skipped**。
+新增 `subagent-parallel`（5）与 `subagent-benchmark`（5）两个套件；`agents` / `offer` /
+`plan-mode` / `activity` / `cli` 按新工具面与 `readOnly` 增补断言。反向验证实际做了三条
+（删 `readOnly`、内核跳过验证、不合并内置名册），均按预期变红后恢复。

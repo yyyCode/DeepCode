@@ -16,12 +16,19 @@ export function renderOffer(offer: Result<'agent.offer'>): string {
   if (offer.agents.length > 0) {
     sections.push(
       [
-        '可用子代理（用 Task 工具派发，subagent_type 填名字）：',
-        ...offer.agents.map((agent) =>
-          agent.tools === undefined
+        '可用子代理（用 Task 派发；只读的也可以用 Explore 并发派，subagent_type 填名字）：',
+        ...offer.agents.map((agent) => {
+          const marks: string[] = [];
+          if (agent.readOnly === true) marks.push('只读');
+          if (agent.tools !== undefined) marks.push(`tools: ${agent.tools.join(', ')}`);
+          return marks.length === 0
             ? `- ${agent.name}: ${agent.description}`
-            : `- ${agent.name}: ${agent.description}（tools: ${agent.tools.join(', ')}）`,
-        ),
+            : `- ${agent.name}: ${agent.description}（${marks.join('；')}）`;
+        }),
+        '',
+        '派发口径：独立、只读的探索优先用 Explore 并发派（同一条回复里可以发多个）；' +
+          '要写盘或有先后依赖的用 Task，串行。几条工具调用就能做完的小任务不要派；' +
+          '不要让两个子代理改同一个文件。',
       ].join('\n'),
     );
   }
