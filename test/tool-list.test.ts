@@ -23,6 +23,7 @@ const fixture: Plugin = {
     on('tool.describe', { tool: 'Good' }, () => ({
       description: '好人',
       inputSchema: { type: 'object' },
+      readOnly: true,
     }));
     on('tool.call', { tool: 'Good' }, () => ({ value: 'ok' }));
 
@@ -58,6 +59,21 @@ describe('C1-1：一份清单，两个部分', () => {
       { name: 'Ghost', why: '没有注册描述（tool.describe 无人应答 —— 这是故障）' },
       { name: 'Secret', why: '被权限规则隐藏' },
     ]);
+  });
+
+  it('readOnly 从 tool.describe 汇成一份集合 —— 模型面与执行面用同一份声明', async () => {
+    const { $, dispatch } = await engine();
+    const listing = await listTools({ $, dispatch });
+
+    // 没声明的（Ghost / Secret）不在集合里：默认按"会写"处理。
+    expect([...listing.readOnly]).toEqual(['Good']);
+  });
+
+  it('内建的四个只用 Read / Glob / Grep 声明只读 —— Bash 与写工具不在其中', async () => {
+    const { $, dispatch } = await engine(coreTools);
+    const listing = await listTools({ $, dispatch });
+
+    expect([...listing.readOnly].sort()).toEqual(['Glob', 'Grep', 'Read']);
   });
 
   it('白名单外的是第三种原因 —— 措辞与故障那一句**不一样**', async () => {

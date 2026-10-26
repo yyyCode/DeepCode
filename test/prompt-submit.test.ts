@@ -69,7 +69,7 @@ async function run(
     render: silentRenderer(),
     rl: fake.rl,
     lines: lines2,
-    systemPrompt: async () => '',
+    systemPrompt: async () => ({ text: '' }),
     turns: createTurnSignals(),
     messages,
     persist: async () => {},

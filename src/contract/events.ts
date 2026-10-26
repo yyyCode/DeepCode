@@ -195,7 +195,17 @@ export type EventResult = {
   'tool.consent': Record<string, never>;
   /** 钩子想补进那条工具结果的话。链尾无人应答 = 什么都不加（缝）。 */
   'tool.result': { readonly context?: string };
-  'tool.describe': { readonly description: string; readonly inputSchema: unknown } | { readonly hidden: true };
+  /**
+   * `readOnly` 是**执行面**的声明，不是权限面的：`true` = 这个工具的调用不会改动
+   * 外部世界（磁盘、进程、网络），同一个模型响应里的多条可以**并发**跑。
+   *
+   * 省略 = `false`，按"会写"处理 —— 这是 fail-safe 的方向：没声明就串行，
+   * 并发错了会互相踩，串行最多只是慢一点。权限（要不要问人）是 `tool.check` 的事，
+   * 两件事互不替代：一个工具可以先声明只读、再被策略拦下来。
+   */
+  'tool.describe':
+    | { readonly description: string; readonly inputSchema: unknown; readonly readOnly?: boolean }
+    | { readonly hidden: true };
   'command.run': { readonly handled?: boolean };
   /**
    * 一条命令的自我描述。

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "bench": "tsx scripts/benchmark-context.ts",
     "bench:memory": "tsx scripts/benchmark-memory.ts",
+    "bench:prompt": "tsx scripts/benchmark-system-prompt.ts",
     "lint": "node scripts/check-boundaries.mjs && node scripts/check-workflow-hardening.mjs"
   },
   "devDependencies": {

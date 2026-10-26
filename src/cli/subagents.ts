@@ -116,7 +116,8 @@ export function createSubagentsPlugin(deps: SubagentsDeps): Plugin {
         // 正文为空 ⇒ 回落到会话的基础提示。**回落判断在这儿**，内核不知道这回事（设计 §2.3）。
         const systemPrompt =
           spec.prompt.trim() === ''
-            ? `${deps.baseSystemPrompt}\n\n你是子代理「${spec.name}」：${spec.description}`
+            ? `${deps.baseSystemPrompt}\n\n你是子代理「${spec.name}」：${spec.description}。` +
+              '只调用工具清单里出现的工具；清单里没有的，说明做不到，不要硬试。'
             : spec.prompt;
 
         // （"派子代理 X"那一条在上面的 `agent.spawn` hook 里 —— 那条通知现在由内核的

@@ -61,8 +61,27 @@ function count(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * 系统提示的静态前缀与动态尾巴（P13）。
+ *
+ * `static` 必须逐字节稳定，并且 `system` 以它开头 —— provider 会把缓存断点放在它后面。
+ * 两个都不含分隔符：真正发出去的 `system` 是 `static + '\n\n' + dynamic`（有空段时少一个）。
+ */
+export type SystemPromptParts = {
+  readonly static: string;
+  readonly dynamic: string;
+};
+
 export type StreamRequest = {
   readonly system: string;
+  /**
+   * 静态/动态拆分。省略 = 不启用分级缓存（旧行为：`system` 原样发）。
+   *
+   * 这是**可选**的：十几处测试与子代理都只给一个字符串，没有理由为了缓存把它们全改一遍。
+   * Anthropic 用它把静态段包成 `cache_control` 块；OpenAI 兼容端点忽略它，靠稳定前缀
+   * 自动命中。
+   */
+  readonly systemParts?: SystemPromptParts;
   readonly messages: readonly Message[];
   readonly tools: readonly ToolSpec[];
   readonly signal: AbortSignal;

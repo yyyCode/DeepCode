@@ -25,7 +25,7 @@ describe('系统提示每轮重算（P7 §3.2）', () => {
   it('同一轮里改动的东西，下一轮就进去了 —— 不用重启', async () => {
     let sections: readonly Section[] = [{ name: 'instructions', text: '规矩：先写测试' }];
     const { dispatch } = stubDispatch(() => sections);
-    const builder = createPromptBuilder({ base: '基础提示', dispatch });
+    const builder = createPromptBuilder({ sections: [{ name: 'base', text: '基础提示' }], dispatch });
 
     const first = await builder.build();
     expect(first.text).toContain('先写测试');
@@ -41,7 +41,7 @@ describe('系统提示每轮重算（P7 §3.2）', () => {
 
   it('分节只算一份：`text` 就是 `pieces` 拼出来的，`/context` 的账才对得上', async () => {
     const { dispatch } = stubDispatch(() => [{ name: 'instructions', text: '规矩：先写测试' }]);
-    const builder = createPromptBuilder({ base: '基础提示', dispatch });
+    const builder = createPromptBuilder({ sections: [{ name: 'base', text: '基础提示' }], dispatch });
     const built = await builder.build();
 
     expect(built.text).toBe(built.pieces.map((piece) => piece.text).join('\n\n'));
@@ -54,7 +54,7 @@ describe('系统提示每轮重算（P7 §3.2）', () => {
       { name: 'instructions', text: '' }, // 空 = 这一层没有文件
       { name: 'local', text: '只在本机生效的约定' },
     ]);
-    const builder = createPromptBuilder({ base: '基础提示', dispatch });
+    const builder = createPromptBuilder({ sections: [{ name: 'base', text: '基础提示' }], dispatch });
     const built = await builder.build();
 
     expect(built.pieces.map((piece) => piece.name)).toEqual(['base', 'local', 'offer']);
@@ -63,7 +63,7 @@ describe('系统提示每轮重算（P7 §3.2）', () => {
 
   it('每轮都真的重问一次引擎（两个事件都派出去）', async () => {
     const { dispatch, events } = stubDispatch(() => []);
-    const builder = createPromptBuilder({ base: '基础提示', dispatch });
+    const builder = createPromptBuilder({ sections: [{ name: 'base', text: '基础提示' }], dispatch });
     await builder.build();
     await builder.build();
     expect(events).toEqual(['prompt.section', 'agent.offer', 'prompt.section', 'agent.offer']);
@@ -72,7 +72,7 @@ describe('系统提示每轮重算（P7 §3.2）', () => {
   it('`last()` 之前说没算过，算过之后给的是**最后**那一份', async () => {
     let sections: readonly Section[] = [{ name: 'instructions', text: '第一版' }];
     const { dispatch } = stubDispatch(() => sections);
-    const builder = createPromptBuilder({ base: '基础提示', dispatch });
+    const builder = createPromptBuilder({ sections: [{ name: 'base', text: '基础提示' }], dispatch });
 
     expect(builder.last()).toBeUndefined(); // `/context` 靠这个说"这一轮还没算过"
 

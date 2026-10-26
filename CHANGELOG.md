@@ -935,3 +935,58 @@ Claude Code 的做法是四条封闭类型 + 一条一个文件 + 索引常驻 +
 **验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **78 个文件 / 1299 passed / 1 skipped**。
 新增用例：`memory`（30）、`memory-plugin`（14）、`memory-benchmark`（4）、`context-view` 的记忆行（3）、
 `settings` 的 `memory` 段（4），并把 `/tools` 的端到端计数从 8 改成 9（`Memory` 是模型可见工具）。
+
+## P13 系统提示：先写红线，再把不变的那部分冻成前缀
+
+**范围**：`src/cli/prompt-text.ts`（七节静态正文 + 环境段渲染）、
+`src/cli/environment.ts`（Git 仓库 / Shell / 平台 / 本地日期探测）、
+`src/cli/system-prompt.ts`（`assemblePrompt` 纯拼装、`staticText` / `dynamicText`、
+`PromptPiece.cache`）、`src/contract/model-provider.ts`（可选 `systemParts`）、
+`src/providers/anthropic.ts`（静态段 `cache_control`）、`src/providers/openai.ts`（稳定前缀注释）、
+`src/core/loop.ts` / `src/cli/repl.ts` / `src/cli/main.ts`（拆分接线）、
+`src/cli/context-view.ts`（「缓存前缀」一行）、`scripts/benchmark-system-prompt.ts` 与
+`package.json` 的 `bench:prompt`、五个测试文件/块、README / 官网 / 已知限制。
+
+**为什么**：P12 的系统提示只有十行角色与工具说明 —— 没有安全范围、没有可逆性、没有 Git 红线，
+模型也不知道自己在哪个目录、哪台机器。更麻烦的是它每次请求都是一个整串：提示写得越长，
+每一轮越贵，而环境与日期混在里面，本来可以命中的前缀每轮都变。
+这一阶段照复刻对象把「行为约束」写进静态正文，把「会话事实」挪进动态尾巴，再把边界做成类型。
+
+**出口标准**（设计 §7.1）：换项目 / 日期 / 模型时静态段逐字节相同；`staticText` 是 `text` 的前缀；
+`text = static + '\n\n' + dynamic`；`--amend`、force push、可逆性、授权范围、URL、`ERROR:` 都在静态正文里；
+环境只进动态段；Anthropic 有拆分时发两个 text block（静态块带 `cache_control`），
+没有拆分时仍发字符串；OpenAI 仍是一条 system 消息；`/context` 静态 + 动态分节之和对得上；
+20 轮缓存成本低于无缓存且第 2 轮回本。
+
+**实测**（`pnpm bench:prompt`，2026-10-26）：
+
+| 场景 | 静态 | 动态 | 静态占比 | 20 轮无缓存 | 20 轮有缓存 | 降幅 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| small-service | 310 token | 209 token | 59.7% | 10,380 | 5,157 | −50.3% |
+| monorepo（2,400 字符 AGENTS.md） | 310 token | 712 token | 30.3% | 20,440 | 15,217 | −25.6% |
+| no-git（Windows / cmd） | 310 token | 29 token | 91.4% | 6,780 | 1,557 | −77.0% |
+
+静态正文 7 节 1,237 字符 / 310 token（估）：role 119、security 172、behavior 166、safety 168、
+tools 252、git 215、output 133。口径：`ceil(chars/4)` 估算；缓存写 1.25×、读 0.1×（5 分钟 TTL）；
+只量系统提示，工具清单也在同一条缓存前缀上，只会让收益更大；假设每轮命中 —— 真实命中不可观测，
+这一点写进了偏差清单。
+
+**预登记偏差**（设计 §6，共 11 条）：提示词不是权限边界；只有 Anthropic 显式缓存；
+只打一个断点、消息不缓存；token 是估的；环境只探测一次、跨午夜会老一天；不注入知识截止日期；
+不做跨用户 / 全局缓存；缓存命中不可观测；子代理只继承静态正文；静态分节是手写的，没有按模型做 A/B；
+端点有最小可缓存长度（Anthropic Sonnet / Opus 1,024 token、Haiku 2,048 token），
+所以 benchmark 是「假设每轮命中」的上限模型，不是命中承诺。
+
+**施工期发现的两件事**（写设计时不知道）：
+
+- **不能让十几处 loop 夹具都学会伪造前缀**。`systemParts` 做成可选，REPL 的返回值也只要求
+  `text` —— 只给字符串的旧调用方照旧编译，代价是它们不启用分级缓存。把"启用缓存"变成
+  显式传参，比让每个测试都写一遍 `{ static, dynamic }` 更诚实。
+- **`static + dynamic` 的分开估算不会精确等于合计**。`estimateTokens` 是 `ceil(chars/4)`，
+  两段各取整一次，合起来可能比整段多 1 token。`/context` 那一行因此报的是**拆分**，
+  不是"两段之和 = 系统提示"的第二个等式；测试用的分节长度刻意取 4 的倍数，把这条取整噪声挡在外面。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **82 个文件 / 1328 passed / 1 skipped**。
+新增用例：`environment`（5）、`system-prompt-cache`（6）、`system-prompt-benchmark`（5）、
+provider 缓存形状（4）、`/context` 缓存前缀（2），共 22 条；`system-prompt` 的 5 条改成新的
+`staticSections` 参数，断言不变。

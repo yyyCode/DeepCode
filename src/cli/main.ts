@@ -29,6 +29,8 @@ import { startRepl } from './repl';
 import { createCompactor, type Compactor } from './compact';
 import { createContextWindow } from './context-window';
 import { createPromptBuilder } from './system-prompt';
+import { STATIC_PROMPT_TEXT, type PromptEnvironment } from './prompt-text';
+import { isGitRepo, platformLabel, shellName, todayLabel } from './environment';
 import { contextReport } from './context-view';
 import { resolvePolicy } from './settings';
 import { discoverPlugins, loadPlugins } from './plugin-dir';
@@ -61,17 +63,6 @@ async function describeResumeFailure(home: string, cwd: string, id: string | und
   const ids = all.map((t) => `  ${t.id}  ${new Date(t.header.startedAt).toLocaleString()}`).join('\n');
   return `找不到可以接上的会话${id === undefined ? '' : ` ${id}`}${where}。可以接的有：\n${ids}\n`;
 }
-
-const SYSTEM_PROMPT = `你是 DeepCode，一个在用户终端里工作的编码助手。
-
-工作方式：
-- 需要看代码就用 Read / Glob / Grep，不要凭空猜文件内容。
-- 改文件用 Edit（精确替换）或 Write（整体重写）；Write 覆盖已有文件前必须先 Read 过它。
-- 需要跑测试、构建、git 就在 Bash 里跑。
-- 工具失败会以 ERROR: 开头返回给你，那是信息不是崩溃 —— 读它、改方案、再试。
-- 超大工具结果会被存到磁盘，消息里只留前 2KB 预览；需要后面的内容就用 Read 的 offset / limit 读那个路径。
-
-回答保持简短，说清楚你改了什么、为什么。`;
 
 async function main(): Promise<void> {
   // 开关先处理，而且要在读配置、要 key 之前 —— `deepcode --help` 在没有 key 的机器上
@@ -342,7 +333,7 @@ async function main(): Promise<void> {
     agents,
     skills,
     // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。
-    baseSystemPrompt: SYSTEM_PROMPT,
+    baseSystemPrompt: STATIC_PROMPT_TEXT,
     mods: modPlugins,
     paneLoaded: paneMiss === undefined,
     ...(paneMiss === undefined ? {} : { paneUnavailable: paneMiss }),
@@ -394,7 +385,19 @@ async function main(): Promise<void> {
 
   // 系统提示的**每轮重算**（P7 §3.2）。理由与代价写在 `cli/system-prompt.ts` 顶部；
   // 它要 `dispatch`，所以只能在这儿建 —— 与压缩器同一个道理。
-  const builder = createPromptBuilder({ base: SYSTEM_PROMPT, dispatch });
+  //
+  // 环境只探测一次（P13）：cwd / 模型在会话中不会变；Git 仓库状态一般也不会变。
+  // 日期按启动那天记 —— 跨午夜的会话会老一天，这是刻意的取舍：每轮重算日期会让
+  // 动态尾巴无谓地翻动，而"今天"差一天的代价远小于缓存失效。
+  const environment: PromptEnvironment = {
+    cwd: root,
+    gitRepo: await isGitRepo(root),
+    platform: platformLabel(),
+    shell: shellName(),
+    model,
+    today: todayLabel(),
+  };
+  const builder = createPromptBuilder({ dispatch, environment: () => environment });
 
   // 压缩器：它要 messages / provider / dispatch / persist —— 四样这时候都齐了。
   compactor = createCompactor({
@@ -489,14 +492,16 @@ async function main(): Promise<void> {
     let reason: TurnReason = 'error';
     render.thinking();
     try {
+      // 一次性模式也现算一份：它就是"这一轮"，没有第二轮的余地。
+      const built = await builder.build();
       reason = await runTurn(
-        // 一次性模式也现算一份：它就是"这一轮"，没有第二轮的余地。
         {
           $,
           provider: providerAdapter,
           signal,
           dispatch,
-          systemPrompt: (await builder.build()).text,
+          systemPrompt: built.text,
+          systemParts: { static: built.staticText, dynamic: built.dynamicText },
           turnIndex: 0,
           // 一次性模式同样走五层（P11）：大结果外置与读时投影不依赖 REPL。
           contextWindow,
@@ -532,7 +537,7 @@ async function main(): Promise<void> {
       interactive,
       // 每一轮现算一次（P7 §3.2）：会话中改 `AGENTS.md` 当场生效，压缩之后注入面
       // 也重新求值 —— 后者正是"压缩后重新装载约定"那条能成立的前提。
-      systemPrompt: async () => (await builder.build()).text,
+      systemPrompt: async () => await builder.build(),
       turns,
       messages,
       persist,

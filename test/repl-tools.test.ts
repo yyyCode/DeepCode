@@ -72,7 +72,7 @@ async function run(): Promise<{ messages: Message[]; reported: (readonly ToolSpe
     render: silentRenderer(),
     rl: fake.rl,
     lines,
-    systemPrompt: async () => '系统提示',
+    systemPrompt: async () => ({ text: '系统提示' }),
     turns: createTurnSignals(),
     messages,
     persist: async () => {},
