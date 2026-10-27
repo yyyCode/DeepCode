@@ -45,6 +45,7 @@
 | P13 系统提示与前缀缓存 | 七节静态前缀、动态环境段、Anthropic `cache_control`、`/context` 两段、`pnpm bench:prompt` | `2026-10-26-deepcode-p13-system-prompt-design.md` §7 | 同文件 §6 |
 | P14 执行循环与计划模式 | Tool-Use 循环、`EnterPlanMode` / `ExitPlanMode`、只读计划面、`pnpm bench:loop` | `2026-10-26-deepcode-p14-agent-loop-plan-mode-design.md` §8 | 同文件 §7 |
 | P15 子代理运行时 | 开箱三型、`readOnly` 内核验证、`Explore` 只读并发、`AsyncLocalStorage` 父面、`pnpm bench:subagent` | `2026-10-26-deepcode-p15-subagent-runtime-design.md` §5 | 同文件 §6 |
+| P16 MCP stdio 桥接 | 用户级 `mcpServers`、插件 `.mcp.json`、握手 / 工具面 / 调用、每次询问、失败降级、`/mcp` | `2026-10-27-deepcode-p16-mcp-design.md` §9 | 同文件 §2、§10 |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
@@ -1120,3 +1121,57 @@ README / 官网 / 已知限制。
 新增 `subagent-parallel`（5）与 `subagent-benchmark`（5）两个套件；`agents` / `offer` /
 `plan-mode` / `activity` / `cli` 按新工具面与 `readOnly` 增补断言。反向验证实际做了三条
 （删 `readOnly`、内核跳过验证、不合并内置名册），均按预期变红后恢复。
+
+## P16 MCP stdio 桥接：本地 server 的工具进同一条工具链
+
+**范围**：`src/contract/mcp.ts`（类型与上限常量）、`src/mcp/jsonrpc.ts`（换行分帧、请求表、
+超时与取消）、`src/mcp/config.ts`（形状校验、`${VAR}` 展开、工具名合法化）、
+`src/mcp/stdio-client.ts`（spawn、握手、`tools/list` 分页、`tools/call`、关闭）、
+`src/cli/mcp-runtime.ts`（汇总用户级与插件配置、并行连接、状态快照、`close()`）、
+`src/cli/mcp-plugin.ts`（每工具 describe / check / call 与 `/mcp`）、`src/cli/settings.ts`
+（顶层 `mcpServers`，只收 user 层）、`src/cli/plugins.ts`（排在 `confirm` 之前）、
+`src/cli/main.ts`（建引擎前连接、`session.end` 后关闭）、`src/contract/plugin-manifest.ts`
+（`mcpServers` 不再报「本版本不加载」）、`scripts/check-boundaries.mjs`（`mcp` 只依赖
+`contract`；`cli` 许 import `mcp`）、`test/fixtures/fake-mcp-server.mjs` 与五个新测试套件、
+README / 官网已知限制 / 本文。
+
+**为什么**：MCP 在 P3/P9 里两次被登记为「刻意不做」。工具面既然从来不是内核里的硬编码表，
+桥接就可以是一个普通插件：注册 `tool.describe` / `tool.check` / `tool.call` 的能力已经够了，
+不需要给引擎加任何 MCP 知识。这一阶段补协议实现，并守住两条底线 —— 运行时不加依赖，
+配置只认用户级（克隆下来的仓库不能替你启动进程）。
+
+**出口标准**（设计 §9）：分帧与请求表（UTF-8 跨 chunk、超长行、超时、中断、非法信封、
+server 主动请求回 `-32601`）；配置（形状错误、非 stdio、`enabled:false`、缺变量、`~` /
+相对 `cwd`、名字合法化与重名）；settings 只有 user 层收下、其余四层逐层丢弃并警告；
+真 stdio 下的握手、分页、文本 / `isError` / 资源 / 图片 / `structuredContent` / 空结果、
+坏 JSON、超时取消、崩溃与关闭清理；权限默认 `ask`、`permissions` 的 allow/deny 能盖、
+`confirm` 不误 deny、计划模式下不可见；用户级 `settings.json` 到工具调用再到 `/mcp`
+的整条链。
+
+**与上位文档的偏差**（设计 §2、§10，预登记）：
+
+- **不做 HTTP/SSE**：只交付本地 stdio；其余传输明确报「本版本不支持」。
+- **项目级配置不生效**：主流实现会对仓库里的 `.mcp.json` 弹一次批准；这里直接不认，
+  换来「clone 即安全」。
+- **工具清单不热更新**：`tools/list_changed` 只写一行调试，下个会话生效。
+- **默认每次问**：桥接只答 `ask`，放宽交给 `permissions` 规则；不信任 `readOnlyHint`，
+  同一轮 MCP 调用串行。
+- **权限只支持整工具**：带参规则（`mcp__x__y(...)`）走既有 `isSupported` 警告，不会假装生效。
+
+**施工期发现的三件事**（写设计时不知道）：
+
+- **`notifications/cancelled` 需要请求 id，而 `onCancel` 当时只拿到原因**。本地删表只是不再等，
+  server 那边还在干活；补 id 只能在这一层做 —— `onCancel` 的签名因此加了一个参数
+  （`jsonrpc.ts:20`），调用方仍是兼容的。
+- **一条既没有 `result` 也没有 `error` 的响应会被当成合法响应静默吞掉**。反向验证时
+  `onInvalid` 只收到 2 条而不是 3 条才暴露；现在这种信封直接判非法（`jsonrpc.ts:247`）。
+- **Windows 上 `spawn(..., { shell: true })` 不会替你给参数加引号**。`npx` 这类 `.cmd` 必须
+  经过 shell，于是含空白或元字符的参数得自己包起来（`stdio-client.ts` 的 `windowsQuote`）——
+  测试夹具用带空格的可执行文件路径把这条钉住。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **91 个文件 / 1438 passed / 1 skipped**。
+新增 `mcp-jsonrpc`（12）、`mcp-config`（25）、`mcp-client`（21）、`mcp-plugin`（18）、
+`mcp-e2e`（1）五个套件，共 77 条；`plugin-manifest` 增 1 条（`.mcp.json` 不再是 W8）、
+`plugin-wiring` 增 1 条（MCP 排在 `confirm` 之前）；`settings` / `cli` / 遥测插件测试按
+`ResolvedPolicy.mcpServers` 字段更新桩。反向验证做了三条（删 `result`/`error` 判定、
+把 MCP 插件挪到 `confirm` 之后、去掉 `windowsQuote`），均按预期变红后恢复。

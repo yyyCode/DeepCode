@@ -207,6 +207,17 @@ deepcode plugin remove <名字>
 
 - **子代理与技能**：放在 `.deepcode/` 或 `~/.deepcode/` 下的 `agents/`、`skills/`，也可以随插件提供。`Explore` 并发派只读子代理，`Task` 串行。
 - **插件**：`~/.deepcode/plugins/<名字>/` 自动装载。`plugin add` 装进来的要在**用户级** `settings.json` 里写 `plugins.enable` 才启用，项目级写同一名字不算数。
+- **MCP（stdio）**：在**用户级** `~/.deepcode/settings.json` 里配本地 server，工具以 `mcp__<server>__<tool>` 进清单，每次调用默认问你；`/mcp` 看连接状态。
+
+  ```json
+  {
+    "mcpServers": {
+      "fs": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] }
+    }
+  }
+  ```
+
+  只认用户级：仓库里克隆下来的 `settings.json` 不会替你启动进程。配置改动下个会话生效。
 - **遥测**：默认关。在用户级 `settings.json` 写 `{ "telemetry": { "enabled": true } }` 后，只写本地 `~/.deepcode/telemetry.jsonl`，没有网络上报。
 - **大结果外置**：单个工具结果超过 50 000 字符时原文落盘，消息里只留预览与路径，可用 `Read` 的 `offset` / `limit` 读回。
 
@@ -217,6 +228,7 @@ deepcode plugin remove <名字>
 - **子代理不继承指令文件**：`AGENTS.md` / `CLAUDE.md` 一个字都不进它的系统提示，要它守的规矩得写进 agent 文件或 `prompt`。
 - **中断只杀外壳**：Windows 上 `Bash` 经 `cmd.exe` 起命令，`Ctrl-C` 掐的是这层外壳，孙进程可能残留。
 - **没有整屏 TUI、语法高亮或后台工作**：界面是逐行的纯文本流，子代理同步交回结果。
+- **MCP 只有 stdio**：不做 HTTP/SSE、不热更新工具清单、server 崩了不自动重连；MCP 工具一律按会写处理（同一轮串行），也不信 server 自报的 `readOnlyHint`。
 
 完整清单（每条代价、每个默认值、设计文档指路）：[`site/已知限制.md`](site/已知限制.md)。
 
