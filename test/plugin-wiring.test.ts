@@ -31,6 +31,7 @@ const POLICY: ResolvedPolicy = {
   plugins: { enable: [], enableByUser: [], deny: [] },
   instructions: [],
   gateway: {},
+  mcpServers: [],
 };
 
 const THIRD: Plugin = { name: 'todo', uses: [], register: () => {} };
@@ -76,6 +77,13 @@ describe('转盘：谁在链上、坐在哪', () => {
 
   it('没有发现到插件时 thirdParty 是空的 —— 第一方一个都不在名单里', () => {
     expect(bundle().thirdParty).toEqual([]);
+  });
+
+  it('MCP 桥接排在 confirm 之前 —— 晚一步所有 MCP 工具都是「未知工具」', () => {
+    const mcp: Plugin = { name: 'mcp', uses: [], register: () => {} };
+    const names = bundle({ mcp }).plugins.map((plugin) => plugin.name);
+    expect(names.indexOf('mcp')).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf('mcp')).toBeLessThan(names.indexOf('confirm'));
   });
 
   it('deny 名单交给 guard 拿着，而不是自己判', () => {

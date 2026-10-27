@@ -34,6 +34,8 @@ import { isGitRepo, platformLabel, shellName, todayLabel } from './environment';
 import { contextReport } from './context-view';
 import { resolvePolicy } from './settings';
 import { discoverPlugins, loadPlugins } from './plugin-dir';
+import { startMcp } from './mcp-runtime';
+import { createMcpPlugin } from './mcp-plugin';
 import { discoverAgents } from './agents';
 import { BUILTIN_AGENTS } from './builtin-agents';
 import { discoverSkills } from './skills';
@@ -90,6 +92,9 @@ async function main(): Promise<void> {
       home,
       root,
       managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
+      // mcpServers 里的 `${VAR}` 要用它展开。不给的话，命令行 `/mcp` 报出来的
+      // 与 prompt 里启动的会是两份不同的配置 —— 同一份文件，两个答案。
+      env: process.env,
       warn: (line) => process.stderr.write(`${line}\n`),
     });
     process.exitCode = await runPluginCommand({
@@ -147,6 +152,7 @@ async function main(): Promise<void> {
     root,
     settingsPath: action.settings,
     managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
+    env: process.env,
     warn: (line) => process.stderr.write(`${line}\n`),
   });
 
@@ -305,6 +311,27 @@ async function main(): Promise<void> {
   // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
   const engineEnv = debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env;
 
+  // ── MCP（P16）──
+  // ⚠️ 连接必须在 `createEngine` **之前**完成：`tool.list()` 是注册面的快照，
+  // 工具得在装配期就注册好。一台 server 起不来只影响它自己 —— 警告一条，会话照常。
+  //
+  // 用户级配置已在 `resolvePolicy` 里筛过（只有 user 层能启动进程）；这里只额外读
+  // 已发现插件自己的 `.mcp.json`。`debug` 那条线直写 stderr：MCP 的调试行不进模型上下文。
+  const mcp = await startMcp({
+    home,
+    root,
+    env: engineEnv,
+    userServers: policy.mcpServers,
+    plugins: found.loaded,
+    warn: warnLine,
+    ...(debug ? { debug: (line: string) => process.stderr.write(`${line}\n`) } : {}),
+  });
+  // 兜底关闭：`main()` 正常走到 `session.end` 之后还有一次显式 `close()`；
+  // 这条只在异常退出路径上兜住子进程。`close()` 幂等，且 SIGTERM 是同步发出的。
+  process.once('exit', () => {
+    void mcp.close();
+  });
+
   // 内建 mod：`loadMods` 自己不认识任何一个 mod（清单是参数），于是"缺依赖会怎样"
   // 这条路是**被测试覆盖的**而不是靠人记得。降级必须看得见 —— 下面这几行就是那个出口。
   const { plugins: modPlugins, report } = await loadMods(
@@ -346,6 +373,7 @@ async function main(): Promise<void> {
     paneLoaded: paneMiss === undefined,
     ...(paneMiss === undefined ? {} : { paneUnavailable: paneMiss }),
     discovered: thirdParty,
+    mcp: createMcpPlugin(mcp),
     pluginDeny: policy.plugins.deny,
     compact: async (instructions) => {
       await compactor?.run('manual', instructions);
@@ -583,6 +611,8 @@ async function main(): Promise<void> {
   );
 
   await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);
+  // `session.end` 之后关：插件可能还想在那条事件里说话。幂等，与上面 `exit` 那条兜底共存。
+  await mcp.close();
   prompt.close();
 }
 

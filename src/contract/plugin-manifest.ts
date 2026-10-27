@@ -67,15 +67,19 @@ const NAME_RE = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 const MAX_NAME_LENGTH = 64;
 
-/** `commands`/`agents`/`skills`/`mcpServers`：本版本只校验存在性，不加载（设计 §11 偏差 1）。 */
-const NOT_LOADED_FIELDS = ['commands', 'agents', 'skills', 'mcpServers'] as const;
+/** `commands`/`agents`/`skills`：本版本只校验存在性，不加载（设计 §11 偏差 1）。 */
+const NOT_LOADED_FIELDS = ['commands', 'agents', 'skills'] as const;
 
-/** 目录里的约定部件 → 对应的清单字段。W8 用它点名。 */
+/**
+ * 目录里的约定部件 → 对应的清单字段。W8 用它点名。
+ *
+ * `.mcp.json` 不在这里：P16 起它**真的会被加载**（`cli/mcp-runtime.ts`），
+ * 没声明也照读 —— 「有文件但没声明」不再是偏差，不该再警告。
+ */
 const CONVENTION_DIRS = [
   ['./commands', 'commands'],
   ['./agents', 'agents'],
   ['./skills', 'skills'],
-  ['./.mcp.json', 'mcpServers'],
 ] as const;
 
 export const PATH_FIELDS = ['entry', 'hooks', 'commands', 'agents', 'skills', 'mcpServers'] as const;

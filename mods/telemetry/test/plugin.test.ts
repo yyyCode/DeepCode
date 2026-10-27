@@ -293,6 +293,7 @@ describe('装配级', () => {
     plugins: { enable: [], enableByUser: [], deny: [] },
     instructions: [],
     gateway: {},
+    mcpServers: [],
   };
 
   it('cliPlugins 的清单里有 telemetry，且它是第一方（不在第三方名单里）', async () => {
