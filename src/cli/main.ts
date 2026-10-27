@@ -1,71 +1,21 @@
-import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { LayerStats } from '../contract/context-window';
-import type { Message, ToolSpec } from '../contract/model-provider';
-import type { TurnReason } from '../contract/turn';
-import { CORE_ORIGIN } from '../contract/next';
-import { withContext } from '../contract/prompt-channel';
-import { createEngine } from '../core/create';
-import { runTurn } from '../core/loop';
-import { listTools } from '../core/tool-list';
-import { createProvider } from '../providers';
-import { cliPlugins } from './plugins';
-import { builtinMods, describeMods, loadMods, paneUnavailable } from './mods';
-import { formatPane } from './diff-render';
 import { createPromptSink } from './prompt';
 import { HELP_TEXT, parseArgs, readVersion } from './args';
 import { createPalette } from './ansi';
 import { banner, shouldShowBanner } from './banner';
-import { createSessionChanges } from './changes';
 import { exitLines } from './tally';
 import { createCompleter, createLineQueue } from './input';
 import { HISTORY_LIMIT, loadHistory } from './history';
-// 只是类型：`/help` 那个延迟取的位置要它（见下面 commandDescriber）。
-import type { CommandDescription } from './commands';
-import { applyManagedGateway, loadConfig, resolveSettings } from './config';
 import { createRenderer } from './render';
 import { startRepl } from './repl';
-import { createCompactor, type Compactor } from './compact';
-import { createContextWindow } from './context-window';
-import { createPromptBuilder } from './system-prompt';
-import { STATIC_PROMPT_TEXT, type PromptEnvironment } from './prompt-text';
-import { isGitRepo, platformLabel, shellName, todayLabel } from './environment';
-import { contextReport } from './context-view';
 import { resolvePolicy } from './settings';
-import { discoverPlugins, loadPlugins } from './plugin-dir';
-import { startMcp } from './mcp-runtime';
-import { createMcpPlugin } from './mcp-plugin';
-import { discoverAgents } from './agents';
-import { BUILTIN_AGENTS } from './builtin-agents';
-import { discoverSkills } from './skills';
 import { runPluginCommand } from './plugin-command';
 import { runConfigCommand } from './config-cli';
-import {
-  createPersister,
-  createTranscript,
-  findTranscript,
-  listTranscripts,
-  sessionsDir,
-  type Transcript,
-} from './transcript';
+import { runWebCommand } from './web/command';
 import { createTurnSignals } from './turns';
-
-/**
- * `--resume` 找不到会话时的说明。刻意把"找的是哪个目录"写进去并列出能接的 ——
- * 只说一句"没找到"会让人去猜路径（slug 分桶把会话藏在按 cwd 编的目录里）。
- */
-async function describeResumeFailure(home: string, cwd: string, id: string | undefined): Promise<string> {
-  const all = await listTranscripts(home, cwd);
-  const where = `（找的是 ${sessionsDir(home, cwd)}）`;
-  if (all.length === 0) {
-    return id === undefined
-      ? `这个目录还没有可以接上的会话${where}。\n`
-      : `找不到会话 ${id}。这个目录下没有任何可以接上的会话${where}。\n`;
-  }
-  const ids = all.map((t) => `  ${t.id}  ${new Date(t.header.startedAt).toLocaleString()}`).join('\n');
-  return `找不到可以接上的会话${id === undefined ? '' : ` ${id}`}${where}。可以接的有：\n${ids}\n`;
-}
+// 会话装配整段在 session.ts（P17）。main 只管终端那一层。
+import { createSession, SessionStartError, type Session } from './session';
 
 async function main(): Promise<void> {
   // 开关先处理，而且要在读配置、要 key 之前 —— `deepcode --help` 在没有 key 的机器上
@@ -126,35 +76,26 @@ async function main(): Promise<void> {
     return;
   }
 
-  // 配置来源优先级：环境变量 > 项目级 > 用户级（见 cli/config.ts 的 resolveSettings）。
-  const config = await loadConfig({ home, root });
-  const userConfigPath = join(home, '.deepcode', 'config.json');
-  const projectConfigPath = join(root, '.deepcode', 'config.json');
-
-  const settings = resolveSettings(process.env, config, (line) => process.stderr.write(`${line}\n`));
-  const { apiKey, debug, provider } = settings;
-  if (!apiKey) {
-    process.stderr.write(
-      '缺少 API key。几种给法，优先级从高到低：\n' +
-        '  1. 环境变量 ANTHROPIC_API_KEY=sk-ant-...（兼容端点也可以给 ANTHROPIC_AUTH_TOKEN）\n' +
-        `  2. 项目级配置 ${projectConfigPath}，内容 {"apiKey": "sk-ant-..."}\n` +
-        `  3. 用户级配置 ${userConfigPath}，内容同上\n`,
-    );
-    process.exitCode = 1;
+  // `deepcode web`：本地网页界面。与 config / plugin 一样，在建 readline 之前分流 ——
+  // 那个界面不需要终端的行输入，也不需要把它从管道里抢走。
+  if (action.kind === 'web') {
+    process.exitCode = await runWebCommand({
+      home,
+      root,
+      env: process.env,
+      // 网页暂不认 `--settings=`（参数解析里也没放它进来）。
+      settingsPath: undefined,
+      resume: { kind: 'none' },
+      port: action.port,
+      open: action.open,
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
     return;
   }
 
-  // 权限设置与连接配置是两套：config.json 管连接（环境变量 > 项目级 > 用户级），
-  // settings.json 管权限（user < project < local < flag < policy，**刻意没有环境变量层**）。
-  // 放在"缺 key"之后：没 key 就该报缺 key，轮不到读权限文件。
-  const policy = await resolvePolicy({
-    home,
-    root,
-    settingsPath: action.settings,
-    managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
-    env: process.env,
-    warn: (line) => process.stderr.write(`${line}\n`),
-  });
+  // 配置、key、权限、插件、MCP、引擎、系统提示、压缩、落盘 —— 全部在 `createSession`
+  // 里（P17 起与网页界面共用）。这里只留终端自己那几样：readline、历史、SIGINT、banner。
 
   const turns = createTurnSignals();
   const palette = createPalette();
@@ -166,16 +107,6 @@ async function main(): Promise<void> {
    */
   const warnLine = (line: string): void => render.notice(line);
 
-  // 托管层把出网位置钉死（P5d）。放在 `resolvePolicy` 之后、建引擎之前 ——
-  // 这块内容只有读设置时才存在，而引擎一建就拿着 `baseUrl` 了。
-  // 个人配置能改"发给谁"（apiKey），"发给哪"是组织的事：与 sandbox 白名单、托管指令同一条。
-  const gateway = applyManagedGateway(settings, policy.gateway);
-  const { model, baseUrl } = gateway.config;
-  if (gateway.pinned.length > 0) {
-    // **必须看得见** —— 与托管指令、托管遥测同一条：一条被悄悄改掉的端点，
-    // 会让人对着 401 查半天，而真正发生的事是"你的请求根本没发去你以为的地方"。
-    render.notice(`⚠️ 托管策略钉住了出网位置：${gateway.pinned.join('、')}（个人配置改不动）。`);
-  }
   // ── 输入面（P6d）──
   // 历史先读出来：readline 要它在建实例时就给（`history` / `historySize` 两个选项）。
   // 交出去的是那个数组**本身**，readline 就地往里加，退出时存的与上键翻的是同一份。
@@ -211,274 +142,40 @@ async function main(): Promise<void> {
     beforeAsk: () => render.newline(),
   });
 
-  // messages 只建这一份：同时交给 REPL（经 startRepl）与 /clear（经 cliPlugins）——
-  // 同一个数组引用，/clear 才清得动 REPL 手里的历史。
-  const messages: Message[] = [];
-  const changes = createSessionChanges();
-
-  // ── 会话落盘 / 接上旧会话 ──
-  // 顺序：这段在"缺 key 报错"**之后**（没 key 就该报缺 key，轮不到找会话），
-  // 又在建引擎**之前**（接上历史要先进 messages，引擎装载时就带着它）。
-  // 落盘失败不能拖垮产品：~/.deepcode 只读、磁盘满，都与"能不能干活"无关（设计 §2.5）。
-  let transcript: Transcript | undefined;
-  let alreadySaved = 0;
-  if (action.resume.kind !== 'none') {
-    const wanted = action.resume.kind === 'id' ? action.resume.id : undefined;
-    const found = await findTranscript({ home, cwd: root, id: wanted });
-    if (!found) {
-      process.stderr.write(await describeResumeFailure(home, root, wanted));
-      process.exitCode = 1;
-      // 必须关掉 readline：它是这个进程里唯一把事件循环吊住的东西，
-      // 不关的话 `deepcode --resume`（真终端里也一样）报完错会挂在那儿等输入，
-      // 而不是退出。（计划示意里漏了这一步。）
-      prompt.close();
-      return;
-    }
-    transcript = found.transcript;
-    messages.push(...found.messages);
-    alreadySaved = messages.length; // 这几条已经在盘上了，别再写一遍。
-    render.notice(`已接上会话 ${found.transcript.id}（${found.messages.length} 条消息）。`);
-  } else {
-    try {
-      transcript = await createTranscript({ home, cwd: root, model, provider });
-    } catch (error) {
-      // 降级继续跑：没有转录就是个少了便利的会话，不是开不了工。
-      render.notice(`会话不会落盘（建不了转录文件：${String(error)}），这次 --resume 用不了。`);
-    }
-  }
-  const persist = createPersister(transcript, alreadySaved, (line) => render.notice(line));
-
-  // 会话 id 在这里先算出来：插件钩子的 stdin 里要有它，而 createEngine 里也要有它 ——
-  // 两处各写一遍 `?? String(Date.now())` 的话，那两次 Date.now() 可以差一毫秒，
-  // 于是一个会话会有两个 id。
-  const sessionId = transcript?.id ?? String(Date.now());
-
-  // ── 插件目录 ──
-  // 发现（只读清单）与装载（import 入口）分两步：`plugin list` / `validate` 只做前者。
-  // 这一条线是"看一眼"与"让它跑"的分界。
-  const found = await discoverPlugins({
-    home,
-    root,
-    enabled: policy.plugins.enable.map((rule) => rule.name),
-    // 落点只认用户层的名单 —— 与上面那行**不是同一个东西**，别合并（设计 §0 决策 3）。
-    enabledInstalled: policy.plugins.enableByUser,
-    warn: warnLine,
-  });
-  const thirdParty = await loadPlugins(found.loaded, {
-    projectDir: root,
-    session: { id: sessionId, transcriptPath: transcript?.path },
-    env: process.env,
-    warn: warnLine,
-  });
-
-  // ── 名册 ──
-  // 发现是异步的、装配是同步的（`cliPlugins` 是同步函数），所以发现放在这儿：
-  // 结果是两张**已经解析好**的名册，以参数进 `cliPlugins`（设计 §4.1）。
-  // 只有判为 `loaded` 的插件贡献名册 —— 被 deny 的、项目级没 enable 的、清单坏掉的，
-  // 它们的 agent 也不该出现。
-  const pluginDirs = found.loaded.map((plugin) => ({ name: plugin.name, dir: plugin.dir }));
-  const agents = await discoverAgents({
-    root,
-    home,
-    plugins: pluginDirs,
-    // 开箱类型优先级最低：同名文件赢，内置静默让位（见 discoverAgents 的注释）。
-    builtins: BUILTIN_AGENTS,
-    warn: warnLine,
-  });
-  const skills = await discoverSkills({ root, home, plugins: pluginDirs, warn: warnLine });
-
-  // 压缩器要到 `createEngine` **之后**才建得出来（它需要 `dispatch`），而 `/compact`
-  // 这条命令在 `cliPlugins` 里注册 —— 所以这里先留一个延迟取的位置，
-  // 与 core/nouns 里那两个 `refs` 同一种写法。
-  let compactor: Compactor | undefined;
-
-  // 同一个道理：`/help` 要派发 `command.describe` 才打得出每条命令的一句话，
-  // 而插件拿不到 dispatch（`contract/engine.ts:59-64`）。CLI 有 `dispatch`，
-  // 但那是 `createEngine` 的返回值 —— 所以又是一个延迟取的位置。
-  let commandDescriber: ((name: string) => Promise<CommandDescription>) | undefined;
-
-  // ⚠️ 模型这一轮**真的带出去**的那份工具清单（P9 §3.2）。由 `runTurn` 的 `onTools` 报回来，
-  // 不是 `/context` 现算的 —— 账本报的必须与真正的请求可比，否则它那条"账要对得上"
-  // 还是做不到（实测：漏掉工具那一份时，账本报 11 token，真实请求约 448）。
-  // 与 `compactor` 同一种写法：`cliPlugins` 的闭包先占位，`createEngine` 之后才填得上。
-  let lastTools: readonly ToolSpec[] | undefined;
-  // 五层压缩的最近一次投影统计（P11）。与 `lastTools` 同一种写法：闭包先占位，
-  // 第一次真正发请求之后才填得上。
-  let lastProjection: LayerStats | undefined;
-
-  const providerAdapter = createProvider({ provider, apiKey, model, baseUrl });
-  // 引擎与插件看到的是**同一份** env —— 分开算两次，`config.describe` 报出来的来源
-  // 就可能与 `resolveSettings` 实际用的不是一回事（`DEEPCODE_DEBUG` 那条尤其）。
-  const engineEnv = debug ? { ...process.env, DEEPCODE_DEBUG: '1' } : process.env;
-
-  // ── MCP（P16）──
-  // ⚠️ 连接必须在 `createEngine` **之前**完成：`tool.list()` 是注册面的快照，
-  // 工具得在装配期就注册好。一台 server 起不来只影响它自己 —— 警告一条，会话照常。
-  //
-  // 用户级配置已在 `resolvePolicy` 里筛过（只有 user 层能启动进程）；这里只额外读
-  // 已发现插件自己的 `.mcp.json`。`debug` 那条线直写 stderr：MCP 的调试行不进模型上下文。
-  const mcp = await startMcp({
-    home,
-    root,
-    env: engineEnv,
-    userServers: policy.mcpServers,
-    plugins: found.loaded,
-    warn: warnLine,
-    ...(debug ? { debug: (line: string) => process.stderr.write(`${line}\n`) } : {}),
-  });
-  // 兜底关闭：`main()` 正常走到 `session.end` 之后还有一次显式 `close()`；
-  // 这条只在异常退出路径上兜住子进程。`close()` 幂等，且 SIGTERM 是同步发出的。
-  process.once('exit', () => {
-    void mcp.close();
-  });
-
-  // 内建 mod：`loadMods` 自己不认识任何一个 mod（清单是参数），于是"缺依赖会怎样"
-  // 这条路是**被测试覆盖的**而不是靠人记得。降级必须看得见 —— 下面这几行就是那个出口。
-  const { plugins: modPlugins, report } = await loadMods(
-    {
-      root,
+  // 会话那一整段装配（配置、key、权限、插件、MCP、引擎、系统提示、压缩、落盘）在
+  // `cli/session.ts` 里 —— P17 起与网页界面共用。这里只接终端自己的东西。
+  let session: Session;
+  try {
+    session = await createSession({
       home,
-      sessionId,
-      warn: warnLine,
-      telemetry: policy.telemetry,
-      policyRules: policy.policyRules,
-      managedInstructions: policy.instructions,
-    },
-    // 渲染器从这儿注入：`Palette` 与 `changes` 都住在这边，而 mod 不许认识它们
-    // （`mods/diff/index.ts` 顶部那段）。`changes.list()` 每次现取，快照会过期。
-    builtinMods((model) => formatPane(model, palette, changes.list(), root)),
-  );
-  for (const line of describeMods(report)) warnLine(line);
-  // ⚠️ `/diff` 的应答者由内建 mod `diff` 与 CLI **二选一**。这一行就是那个开关：
-  // 装了 mod 就 CLI 不注册，没装（这台机器没有 git）就 CLI 接管并说出原因。
-  const paneMiss = paneUnavailable(report);
+      root,
+      env: process.env,
+      settingsPath: action.settings,
+      resume: action.resume,
+      ui: prompt,
+      render,
+      palette,
+      turns,
+      // 会话建起来之前的警告（读连接配置、权限设置）：终端里就是 stderr，
+      // 与抽出去之前逐字节相同 —— 网页传它自己的那一面。
+      warnEarly: (line) => process.stderr.write(`${line}\n`),
+    });
+  } catch (error) {
+    if (!(error instanceof SessionStartError)) throw error;
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = error.exitCode;
+    // 必须关掉 readline：它是这个进程里唯一把事件循环吊住的东西，
+    // 不关的话 `deepcode --resume`（真终端里也一样）报完错会挂在那儿等输入，
+    // 而不是退出。
+    prompt.close();
+    return;
+  }
+  const { $, dispatch, messages, bundle } = session;
+  const { model, provider, baseUrl, transcriptPath } = session.info;
 
-  const bundle = cliPlugins({
-    render,
-    changes,
-    messages,
-    root,
-    palette,
-    env: engineEnv,
-    policy,
-    home,
-    // 与 `session.start` 派发出去的那个是同一个（上面 `transcript?.id ?? Date.now()`）。
-    sessionId,
-    warn: warnLine,
-    agents,
-    skills,
-    // 基础那份，不是拼完那份 —— 拼完那份里含着下面这节清单（见 offer.ts 的注释）。
-    baseSystemPrompt: STATIC_PROMPT_TEXT,
-    mods: modPlugins,
-    paneLoaded: paneMiss === undefined,
-    ...(paneMiss === undefined ? {} : { paneUnavailable: paneMiss }),
-    discovered: thirdParty,
-    mcp: createMcpPlugin(mcp),
-    pluginDeny: policy.plugins.deny,
-    compact: async (instructions) => {
-      await compactor?.run('manual', instructions);
-    },
-    // 账本现算：系统提示那一节要**最近一次建出来的**那份（下面 `builder`），
-    // 压缩阈值与"上次实测"分别来自 `policy` 与压缩器 —— 四样都在 CLI 手里。
-    // ⚠️ `builder` 在**下面**建（它要 `dispatch`），而这个闭包只在有人敲 `/context`
-    // 时才跑，那时它早就有了（与 `compactor` 同一个生命周期）。
-    context: () =>
-      contextReport({
-        pieces: builder.last()?.pieces,
-        // 三样都是"最近一次真的发生的事"：系统提示取最近一次建出来的分节，
-        // 工具清单取最近一次发出去的那一份，消息就是手里这个数组。
-        tools: lastTools,
-        messages,
-        compact: policy.compact,
-        lastUsage: compactor?.usage(),
-        layers: lastProjection,
-        // 记忆的账由它自己记（扫描发生在 `prompt.section` 里），这里只取最近一次。
-        memory: bundle.memory.stats(),
-      }),
-    // `/tools` 与 `/help` 的工具那一行共用它 —— 与 `describeCommand` 同一个延迟取的位置，
-    // 同一条理由（要 `dispatch`，而插件拿不到）。
-    toolListing: async () => await listTools({ $, dispatch }),
-    reseed: (length) => persist.reseed(length),
-    describeCommand: async (name) => await commandDescriber?.(name) ?? { kind: 'missing' },
-  });
-  const { $, dispatch } = await createEngine({
-    // 清单见 cli/plugins.ts —— 其中 streamPlugin 是模型文本的出口。
-    plugins: bundle.plugins,
-    // 座位由 CLI 钉，引擎不认插件自述的权威。
-    seating: bundle.seating,
-    // 第三方插件的名字：引擎据此把它们的座位**强制**成 append，并给它们一块包装过的 `on`。
-    thirdParty: bundle.thirdParty,
-    provider: providerAdapter,
-    ui: { print: render.print, notice: render.notice, ask: prompt.ask },
-    sessionInfo: { id: sessionId, cwd: root, root },
-    env: engineEnv,
-    // 沙箱：五层设置里读出来的规则 + `~` 展开用的 home。省略 = 没有闸。
-    sandbox: { config: policy.sandbox, home },
-    signal: () => turns.current(),
-  });
-
-  await dispatch('session.start', { sessionId: $.session.id(), cwd: root, root }, CORE_ORIGIN);
-
-  // 系统提示的**每轮重算**（P7 §3.2）。理由与代价写在 `cli/system-prompt.ts` 顶部；
-  // 它要 `dispatch`，所以只能在这儿建 —— 与压缩器同一个道理。
-  //
-  // 环境只探测一次（P13）：cwd / 模型在会话中不会变；Git 仓库状态一般也不会变。
-  // 日期按启动那天记 —— 跨午夜的会话会老一天，这是刻意的取舍：每轮重算日期会让
-  // 动态尾巴无谓地翻动，而"今天"差一天的代价远小于缓存失效。
-  const environment: PromptEnvironment = {
-    cwd: root,
-    gitRepo: await isGitRepo(root),
-    platform: platformLabel(),
-    shell: shellName(),
-    model,
-    today: todayLabel(),
-  };
-  const builder = createPromptBuilder({ dispatch, environment: () => environment });
-
-  // 压缩器：它要 messages / provider / dispatch / persist —— 四样这时候都齐了。
-  compactor = createCompactor({
-    messages,
-    provider: providerAdapter,
-    dispatch,
-    persist,
-    config: policy.compact,
-    warn: (line) => render.notice(line),
-    signal: () => turns.current(),
-  });
-
-  // 五层压缩（P11）：第 1 层的落盘要 `$.fs` 与会话 id，第 2–4 层的投影要 provider。
-  // 第 5 层仍然是上面那个 compactor —— 两个对象的分工写在 `cli/context-window.ts` 顶部。
-  const contextWindow = createContextWindow({
-    home,
-    cwd: root,
-    sessionId: $.session.id(),
-    fs: $.fs,
-    provider: providerAdapter,
-    config: policy.compact,
-    warn: (line) => render.notice(line),
-  });
-
-  // 有了 `dispatch`，`$` 就是真的了 —— 补全那个延迟取的位置也填得上。
+  // 有了 `dispatch`，补全那个延迟取的位置就填得上了。
   // 名单**现取**（`$.command.list()`），不另抄一份：抄的那份迟早落后。
   lookupCommands = () => $.command.list();
-
-  // 有了 `dispatch`，`/help` 那个延迟取的位置也就填得上了。
-  commandDescriber = async (name) => {
-    try {
-      const described = await dispatch('command.describe', { name }, CORE_ORIGIN);
-      return 'hidden' in described
-        ? { kind: 'hidden' }
-        : {
-            kind: 'described',
-            description: described.description,
-            ...(described.usage === undefined ? {} : { usage: described.usage }),
-          };
-    } catch {
-      // core 那条 impl **抛** —— "没注册描述"是故障不是"没描述"（与 tool.describe 同形）。
-      // 在这里译成一个正常返回值，好让 `/help` 能一边列名字一边提醒一声。
-      return { kind: 'missing' };
-    }
-  };
 
   // 系统提示不在这里拼了（P7 §3.2）：`builder` 每轮重算一次，理由与那两个使用点
   // 见下面。这一段原来是三行拼接（base + `prompt.section` + 清单），搬进了
@@ -504,7 +201,8 @@ async function main(): Promise<void> {
         provider,
         ...(baseUrl === undefined ? {} : { baseUrl }),
         root,
-        ...(transcript === undefined ? {} : { sessionId: transcript.id }),
+        // 只有真的落上盘才报 id —— 与抽出去之前一致（建不了转录时那串是时间戳）。
+        ...(transcriptPath === undefined ? {} : { sessionId: session.info.sessionId }),
       },
       palette,
     )) {
@@ -518,40 +216,9 @@ async function main(): Promise<void> {
     // 一次性模式：`deepcode "改一下 X"`
     // 只采纳 `context`，**忽略 `handled`**：那个字段的语义是"这一行输入被吃掉了，
     // 别送给模型"，而一次性模式没有可以"继续"的交互循环 —— 把它当真会得到一个
-    // 静默什么都没做、退出码 0 的调用（设计 §8 偏差 9）。
-    const submitted = await dispatch('prompt.submit', { text: oneShot }, CORE_ORIGIN);
-    messages.push({ role: 'user', content: withContext(oneShot, submitted.context) });
-    const signal = turns.begin();
-    // 初值取不到（`runTurn` 一抛错就整个抛出去，下面那两行根本轮不上），写它是为了让
-    // 这个变量一开始就站在**轮级**那一层 —— 它下面只有白名单一种判据，初值不该是个
-    // 端点串（P8 之前这里写的是 `'end_turn'`）。
-    let reason: TurnReason = 'error';
-    render.thinking();
-    try {
-      // 一次性模式也现算一份：它就是"这一轮"，没有第二轮的余地。
-      const built = await builder.build();
-      reason = await runTurn(
-        {
-          $,
-          provider: providerAdapter,
-          signal,
-          dispatch,
-          systemPrompt: built.text,
-          systemParts: { static: built.staticText, dynamic: built.dynamicText },
-          turnIndex: 0,
-          // 一次性模式同样走五层（P11）：大结果外置与读时投影不依赖 REPL。
-          contextWindow,
-          onProjection: (stats) => {
-            lastProjection = stats;
-          },
-        },
-        messages,
-      );
-    } finally {
-      turns.end();
-      render.newline();
-    }
-    await persist(messages);
+    // 静默什么都没做、退出码 0 的调用（设计 §8 偏差 9）。压缩的自动那一路同理：
+    // 只跑这一轮，没有"之后"。
+    const reason = await session.submit(oneShot, { honorHandled: false, afterTurn: false });
     // 一次性模式要能进脚本：这一趟失败或被中断就是非零退出码，
     // 否则 `deepcode "..." && 下一步` 会带着错误悄悄往下走。
     //
@@ -573,22 +240,12 @@ async function main(): Promise<void> {
       interactive,
       // 每一轮现算一次（P7 §3.2）：会话中改 `AGENTS.md` 当场生效，压缩之后注入面
       // 也重新求值 —— 后者正是"压缩后重新装载约定"那条能成立的前提。
-      systemPrompt: async () => await builder.build(),
+      systemPrompt: async () => await session.builder.build(),
       turns,
       messages,
-      persist,
-      onUsage: (usage) => compactor?.note(usage),
-      // 账本吃的那一份（见上面 `lastTools` 那段）。
-      onTools: (specs) => {
-        lastTools = specs;
-      },
-      contextWindow,
-      onProjection: (stats) => {
-        lastProjection = stats;
-      },
-      afterTurn: async () => {
-        await compactor?.afterTurn();
-      },
+      persist: session.persist,
+      // turn 的开始/结束、落盘与压缩交给会话（与网页同一条路）。
+      submit: (text) => session.submit(text),
     });
   }
 
@@ -604,15 +261,15 @@ async function main(): Promise<void> {
   // `settle` 而不是 `print`：它要先抹掉活动区再落这几行。非 TTY 下 settle 是 no-op ——
   // 于是管道里这一屏**一个字节都不产出**，与 P6a 之前逐字节相同（render.ts 顶部那条纪律）。
   render.settle(
-    exitLines(bundle.tally, changes.list(), palette, {
+    exitLines(bundle.tally, session.changes.list(), palette, {
       root,
-      ...(transcript === undefined ? {} : { transcriptPath: transcript.path }),
+      ...(transcriptPath === undefined ? {} : { transcriptPath }),
     }),
   );
 
-  await dispatch('session.end', { reason: 'exit' }, CORE_ORIGIN);
-  // `session.end` 之后关：插件可能还想在那条事件里说话。幂等，与上面 `exit` 那条兜底共存。
-  await mcp.close();
+  // `session.end` + MCP 关闭。`session.end` 之后关：插件可能还想在那条事件里说话。
+  // 幂等，与 `session.ts` 里那条 `exit` 兜底共存。
+  await session.close();
   prompt.close();
 }
 

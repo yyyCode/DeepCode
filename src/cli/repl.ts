@@ -73,6 +73,12 @@ export type ReplDeps = {
   onProjection?: (stats: LayerStats) => void;
   /** 每个 turn 收尾时调一次（落盘之后）。跨过压缩阈值时的提醒与自动压缩都在这儿。 */
   afterTurn?: () => Promise<void>;
+  /**
+   * 外部的一轮执行（P17）。给 `createSession` 的 `submit` 之后，turn 的
+   * begin/end、系统提示与落盘都由它负责；上面那几个可选回调在这一支下不再使用。
+   * 省略 = 沿用本文件里那一份 —— 既有测试一个字不改。
+   */
+  submit?: (text: string) => Promise<unknown>;
 };
 
 /** 交互式 REPL。退出方式：/exit、Ctrl-D、Ctrl-C。 */
@@ -94,7 +100,7 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
   };
 
   /** 跑一个 turn。`text` 已是多行正文（续行拼好的）。 */
-  const submit = async (text: string): Promise<void> => {
+  const localSubmit = async (text: string): Promise<void> => {
     // prompt.submit 是留给 P1 的钩子点（斜杠展开、prompt.fill、附件）。
     // core 返回 { handled: false }，所以 MVP 里它什么都不做 —— 但它真的被抛出来了，
     // 而不是躺在 contract 里没人碰。
@@ -144,6 +150,19 @@ export async function startRepl(deps: ReplDeps): Promise<void> {
       // 落盘之后再判压缩：压完要 `reseed` 游标，而游标是落盘器自己的状态。
       await deps.afterTurn?.();
     }
+  };
+
+  /**
+   * 跑一个 turn 的入口（P17）：调用方给了 `deps.submit` 就用它 ——
+   * 网页与终端共用一个会话，turn 的开始/结束与落盘由 `createSession` 负责。
+   * 不给的旧调用方照旧走上面那一份，行为逐字节不变。
+   */
+  const submit = async (text: string): Promise<void> => {
+    if (deps.submit !== undefined) {
+      await deps.submit(text);
+      return;
+    }
+    await localSubmit(text);
   };
 
   /** 跑一条 `/命令`。返回值 = 该不该退出 REPL。 */

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DeepCode</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">DeepCode</div>
+      <div class="where" id="cwd" title="工作目录"></div>
+      <div class="model" id="model"></div>
+      <div class="state" id="state">
+        <span class="dot" id="dot" aria-hidden="true"></span>
+        <span id="state-text">连接中</span>
+      </div>
+    </header>
+
+    <main id="timeline" role="log" aria-live="polite" aria-label="会话"></main>
+
+    <form id="composer" autocomplete="off">
+      <textarea
+        id="input"
+        rows="1"
+        placeholder="问点什么，或者敲 /help"
+        aria-label="输入"
+      ></textarea>
+      <button id="send" type="submit">发送</button>
+    </form>
+    <div class="hint">Enter 发送，Shift+Enter 换行</div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

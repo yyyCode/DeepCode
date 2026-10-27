@@ -80,11 +80,17 @@ export function createPermissionsPlugin(deps: PermissionsDeps): Plugin {
        * （同一句提示，`Edit` 记的是整个工具、`Bash` 记的是那一条命令）——
        * 不出声就是让人拿着一个自己不知道内容的授权往下走。
        */
-      on('tool.consent', ($, e) => {
-        if (e.granted !== 'always') return;
-        const rule = rememberRule(e.tool, e.input);
-        deps.grants.add(rule);
-        $.ui.log(`已记住：本次会话不再询问 ${rule.raw}`);
+      on('tool.consent', async ($, e, next) => {
+        if (e.granted === 'always') {
+          const rule = rememberRule(e.tool, e.input);
+          deps.grants.add(rule);
+          $.ui.log(`已记住：本次会话不再询问 ${rule.raw}`);
+        }
+        // `next` 不是客套：这是用户层，外面没有更外的一层了，里面还挂着观察者
+        // （`web-events` 靠这一跳把"人允许了"画到卡片上）。既不返回 `undefined`
+        // （调度器会当成 hook 失败、打一条假警告），也不自己收口 —— 那会让内层
+        // 永远收不到这个事件。
+        return await next(e);
       });
 
       // 只有整工具 deny（不带括号）才隐藏工具。
