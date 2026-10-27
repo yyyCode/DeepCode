@@ -198,6 +198,9 @@ describe('permissions：按了 a 之后记住了什么', () => {
 
     expect(grants.list()).toEqual([]);
     expect(logs).toEqual([]);
+    // 不记东西不等于失败：早期这里 `return` 了 undefined，调度器把它当成
+    // hook 出错，每按一次 `y` 就在 stderr 上多一条假警告。
+    expect(h.warnings).toEqual([]);
     expect(await check(h, 'Bash', { command: 'ls' })).toEqual({
       decision: 'ask',
       rule: '最小确认：Bash',
