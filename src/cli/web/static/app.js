@@ -4,6 +4,7 @@
 const token = new URLSearchParams(location.search).get('t');
 
 const timeline = document.getElementById('timeline');
+const hero = document.getElementById('hero');
 const composer = document.getElementById('composer');
 const input = document.getElementById('input');
 const sendButton = document.getElementById('send');
@@ -15,8 +16,13 @@ const modelEl = document.getElementById('model');
 let busy = false;
 let waiting = 0;
 let connection = 'connecting';
+/** 时间线里有几样东西（不含空状态）。只有它决定空状态显不显示。 */
+let itemCount = 0;
+/** 正在跑的工具数。它和 `busy` 一起决定要不要画"思考中"。 */
+let runningTools = 0;
 /** 当前正在流式追加的助手气泡。`turn.start` 或下一条提问到来时清空。 */
 let activeAssistant = null;
+let thinkingEl = null;
 const toolCards = new Map();
 const askCards = new Map();
 
@@ -40,9 +46,17 @@ function formatMs(ms) {
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
 }
 
+function updateHero() {
+  if (hero !== null) hero.hidden = itemCount > 0;
+}
+
 function addItem(element) {
   const wasNear = nearBottom();
   timeline.append(element);
+  itemCount += 1;
+  // "思考中"永远贴在最后一行：日志、工具、助手文字都该出现在它上面。
+  if (thinkingEl !== null && thinkingEl !== element) timeline.append(thinkingEl);
+  updateHero();
   scrollIfNear(wasNear);
   return element;
 }
@@ -160,8 +174,39 @@ function delta(text) {
   activeAssistant.text += text;
   const wasNear = nearBottom();
   activeAssistant.body.innerHTML = renderMarkdown(activeAssistant.text);
+  updateThinking();
   scrollIfNear(wasNear);
 }
+
+// ── 思考中 ────────────────────────────────────────────────────────────
+
+function updateThinking() {
+  const want =
+    busy && waiting === 0 && runningTools === 0 && activeAssistant === null && connection !== 'down';
+  if (!want) {
+    if (thinkingEl !== null) {
+      thinkingEl.remove();
+      thinkingEl = null;
+      itemCount = Math.max(0, itemCount - 1);
+      updateHero();
+    }
+    return;
+  }
+  if (thinkingEl !== null) return;
+  const item = document.createElement('div');
+  item.className = 'item thinking';
+  const dots = document.createElement('span');
+  dots.className = 'dots';
+  dots.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i += 1) dots.append(document.createElement('i'));
+  const label = document.createElement('span');
+  label.textContent = '思考中';
+  item.append(dots, label);
+  thinkingEl = item;
+  addItem(item);
+}
+
+// ── 工具行 ────────────────────────────────────────────────────────────
 
 function summarizeInput(tool, input) {
   if (input === null || typeof input !== 'object') return '';
@@ -186,6 +231,20 @@ function inputText(input) {
   }
 }
 
+function block(caption) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tool-block';
+  if (caption !== undefined) {
+    const label = document.createElement('div');
+    label.className = 'tool-caption';
+    label.textContent = caption;
+    wrap.append(label);
+  }
+  const pre = document.createElement('pre');
+  wrap.append(pre);
+  return { wrap, pre };
+}
+
 function toolCard(id, tool, input) {
   const existing = toolCards.get(id);
   if (existing !== undefined) return existing;
@@ -194,36 +253,57 @@ function toolCard(id, tool, input) {
   item.className = 'item tool';
   item.dataset.status = 'running';
 
-  const head = document.createElement('div');
-  head.className = 'tool-head';
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+
+  const status = document.createElement('span');
+  status.className = 'tool-status';
+  status.setAttribute('aria-hidden', 'true');
 
   const name = document.createElement('span');
   name.className = 'tool-name';
   name.textContent = tool;
 
+  const sep = document.createElement('span');
+  sep.className = 'tool-sep';
+  sep.setAttribute('aria-hidden', 'true');
+
   const target = document.createElement('span');
   target.className = 'tool-target';
   target.textContent = summarizeInput(tool, input);
+  const hasTarget = target.textContent !== '';
+  sep.hidden = !hasTarget;
+  target.hidden = !hasTarget;
 
   const meta = document.createElement('span');
   meta.className = 'tool-meta';
-  meta.textContent = '运行中';
 
-  head.append(name, target, meta);
+  const chevron = document.createElement('span');
+  chevron.className = 'tool-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
 
-  const details = document.createElement('details');
-  const summary = document.createElement('summary');
-  summary.textContent = '输入与输出';
-  const inputPre = document.createElement('pre');
-  inputPre.textContent = inputText(input);
-  const outputPre = document.createElement('pre');
-  outputPre.hidden = true;
-  details.append(summary, inputPre, outputPre);
+  summary.title = hasTarget ? `${tool} · ${target.textContent}` : tool;
+  summary.append(status, name, sep, target, meta, chevron);
 
-  item.append(head, details);
+  const body = document.createElement('div');
+  body.className = 'tool-body';
+  const inputBlock = block('输入');
+  inputBlock.pre.textContent = inputText(input);
+  const outputBlock = block('输出');
+  outputBlock.wrap.hidden = true;
+  body.append(inputBlock.wrap, outputBlock.wrap);
+
+  const truncated = document.createElement('div');
+  truncated.className = 'truncated';
+  truncated.textContent = '界面里只显示前 20 000 个字符。模型拿到的是完整的。';
+  truncated.hidden = true;
+  body.append(truncated);
+
+  details.append(summary, body);
+  item.append(details);
   addItem(item);
 
-  const card = { item, meta, outputPre, details };
+  const card = { item, details, meta, outputBlock, truncated };
   toolCards.set(id, card);
   return card;
 }
@@ -232,35 +312,45 @@ function finishTool(event) {
   const card = toolCard(event.toolUseId, event.tool ?? '工具', undefined);
   const status = event.status ?? 'ok';
   card.item.dataset.status = status;
-  const labels = { ok: '完成', error: '出错', denied: '拒绝' };
-  const duration = formatMs(event.durationMs);
-  card.meta.textContent = `${labels[status] ?? status}${duration === '' ? '' : `  ${duration}`}`;
+  card.meta.textContent = formatMs(event.durationMs);
   if (typeof event.output === 'string') {
-    card.outputPre.textContent = event.output;
-    card.outputPre.hidden = false;
+    card.outputBlock.pre.textContent = event.output;
+    card.outputBlock.wrap.hidden = false;
   }
-  if (event.truncated === true) {
-    const note = document.createElement('div');
-    note.className = 'truncated';
-    note.textContent = '界面里只显示前 20 000 个字符。模型拿到的是完整的。';
-    card.item.append(note);
-  }
+  if (event.truncated === true) card.truncated.hidden = false;
+  // 出错的时候人最想知道发生了什么：直接展开，省一次点击。
+  if (status === 'error' || status === 'denied') card.details.open = true;
 }
+
+// ── 权限卡 ────────────────────────────────────────────────────────────
 
 function askCard(event) {
   const item = document.createElement('div');
   item.className = 'item ask';
 
+  const strip = document.createElement('div');
+  strip.className = 'ask-strip';
+  const icon = document.createElement('span');
+  icon.className = 'ask-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = '!';
+  const stripText = document.createElement('span');
+  stripText.textContent = '需要你确认';
+  strip.append(icon, stripText);
+
+  const body = document.createElement('div');
+  body.className = 'ask-body';
+
   const title = document.createElement('div');
   title.className = 'ask-title';
   title.textContent = event.question;
-
-  item.append(title);
+  body.append(title);
 
   if (typeof event.tool === 'string') {
     const pre = document.createElement('pre');
+    pre.className = 'ask-command';
     pre.textContent = `${event.tool}\n${inputText(event.input)}`;
-    item.append(pre);
+    body.append(pre);
   }
 
   const actions = document.createElement('div');
@@ -277,16 +367,25 @@ function askCard(event) {
     });
     actions.append(button);
   }
-  item.append(actions);
+  body.append(actions);
 
   const note = document.createElement('div');
   note.className = 'ask-note';
   note.textContent = '5 分钟不答按拒绝处理。';
-  item.append(note);
+  body.append(note);
 
-  const card = { item, actions, note };
-  askCards.set(event.id, card);
+  item.append(strip, body);
   addItem(item);
+
+  const card = {
+    item,
+    actions,
+    note,
+    stripText,
+    icon,
+    labels: new Map(choices.map((choice) => [String(choice.value), String(choice.label ?? choice.value)])),
+  };
+  askCards.set(event.id, card);
   return card;
 }
 
@@ -301,12 +400,14 @@ function resolveAsk(event) {
       button.classList.toggle('chosen', button.dataset.value === String(event.value));
     }
     const reasons = {
-      answer: `已选择：${event.value}`,
+      answer: `已选择：${card.labels.get(String(event.value)) ?? event.value}`,
       timeout: '超时没人回答，按拒绝处理。',
       closed: '服务停止，按拒绝处理。',
       abort: '已中断，按拒绝处理。',
     };
     card.note.textContent = reasons[event.reason] ?? `已收场：${event.value}`;
+    card.stripText.textContent = event.reason === 'answer' ? '已确认' : '没有确认';
+    card.icon.textContent = event.reason === 'answer' ? '✓' : '!';
   }
   updateState();
 }
@@ -332,6 +433,7 @@ function updateState() {
   stateText.textContent = text;
   sendButton.textContent = busy ? '停止' : '发送';
   sendButton.classList.toggle('stop', busy);
+  updateThinking();
 }
 
 async function post(path, body) {
@@ -389,14 +491,33 @@ input.addEventListener('keydown', (event) => {
 
 input.addEventListener('input', autosize);
 
+// 空状态上的三个入口：直接发出去。忙的时候只填进输入框，别把正在跑的 turn 打断。
+for (const button of document.querySelectorAll('.suggest')) {
+  button.addEventListener('click', () => {
+    const prompt = button.dataset.prompt ?? '';
+    if (prompt === '') return;
+    input.value = prompt;
+    autosize();
+    if (busy || connection !== 'open') {
+      input.focus();
+      return;
+    }
+    composer.requestSubmit();
+  });
+}
+
 // ── SSE ──────────────────────────────────────────────────────────────
 
 function resetTimeline() {
-  timeline.replaceChildren();
+  timeline.replaceChildren(...(hero === null ? [] : [hero]));
+  itemCount = 0;
+  runningTools = 0;
+  thinkingEl = null;
   toolCards.clear();
   askCards.clear();
   activeAssistant = null;
   waiting = 0;
+  updateHero();
 }
 
 function onEvent(event) {
@@ -404,6 +525,7 @@ function onEvent(event) {
     case 'user':
       activeAssistant = null;
       userBubble(String(event.text ?? ''));
+      updateThinking();
       break;
     case 'delta':
       delta(String(event.text ?? ''));
@@ -412,10 +534,17 @@ function onEvent(event) {
       systemLine(String(event.text ?? ''), event.level === 'warn' ? 'warn' : undefined);
       break;
     case 'tool.start':
+      // 工具之后的文字属于下一段回答。不收口的话，它会继续往上面那条气泡里
+      // 追加 —— 时间线上就成了"工具结果出现在它前面的话之后"。
+      activeAssistant = null;
+      runningTools += 1;
       toolCard(String(event.toolUseId), String(event.tool ?? '工具'), event.input);
+      updateThinking();
       break;
     case 'tool.end':
+      runningTools = Math.max(0, runningTools - 1);
       finishTool(event);
+      updateThinking();
       break;
     case 'tool.denied': {
       const rule = typeof event.rule === 'string' && event.rule !== '' ? `：${event.rule}` : '';
@@ -423,6 +552,7 @@ function onEvent(event) {
       break;
     }
     case 'ask':
+      activeAssistant = null;
       waiting += 1;
       askCard(event);
       updateState();
@@ -430,16 +560,12 @@ function onEvent(event) {
     case 'ask.resolved':
       resolveAsk(event);
       break;
+    // `consent` 不单独画一行：同一件事已经落在上面那张权限卡的"已确认"里了。
     case 'consent':
-      systemLine(
-        `${String(event.tool)} ${
-          event.granted === 'always' ? '已在本次会话允许' : '已允许一次'
-        }`,
-      );
       break;
     case 'turn':
-      if (event.phase === 'start') activeAssistant = null;
-      if (event.phase === 'end') activeAssistant = null;
+      activeAssistant = null;
+      updateThinking();
       break;
     case 'busy':
       busy = event.busy === true;
@@ -481,12 +607,16 @@ if (token === null || token === '') {
     resetTimeline();
     busy = hello.busy === true;
     cwdEl.textContent = String(hello.cwd ?? '');
+    cwdEl.title = String(hello.cwd ?? '');
     modelEl.textContent = String(hello.model ?? '');
+    modelEl.hidden = modelEl.textContent === '';
+    modelEl.title = modelEl.textContent;
     if (hello.replayTruncated === true) {
       systemLine('更早的记录不在这一份回放里，完整内容在磁盘上的转录文件中。', 'warn');
     }
-    systemLine('会话已连上。问点什么，或者敲 /help 看命令。');
     updateState();
+    // 回放跟着 hello 一条条到：先贴到底，后面每一条都会因为"本来就在底部"继续跟着。
+    timeline.scrollTop = timeline.scrollHeight;
   });
 
   source.onmessage = (message) => {
