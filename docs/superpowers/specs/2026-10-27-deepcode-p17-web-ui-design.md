@@ -184,14 +184,15 @@ export class SessionStartError extends Error { readonly exitCode = 1 }
 
 - 请求体上限 1 MiB；`Content-Type` 必须是 `application/json`。
 - 忙时 `/api/prompt` 返 `409 {error}`；空文本 `400`。
-- 未知 id 的答案 `409`；非法 choice 值 `400`。
+- 未知 id 的答案、或不在选项里的值 → `409`。
 
 ### 5.2 SSE 事件
 
 每条事件带自增 `seq`（同时作为 SSE `id`）：
 
 ```
-hello      {model, provider, cwd, sessionId, busy}
+hello      {model, provider, cwd, sessionId, busy, replayTruncated}
+user       {text}
 delta      {text}
 log        {level: 'info'|'warn', text}
 tool.start {toolUseId, tool, input}

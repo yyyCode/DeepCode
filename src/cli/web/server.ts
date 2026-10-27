@@ -222,6 +222,9 @@ export async function createWebServer(deps: WebServerDeps): Promise<WebServer> {
       }
       if (deps.host.isBusy()) throw new HttpError(409, '正在跑一个 turn，等它结束');
       const command = splitCommand(text);
+      // 人说的话也要进事件流：只在页面上本地画一条的话，刷新回放之后就只剩
+      // 助手的话，看不出每一轮是从哪句问出来的。命令同样。
+      deps.bus.emit({ type: 'user', text: text.trim() });
       sendJson(res, 202, { ok: true });
       if (command !== undefined) {
         void deps.host.runCommand(command.name, command.args).catch((error: unknown) => {
