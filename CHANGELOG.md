@@ -1215,7 +1215,8 @@ server 主动请求回 `-32601`）；配置（形状错误、非 stdio、`enable
 - **没有在真浏览器里跑过一遍**：本阶段没有可驱动的浏览器。改为假 Anthropic 端点 +
   真 `deepcode web` 进程 + 真 SSE 客户端，把「提问 → 流式正文 → 权限卡 → 允许一次 →
   工具卡 → 收场」整条链跑通（事件序列逐条打印核对）。停止按钮与浏览器里那一遍仍留给人工；
-  `site/已知限制.md` 里如实写着「没有自动化浏览器测试」。
+  `site/已知限制.md` 里如实写着「没有自动化浏览器测试」。（合并后补做了界面核对，
+  见文末「视觉修订」。）
 
 **施工期发现的一件事（顺手修掉）**：`permissions` 的 `tool.consent` 钩子按 `y` 时直接
 `return`（undefined），调度器把它当成 hook 失败，每次按 `y` 都在 stderr 上多一条假警告；
@@ -1226,3 +1227,20 @@ server 主动请求回 `-32601`）；配置（形状错误、非 stdio、`enable
 （P16 结束时 91 / 1438 / 1）。新增 `web-ui`（7）、`web-events`（7）、`web-server`（10）、
 `web-args`（5）、`cli-web`（4）五个套件，共 33 条；`permissions` 在既有用例里加了一条断言。
 另跑了一次假 provider 的整链冒烟（一次性脚本，不进仓库）。
+
+**视觉修订（合并之后）**：第一版能用，但版式是"一堆卡片"。参照 DeepSeek Harness（MIT，
+`packages/client` 的设计 token 与几何）重写了 `static/` 三个文件：748px 正文列、14/24 正文、
+单行可展开的工具行（状态符 + 正文块）、带警示条的权限卡、贴在底部的悬浮输入卡、空状态
+三个入口、思考中指示、浅/深两套 token 与 `prefers-reduced-motion`。没有搬它的品牌图形，
+`>_` 标记是 DeepCode 自己的。
+
+顺手修了一个时间线错位的 bug：`tool.start` 时没有收口 `activeAssistant`，工具**之后**的
+文字会继续往工具**之前**那条气泡里追加 —— 读起来像是工具结果出现在它前面的话之后。
+现在工具开始与权限卡弹出都会收口，每段回答按实际顺序各占一条。
+
+**这一轮怎么验的**：headless Chrome + CDP 打开真服务端的页面，用
+`Page.addScriptToEvaluateOnNewDocument` 把 `EventSource` 换成脚本化事件流（hello / user /
+delta / tool.start / tool.end / ask / ask.resolved / turn / busy），截图核对了空状态、正常
+会话、等待确认、思考中四种界面，浅色 / 深色 / 390px 窄屏各一遍；页面无 console 异常，
+读回的 DOM 状态与事件序列一致。**真实 SSE 接真实浏览器仍未跑**（脚本化事件流替代了它），
+`site/已知限制.md` 的口径不变。

@@ -7,28 +7,50 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header class="bar">
-      <div class="brand">DeepCode</div>
-      <div class="where" id="cwd" title="工作目录"></div>
-      <div class="model" id="model"></div>
-      <div class="state" id="state">
-        <span class="dot" id="dot" aria-hidden="true"></span>
-        <span id="state-text">连接中</span>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">&gt;_</span>DeepCode</div>
+        <div class="where" id="cwd" title="工作目录"></div>
+        <div class="state" id="state" data-phase="idle">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="state-text">连接中</span>
+        </div>
       </div>
     </header>
 
-    <main id="timeline" role="log" aria-live="polite" aria-label="会话"></main>
+    <main id="timeline" role="log" aria-live="polite" aria-label="会话">
+      <div class="hero" id="hero">
+        <div class="hero-title"><span class="hero-mark" aria-hidden="true">&gt;_</span>DeepCode</div>
+        <p class="hero-sub">本地运行的编码代理。问点什么，或者敲 <code>/help</code> 看命令。</p>
+        <div class="hero-actions">
+          <button type="button" class="suggest" data-prompt="看看这个项目是怎么跑起来的">
+            看看这个项目怎么跑
+          </button>
+          <button type="button" class="suggest" data-prompt="/tools">
+            模型这一轮能用哪些工具
+          </button>
+          <button type="button" class="suggest" data-prompt="/diff">
+            看看本会话改了哪些文件
+          </button>
+        </div>
+      </div>
+    </main>
 
-    <form id="composer" autocomplete="off">
-      <textarea
-        id="input"
-        rows="1"
-        placeholder="问点什么，或者敲 /help"
-        aria-label="输入"
-      ></textarea>
-      <button id="send" type="submit">发送</button>
-    </form>
-    <div class="hint">Enter 发送，Shift+Enter 换行</div>
+    <div class="dock">
+      <form id="composer" class="composer" autocomplete="off">
+        <textarea
+          id="input"
+          rows="1"
+          placeholder="问点什么，或者敲 /help"
+          aria-label="输入"
+        ></textarea>
+        <div class="composer-foot">
+          <span class="chip" id="model" title="模型"></span>
+          <span class="hint">Enter 发送 · Shift+Enter 换行</span>
+          <button id="send" type="submit">发送</button>
+        </div>
+      </form>
+    </div>
 
     <script type="module" src="/app.js"></script>
   </body>
