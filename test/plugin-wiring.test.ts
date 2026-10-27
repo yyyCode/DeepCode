@@ -79,6 +79,13 @@ describe('转盘：谁在链上、坐在哪', () => {
     expect(bundle().thirdParty).toEqual([]);
   });
 
+  it('MCP 桥接排在 confirm 之前 —— 晚一步所有 MCP 工具都是「未知工具」', () => {
+    const mcp: Plugin = { name: 'mcp', uses: [], register: () => {} };
+    const names = bundle({ mcp }).plugins.map((plugin) => plugin.name);
+    expect(names.indexOf('mcp')).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf('mcp')).toBeLessThan(names.indexOf('confirm'));
+  });
+
   it('deny 名单交给 guard 拿着，而不是自己判', () => {
     const b = bundle({ pluginDeny: [{ name: 'todo', source: 'policy' }] });
     // guard 收到了规则：它在注册面上是唯一一个带 plugin.register 的第一方插件。

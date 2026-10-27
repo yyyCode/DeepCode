@@ -305,6 +305,19 @@ describe('W 级：装得上，但照这么写会不work', () => {
     expect(declared.problems.find((p) => p.code === 'W8')?.message).toContain('不加载');
   });
 
+  it('.mcp.json 不再是 W8：没声明照读，声明了也不再判「不加载」', async () => {
+    const undeclared = await run({ 'plugin.json': GOOD, './.mcp.json': '{}' }, ['./.mcp.json']);
+    expect(undeclared.problems.filter((p) => p.code === 'W8')).toEqual([]);
+
+    const declared = await run({
+      'plugin.json': JSON.stringify({ name: 'x', mcpServers: './conf/mcp.json' }),
+      './conf/mcp.json': '{}',
+    });
+    // 声明成路径仍然只是「存在性校验」的一部分，但不再有那条「本版本不加载」。
+    expect(codes(declared.problems, 'error')).toEqual([]);
+    expect(declared.problems.filter((p) => p.code === 'W8')).toEqual([]);
+  });
+
   it('W9 既没入口也没钩子', async () => {
     const result = await run({ 'plugin.json': GOOD });
     expect(codes(result.problems, 'warn')).toEqual(['W9']);
