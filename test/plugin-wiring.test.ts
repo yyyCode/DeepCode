@@ -31,6 +31,7 @@ const POLICY: ResolvedPolicy = {
   plugins: { enable: [], enableByUser: [], deny: [] },
   instructions: [],
   gateway: {},
+  mcpServers: [],
 };
 
 const THIRD: Plugin = { name: 'todo', uses: [], register: () => {} };

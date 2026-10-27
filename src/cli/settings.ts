@@ -1,4 +1,6 @@
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import type { McpServerConfig } from '../contract/mcp';
+import { parseMcpServers } from '../mcp/config';
 import {
   defaultManagedPath,
   ManagedError,
@@ -133,6 +135,7 @@ type MemoryLayer = Partial<MemoryConfig>;
 const KNOWN_TOP_LEVEL = new Set([
   'permissions',
   'plugins',
+  'mcpServers',
   'sandbox',
   'compact',
   'memory',
@@ -178,6 +181,14 @@ export type ResolvedPolicy = {
     readonly enableByUser: readonly string[];
     readonly deny: readonly PluginRule[];
   };
+  /**
+   * 用户级 `mcpServers` 里能启动的 server（P16）。
+   *
+   * **只来自 user 层**：项目 / local / flag / 托管层写了会在解析期整块丢弃并出声。
+   * 一个 clone 下来的仓库不该因为打开它就跑一个外部进程 —— 与 telemetry
+   * （只有用户层能开）、gateway（只有托管层能钉）同一条方向。
+   */
+  readonly mcpServers: readonly McpServerConfig[];
   /**
    * 沙箱。规则与权限规则**同一套**（`contract/policy.ts`），只是判定落在 `process` 名词里。
    */
@@ -327,9 +338,10 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
   const telemetryLayers = new Map<SettingsSource, TelemetryLayer>();
   const instructionLayers = new Map<SettingsSource, readonly ManagedInstruction[]>();
   const gatewayBySource = new Map<SettingsSource, GatewayConfig>();
+  const mcpBySource = new Map<SettingsSource, readonly McpServerConfig[]>();
 
   for (const layer of layers) {
-    const read = await readLayer(layer, deps.home, warn, readText);
+    const read = await readLayer(layer, deps.home, deps.root, deps.env ?? {}, warn, readText);
     sources.push(read.info);
     bySource.set(layer.source, read.rules);
     pluginsBySource.set(layer.source, read.plugins);
@@ -339,6 +351,7 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     telemetryLayers.set(layer.source, read.telemetry);
     instructionLayers.set(layer.source, read.instructions);
     gatewayBySource.set(layer.source, read.gateway);
+    mcpBySource.set(layer.source, read.mcpServers);
   }
 
   const withSource = (source: SettingsSource, names: readonly string[]): readonly PluginRule[] =>
@@ -413,6 +426,8 @@ export async function resolvePolicy(deps: ResolvePolicyDeps): Promise<ResolvedPo
     // policy 源 vs. 其余全部 —— 在固定优先级下这是唯一承重的划分（设计 §4.3）。
     policyRules: bySource.get('policy') ?? [],
     personalRules: SETTINGS_SOURCES.filter((s) => s !== 'policy').flatMap((s) => bySource.get(s) ?? []),
+    // 只有 user 层收下；其余层的丢弃与警告发生在 readMcpServers 里。
+    mcpServers: mcpBySource.get('user') ?? [],
     plugins: {
       enable: dedupe(
         PLUGIN_ENABLE_SOURCES.flatMap((source) =>
@@ -469,11 +484,15 @@ type LayerRead = {
    * 与 `instructions` 一样：丢弃发生在解析那一层，这里不必再遍历一遍。
    */
   readonly gateway: GatewayConfig;
+  /** 这一层收下的 MCP server。只有 user 层可能非空（P16）。 */
+  readonly mcpServers: readonly McpServerConfig[];
 };
 
 async function readLayer(
   layer: Layer,
   home: string,
+  root: string,
+  env: Record<string, string | undefined>,
   warn: (line: string) => void,
   readText: TextReader,
 ): Promise<LayerRead> {
@@ -491,6 +510,7 @@ async function readLayer(
       telemetry: {},
       instructions: [],
       gateway: EMPTY_GATEWAY,
+      mcpServers: [],
     };
   }
 
@@ -508,6 +528,7 @@ async function readLayer(
       telemetry: {},
       instructions: [],
       gateway: EMPTY_GATEWAY,
+      mcpServers: [],
     };
   };
 
@@ -536,6 +557,7 @@ async function readLayer(
       telemetry: {},
       instructions: [],
       gateway: EMPTY_GATEWAY,
+      mcpServers: [],
     };
   }
 
@@ -579,6 +601,9 @@ async function readLayer(
   // ⚠️ 与 plugins / sandbox / telemetry / instructions 同一条：**必须在 permissions 的
   // 早期 return 之前**。一份只写了 gateway、没有 permissions 的托管设置不该被丢掉。
   const gateway = readGateway(record.gateway, layer, origin, warn);
+  // ⚠️ 同一条：必须在 permissions 的早期 return 之前。一份只写 mcpServers、
+  // 没有 permissions 的用户级设置，正是最典型的一份「我只想接个 MCP server」。
+  const mcpServers = readMcpServers(record.mcpServers, layer, origin, { home, root, env }, warn);
 
   if (raw === undefined) {
     return {
@@ -591,6 +616,7 @@ async function readLayer(
       telemetry,
       instructions,
       gateway,
+      mcpServers,
     };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -645,6 +671,7 @@ async function readLayer(
     telemetry,
     instructions,
     gateway,
+    mcpServers,
   };
 }
 
@@ -866,6 +893,48 @@ function readGateway(
   }
 
   return out;
+}
+
+/**
+ * 解析一层的 `mcpServers` 段。**只有 user 层收下**（P16 的信任决定）。
+ *
+ * 别的层写了不是"无效"，是**危险**：`.deepcode/settings.json` 会跟着仓库走，
+ * 一份克隆下来的仓库就能让 `git clone && deepcode` 在你的机器上执行任意命令。
+ * 这与 gateway 只有托管层能钉是同一条理由，方向更硬 —— gateway 改的是流量，这里改的是进程。
+ * 所以别的层一律丢弃并出声，不让它安静地"看起来生效了"。
+ *
+ * 形状错由 `parseMcpServers` 处置（逐台跳过 + 点名），与这里"整层丢弃"的决定分开：
+ * 跨层的信任问题整层作废，单台配置的手误只废那一台。
+ */
+function readMcpServers(
+  value: unknown,
+  layer: Layer,
+  where: string,
+  context: { readonly home: string; readonly root: string; readonly env: Record<string, string | undefined> },
+  warn: (line: string) => void,
+): readonly McpServerConfig[] {
+  if (value === undefined) return [];
+  if (layer.source !== 'user') {
+    warn(
+      `${label(layer.source)} 里写了 mcpServers —— MCP server 只认用户级 ${join(context.home, '.deepcode', 'settings.json')}，这一份已丢弃。`,
+    );
+    return [];
+  }
+
+  return parseMcpServers(value, {
+    origin: 'user',
+    env: context.env,
+    resolvePath: (text) => resolveMcpPath(text, context.home, context.root),
+    warn: (line) => warn(`${label(layer.source)} ${where} —— ${line}`),
+  });
+}
+
+/** `cwd` 的 `~` 展开与相对路径解析。相对路径按会话根目录 —— 与 `--resume` 同一个规矩。 */
+function resolveMcpPath(value: string, home: string, root: string): string {
+  if (value === '~') return home;
+  if (value.startsWith('~/') || value.startsWith('~\\')) return join(home, value.slice(2));
+  if (isAbsolute(value)) return value;
+  return resolve(root, value);
 }
 
 /**

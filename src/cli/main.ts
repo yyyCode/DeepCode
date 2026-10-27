@@ -90,6 +90,9 @@ async function main(): Promise<void> {
       home,
       root,
       managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
+      // mcpServers 里的 `${VAR}` 要用它展开。不给的话，命令行 `/mcp` 报出来的
+      // 与 prompt 里启动的会是两份不同的配置 —— 同一份文件，两个答案。
+      env: process.env,
       warn: (line) => process.stderr.write(`${line}\n`),
     });
     process.exitCode = await runPluginCommand({
@@ -147,6 +150,7 @@ async function main(): Promise<void> {
     root,
     settingsPath: action.settings,
     managedPath: process.env.DEEPCODE_MANAGED_SETTINGS,
+    env: process.env,
     warn: (line) => process.stderr.write(`${line}\n`),
   });
 

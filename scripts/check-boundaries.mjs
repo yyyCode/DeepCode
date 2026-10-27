@@ -21,7 +21,9 @@ const RULES = {
   core: ['contract'],
   providers: ['contract'],
   builtins: ['contract'],
-  cli: ['contract', 'core', 'providers', 'builtins'],
+  // MCP 协议实现不认识引擎、渲染器与 CLI 设置；它只依赖契约。
+  mcp: ['contract'],
+  cli: ['contract', 'core', 'providers', 'builtins', 'mcp'],
 };
 
 // `.mjs` / `.js` 也要看：`plugins/` 下的插件是 `.mjs`，在加上这一条之前，
