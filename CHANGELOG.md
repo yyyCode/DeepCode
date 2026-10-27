@@ -46,6 +46,7 @@
 | P14 执行循环与计划模式 | Tool-Use 循环、`EnterPlanMode` / `ExitPlanMode`、只读计划面、`pnpm bench:loop` | `2026-10-26-deepcode-p14-agent-loop-plan-mode-design.md` §8 | 同文件 §7 |
 | P15 子代理运行时 | 开箱三型、`readOnly` 内核验证、`Explore` 只读并发、`AsyncLocalStorage` 父面、`pnpm bench:subagent` | `2026-10-26-deepcode-p15-subagent-runtime-design.md` §5 | 同文件 §6 |
 | P16 MCP stdio 桥接 | 用户级 `mcpServers`、插件 `.mcp.json`、握手 / 工具面 / 调用、每次询问、失败降级、`/mcp` | `2026-10-27-deepcode-p16-mcp-design.md` §9 | 同文件 §2、§10 |
+| P17 浏览器界面 | 共享 `createSession`、`deepcode web`、SSE 事件与回放、单栏前端（正文 / 工具卡 / 权限卡 / 停止）、token 与 Host/Origin 校验 | `2026-10-27-deepcode-p17-web-ui-design.md` §10 | 同文件 §11 |
 
 每条分支的合并：`#1 p3-plugins`、`#2 p4a-subagents`、`#3 p4b-context-boundaries`、
 `#4 p4e-engineering`、`#5 p4c-marketplace`、`#6 p4d-prompt-telemetry`、`#7 p5-builtins`、
@@ -1175,3 +1176,53 @@ server 主动请求回 `-32601`）；配置（形状错误、非 stdio、`enable
 `plugin-wiring` 增 1 条（MCP 排在 `confirm` 之前）；`settings` / `cli` / 遥测插件测试按
 `ResolvedPolicy.mcpServers` 字段更新桩。反向验证做了三条（删 `result`/`error` 判定、
 把 MCP 插件挪到 `confirm` 之后、去掉 `windowsQuote`），均按预期变红后恢复。
+
+## P17 浏览器界面：同一套引擎，换一个入口
+
+**范围**：`src/cli/session.ts`（从 `main.ts` 抽出的共享装配：配置、key、权限、插件、MCP、
+引擎、系统提示、压缩、落盘，`submit` / `runCommand` / `close`）、`src/cli/main.ts`（改用
+`createSession`，只留终端自己那几样）、`src/cli/turns.ts`（`interrupt()`）、`src/cli/repl.ts`
+（可选 `submit`）、`src/cli/args.ts`（`web` 子命令与 `--port=` / `--no-open`）、
+`src/cli/plugins.ts`（`extraPlugins` 排到最外层）、`src/cli/web/`（`bus.ts` 回放缓冲、
+`ui.ts` 网页 `Renderer + UiSink`、`events.ts` 事件观察插件、`server.ts` HTTP/SSE、
+`command.ts` 生命周期、`static/` 三个原生文件）、`test/web-*.test.ts` 四个套件与
+`test/cli-web.test.ts`、README / 官网已知限制 / 本文。
+
+**为什么**：P16 之后，会话装配整段还钉在 `main.ts` 里，而它 95% 与终端无关。把这一段抽成
+`createSession`，网页就只是另一个 `UiSink + Renderer`，引擎、权限链、工具链一行不改 ——
+网页没有第二条权限路径，也就没有「网页上能做的事终端做不了」这种裂缝。前端不引任何依赖
+（仓库的徽章是运行时依赖 0），`node:http` 的 SSE 只下行、POST 只上行。
+
+**出口标准**（设计 §10）：参数与回落；sink 的 ask 挂起 / 超时 / close / abort 全部按 fallback
+收场；事件插件的 start/end/deny/截断/turn/busy；HTTP 的 token、Host、Origin、静态白名单、
+202/400/409/415、回放与实时；抽取后既有 CLI / REPL / 一次性 / `--resume` 用例逐条保持绿；
+真起一次 bin，从 stdout 取地址拿页面。网页的权限卡就是内核给的 `y` / `a` / `n`，
+5 分钟不答按拒绝（fail-closed 的底线不变）。
+
+**与设计不一致或设计没说的地方**：
+
+- **`user` 事件是施工时补的**（设计 §5.2 原来没有）：不把人说的话记进回放，刷新之后时间线上
+  只剩助手的话，看不出每一轮从哪句问出来。服务端在 `/api/prompt` 收下问句时先发
+  `{type:'user', text}`（命令同样），再回 202。
+- **`extraPlugins` 必须排在最外层**（`plugins.ts` 的 `firstParty` 第一位）：具体工具的
+  `tool.call` 钩子（`tool-bash` 等）匹配上就不调 `next`，观察者排在它们里面就永远收不到
+  工具开始；`tool.check` 那边则要排在 `permissions` 里面，才能看到最终裁决。
+- **`/api/answer` 的非法 choice 值返 409 而不是 400**：`answer()` 只回一个布尔，服务端分不清
+  「没有这个问题」与「值不在选项里」。设计 §5.1 已按实现改成 409。
+- **bin e2e 没有验 SIGINT 退出**（设计 §10 原来写了）：Windows 上 `child.kill('SIGINT')`
+  不是真的发信号，断言优雅退出码跨平台不成立；用例在收尾时 kill 进程，Ctrl-C 那条路
+  留在人工验收里。
+- **没有在真浏览器里跑过一遍**：本阶段没有可驱动的浏览器。改为假 Anthropic 端点 +
+  真 `deepcode web` 进程 + 真 SSE 客户端，把「提问 → 流式正文 → 权限卡 → 允许一次 →
+  工具卡 → 收场」整条链跑通（事件序列逐条打印核对）。停止按钮与浏览器里那一遍仍留给人工；
+  `site/已知限制.md` 里如实写着「没有自动化浏览器测试」。
+
+**施工期发现的一件事（顺手修掉）**：`permissions` 的 `tool.consent` 钩子按 `y` 时直接
+`return`（undefined），调度器把它当成 hook 失败，每次按 `y` 都在 stderr 上多一条假警告；
+按 `a` 还吞掉了内层观察者 —— 网页上「已允许」的提示因此永远不出现。改成两条路都
+`return next(e)`，用例钉住「按 y 不产生警告」。
+
+**验法**：`pnpm typecheck` ✅ / `pnpm lint` ✅ / `pnpm test` = **96 个文件 / 1471 passed / 1 skipped**
+（P16 结束时 91 / 1438 / 1）。新增 `web-ui`（7）、`web-events`（7）、`web-server`（10）、
+`web-args`（5）、`cli-web`（4）五个套件，共 33 条；`permissions` 在既有用例里加了一条断言。
+另跑了一次假 provider 的整链冒烟（一次性脚本，不进仓库）。

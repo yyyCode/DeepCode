@@ -291,10 +291,12 @@ builtins / mcp`；不新增顶层目录，`scripts/check-boundaries.mjs` 不用�
 | 事件插件 | 工具 start/end、deny、ask 上下文、output 截断、turn/busy |
 | HTTP | token 缺失/错误 401；Host 不符 403；Origin 不符 403；静态白名单；404；prompt 202/409/400；answer；interrupt；SSE 回放 + 实时 |
 | 会话 | 抽取后既有 CLI / REPL / 一次性 / `--resume` 测试逐条保持绿 |
-| bin e2e | 真起 `bin/deepcode.mjs web --no-open`，从 stdout 取 URL，`fetch` 首页 200，SIGINT 退出 |
+| bin e2e | 真起 `bin/deepcode.mjs web --no-open`，从 stdout 取 URL，`fetch` 首页 / `app.js` / `style.css`、缺 token 401、SSE 第一帧 hello；结束时 kill |
 
 真实浏览器人工验一次：提问 → 流式文本 → 工具卡片 → 权限卡片（允许/总是/拒绝）→
-停止按钮 → 刷新恢复时间线。
+停止按钮 → 刷新恢复时间线。<br>
+（P17 落地时没有可驱动的浏览器：改为假 provider + 真 `deepcode web` 进程 + 真 SSE 客户端
+把整条链跑一遍，见 CHANGELOG P17「验法」。浏览器里的那一遍仍留给人工。）
 
 ---
 
