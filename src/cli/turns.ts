@@ -4,6 +4,11 @@ export type TurnSignals = {
   end(): void;
   /** createEngine 要的工厂：永远是"当前这个 turn"的 signal。 */
   current(): AbortSignal;
+  /**
+   * 只掐当前 turn，不退出进程（P17 网页的停止按钮）。
+   * 忙且还没中断 → abort 并返回 `true`；空闲 / 已经中断 → `false`。
+   */
+  interrupt(): boolean;
   onSigint(): void;
 };
 
@@ -20,6 +25,16 @@ export function createTurnSignals(): TurnSignals {
   let busy = false;
   let lastSigint = 0;
 
+  /**
+   * 两条路共用一个落点：Ctrl-C 与网页的停止按钮都只能是"掐断当前 turn"。
+   * 写成两个地方各 abort 一次，迟早会有一处忘了查 `busy`。
+   */
+  const interrupt = (): boolean => {
+    if (!busy || live.signal.aborted) return false;
+    live.abort();
+    return true;
+  };
+
   return {
     begin: () => {
       live = new AbortController();
@@ -31,6 +46,8 @@ export function createTurnSignals(): TurnSignals {
     },
     current: () => live.signal,
 
+    interrupt,
+
     onSigint: () => {
       // 同一次按键可能被 process 与 readline 两条路各送一遍，去重。
       // 50ms 远短于人类"连按两次"的间隔，所以不影响下面的强制退出。
@@ -39,10 +56,7 @@ export function createTurnSignals(): TurnSignals {
       lastSigint = now;
 
       // 空闲时 Ctrl-C = 退出；同一个 turn 里再按一次 = 强制退出。
-      if (!busy || live.signal.aborted) process.exit(130);
-
-      // 正在跑：掐断它，进程不退。
-      live.abort();
+      if (!interrupt()) process.exit(130);
     },
   };
 }

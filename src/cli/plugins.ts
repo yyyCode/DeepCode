@@ -69,6 +69,12 @@ export type CliPluginDeps = {
    */
   readonly discovered?: readonly Plugin[];
   /**
+   * 额外插件（P17：网页的事件观察者）。**与 MCP 桥接同一条顺序约束** ——
+   * 必须排在 `confirmPlugin` 之前（它在 `tool.check` 上要看见裁决结果），
+   * 也进第一方名单。省略 = 没有额外插件。
+   */
+  readonly extraPlugins?: readonly Plugin[];
+  /**
    * MCP 桥接插件（P16）。**必须排在 `confirmPlugin` 之前**（见下面 `firstParty` 里
    * 那行的注释）—— 这个字段存在就是为了让顺序有个固定的落点，而不是调用方随手拼。
    * 省略 = 本会话没有 MCP 工具，`/mcp` 也不存在。
@@ -209,6 +215,9 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       skills: deps.skills,
       baseSystemPrompt: deps.baseSystemPrompt,
     }),
+    // 额外插件（P17 网页）排在这儿：它们要观察 `tool.check` 的最终裁决，
+    // 而同 tier 内先注册者在外层 —— 排在 confirm 之后就只能看见「未知工具」。
+    ...(deps.extraPlugins ?? []),
     // ⚠️ MCP 桥接**必须**排在 confirmPlugin 之前：同 tier 内先注册者在外层，
     // 而 confirm 对不认识的工具直接 deny 且不调 next —— 晚一步的话，
     // 桥接的 `tool.check`（答 ask）永远够不着，所有 MCP 工具都成了「未知工具」。
