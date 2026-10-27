@@ -69,9 +69,11 @@ export type CliPluginDeps = {
    */
   readonly discovered?: readonly Plugin[];
   /**
-   * 额外插件（P17：网页的事件观察者）。**与 MCP 桥接同一条顺序约束** ——
-   * 必须排在 `confirmPlugin` 之前（它在 `tool.check` 上要看见裁决结果），
-   * 也进第一方名单。省略 = 没有额外插件。
+   * 额外插件（P17：网页的事件观察者）。它们进第一方名单，并排在**第一方数组的最前**：
+   * - 要排在 `confirmPlugin` 之前，`tool.check` 才看得见最终裁决；
+   * - 要排在 `coreTools` 之前 —— 工具自己的 `tool.call` matcher hook 跑完直接返回、
+   *   不调 next，排在它们里面就永远看不见这次调用。
+   * 省略 = 没有额外插件。
    */
   readonly extraPlugins?: readonly Plugin[];
   /**
@@ -189,6 +191,11 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
   // 3. 第三方插件排在**最后**：它们坐 append，与这里的第一方同 tier 时后装载者在内层，
   //    于是任何第一方判定都在它们外面 —— 与"只能更严"配着看，这是双保险。
   const firstParty: Plugin[] = [
+    // 额外插件（P17 网页）排在最外：它们要观察 `tool.call` 的**整条链** ——
+    // 工具自己的 `tool.call` matcher hook 不调 next（它跑完就返回），排在那些
+    // hook 里面就等于永远看不见。同时也在 `confirmPlugin` 之前，`tool.check`
+    // 拿得到最终裁决。省略 = 没有额外插件。
+    ...(deps.extraPlugins ?? []),
     // 活动面（P6a）排在最外：它量的耗时要是**用户实际等的那个时间**，
     // 排在 session-changes 里面的话，快照文件那一段就不算数了。
     // 它同时也是界面那一面（P6c）：`+3 −1` 从 `deps.changes` 读，与 `/diff` 是同一份。
@@ -215,9 +222,6 @@ export function cliPlugins(deps: CliPluginDeps): CliPluginBundle {
       skills: deps.skills,
       baseSystemPrompt: deps.baseSystemPrompt,
     }),
-    // 额外插件（P17 网页）排在这儿：它们要观察 `tool.check` 的最终裁决，
-    // 而同 tier 内先注册者在外层 —— 排在 confirm 之后就只能看见「未知工具」。
-    ...(deps.extraPlugins ?? []),
     // ⚠️ MCP 桥接**必须**排在 confirmPlugin 之前：同 tier 内先注册者在外层，
     // 而 confirm 对不认识的工具直接 deny 且不调 next —— 晚一步的话，
     // 桥接的 `tool.check`（答 ask）永远够不着，所有 MCP 工具都成了「未知工具」。
