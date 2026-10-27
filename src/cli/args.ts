@@ -21,6 +21,7 @@ export type StartupAction =
   | { kind: 'config'; sub: 'help' }
   | { kind: 'config'; sub: 'list' }
   | { kind: 'config'; sub: 'set'; key: string; value: string }
+  | { kind: 'web'; port: number | undefined; open: boolean }
   | { kind: 'prompt'; text: string; resume: ResumeTarget; settings: string | undefined };
 
 /** `-V` 而不是 `-v`：后者在太多工具里是 verbose，别去抢那个字母。 */
@@ -48,6 +49,8 @@ export function parseArgs(argv: readonly string[]): StartupAction {
   if (plugin !== undefined) return plugin;
   const config = parseConfigCommand(argv);
   if (config !== undefined) return config;
+  const web = parseWebCommand(argv);
+  if (web !== undefined) return web;
 
   let resume: ResumeTarget = { kind: 'none' };
   let settings: string | undefined;
@@ -153,6 +156,41 @@ function parseConfigCommand(argv: readonly string[]): StartupAction | undefined 
   return undefined;
 }
 
+/**
+ * 认出 `web` / `web --port=<n>` / `web --no-open`。
+ *
+ * **比 plugin / config 更严**：第一个非开关 token 是 `web` 之后，**其余每一个**
+ * 都必须是认识的网页开关。理由是 `web` 本身是个太常见的词 ——
+ * `deepcode web 前端怎么写` 得是句提示词，而不是一条被抢走一半的启动命令。
+ * 认不出来就整个回落到提示词。
+ */
+function parseWebCommand(argv: readonly string[]): StartupAction | undefined {
+  const first = argv.findIndex((arg) => !arg.startsWith('-'));
+  if (first === -1 || argv[first] !== 'web') return undefined;
+
+  let port: number | undefined;
+  let open = true;
+  for (let i = 0; i < argv.length; i++) {
+    if (i === first) continue;
+    const arg = argv[i]!;
+    if (arg === '--no-open') {
+      open = false;
+      continue;
+    }
+    if (arg.startsWith('--port=')) {
+      // 只认等号形态，与 `--resume=` / `--settings=` 同一条先例（裸写与提示词分不开）。
+      const raw = arg.slice('--port='.length).trim();
+      if (!/^\d+$/.test(raw)) return undefined;
+      const value = Number(raw);
+      if (!Number.isInteger(value) || value < 1 || value > 65_535) return undefined;
+      port = value;
+      continue;
+    }
+    return undefined;
+  }
+  return { kind: 'web', port, open };
+}
+
 export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
 
 用法
@@ -161,6 +199,9 @@ export const HELP_TEXT = `DeepCode —— 终端里的 agentic 编码助手
   deepcode --resume        接上当前目录最近一次会话
   deepcode --resume=<id>   接上指定会话
   deepcode --settings=<路径>  改用这份权限设置（压不过托管策略）
+  deepcode web             开一个本地网页界面（只绑 127.0.0.1，地址里带一次性 token）
+  deepcode web --port=<n>  指定端口（默认系统分配）
+  deepcode web --no-open   不自动开浏览器，只打印地址
   deepcode --help          显示这份说明
   deepcode --version       显示版本号
 

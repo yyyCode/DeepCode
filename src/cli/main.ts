@@ -12,6 +12,7 @@ import { startRepl } from './repl';
 import { resolvePolicy } from './settings';
 import { runPluginCommand } from './plugin-command';
 import { runConfigCommand } from './config-cli';
+import { runWebCommand } from './web/command';
 import { createTurnSignals } from './turns';
 // 会话装配整段在 session.ts（P17）。main 只管终端那一层。
 import { createSession, SessionStartError, type Session } from './session';
@@ -69,6 +70,24 @@ async function main(): Promise<void> {
       home,
       root,
       env: process.env,
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
+    return;
+  }
+
+  // `deepcode web`：本地网页界面。与 config / plugin 一样，在建 readline 之前分流 ——
+  // 那个界面不需要终端的行输入，也不需要把它从管道里抢走。
+  if (action.kind === 'web') {
+    process.exitCode = await runWebCommand({
+      home,
+      root,
+      env: process.env,
+      // 网页暂不认 `--settings=`（参数解析里也没放它进来）。
+      settingsPath: undefined,
+      resume: { kind: 'none' },
+      port: action.port,
+      open: action.open,
       out: (line) => process.stdout.write(`${line}\n`),
       err: (line) => process.stderr.write(`${line}\n`),
     });
