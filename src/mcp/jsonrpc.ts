@@ -18,8 +18,11 @@ export type JsonRpcId = number | string;
 export type JsonRpcRequestOptions = {
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
-  /** 请求被本地放弃时调用（超时 / Ctrl-C）。参数是原因，只用于通知文本。 */
-  readonly onCancel?: (reason: 'timeout' | 'user') => void;
+  /**
+   * 请求被本地放弃时调用（超时 / Ctrl-C）。参数是原因与请求 id ——
+   * 后者是 `notifications/cancelled` 唯一需要的字段，而它只存在于这一层。
+   */
+  readonly onCancel?: (reason: 'timeout' | 'user', requestId: JsonRpcId) => void;
 };
 
 export type JsonRpcHandlers = {
@@ -161,7 +164,7 @@ export class JsonRpcPeer {
       const onAbort = (): void => {
         if (!this.pending.delete(id)) return;
         cleanup();
-        this.cancel(options, 'user');
+        this.cancel(options, 'user', id);
         reject(new Error(`JSON-RPC 请求已中断：${method}`));
       };
 
@@ -170,7 +173,7 @@ export class JsonRpcPeer {
       timer = setTimeout(() => {
         if (!this.pending.delete(id)) return;
         cleanup();
-        this.cancel(options, 'timeout');
+        this.cancel(options, 'timeout', id);
         reject(new JsonRpcTimeoutError(id, options.timeoutMs));
       }, options.timeoutMs);
 
@@ -285,9 +288,9 @@ export class JsonRpcPeer {
     return this.closed;
   }
 
-  private cancel(options: JsonRpcRequestOptions, reason: 'timeout' | 'user'): void {
+  private cancel(options: JsonRpcRequestOptions, reason: 'timeout' | 'user', id: JsonRpcId): void {
     try {
-      options.onCancel?.(reason);
+      options.onCancel?.(reason, id);
     } catch {
       // 发通知失败不能盖住真正的超时/中断原因。
     }
